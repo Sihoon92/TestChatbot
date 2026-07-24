@@ -13,6 +13,14 @@ Switchable **Ollama / 사내 LLM** 채팅 애플리케이션 (FastAPI + LangGrap
   ollama pull gemma3n:e4b
   ```
 
+## 최초 설치 (한 번에)
+
+```bash
+python setup.py       # 또는 Windows에서 setup.bat 더블클릭
+```
+
+backend venv 생성 + `pip install -e ".[dev]"`, `backend/.env` 생성(.env.example 복사), frontend `npm install`을 한 번에 처리한다. 이미 설치된 항목은 건너뛴다.
+
 ## Backend setup
 
 ```bash
