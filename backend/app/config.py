@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -33,6 +34,20 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def resolved_debug_log_path(self) -> str:
+        """디버그 로그의 실제 기록 경로(절대경로).
+
+        상대경로면 실행 위치(cwd)가 아니라 backend 루트를 기준으로 해석한다.
+        이렇게 하면 어디서 uvicorn 을 띄우든 항상 backend/logs/llm_calls.log 로
+        일관되게 기록돼, "로그 파일이 어디 갔는지" 헷갈리지 않는다.
+        """
+        p = Path(self.debug_log_path)
+        if not p.is_absolute():
+            backend_root = Path(__file__).resolve().parents[1]  # backend/
+            p = backend_root / p
+        return str(p)
 
     @property
     def active_model(self) -> str:
