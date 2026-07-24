@@ -26,9 +26,30 @@ BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 IS_WIN = os.name == "nt"
 
-# 백엔드 포트. 기본 8000, 환경변수 BACKEND_PORT 로 덮어쓸 수 있다(예: 8000 점유 시).
-# 같은 BACKEND_PORT 를 frontend/vite.config.ts 의 프록시도 읽으므로 둘이 자동으로 맞는다.
-BACKEND_PORT = int(os.environ.get("BACKEND_PORT", "8000"))
+def _resolve_backend_port() -> str:
+    """백엔드 포트를 결정한다. 우선순위: 셸 환경변수 > backend/.env > 기본 8000.
+
+    dev.py 는 pydantic 을 안 쓰므로 backend/.env 를 직접 훑어 BACKEND_PORT 만 읽는다.
+    결정한 값은 os.environ 에 심어, 자식으로 뜨는 vite(프록시)도 같은 값을 보게 한다.
+    """
+    if os.environ.get("BACKEND_PORT"):
+        return os.environ["BACKEND_PORT"]
+    env_file = BACKEND / ".env"
+    if env_file.exists():
+        for raw in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            if key.strip() == "BACKEND_PORT" and val.strip():
+                return val.strip()
+    return "8000"
+
+
+# 백엔드 포트. 기본 8000, backend/.env 의 BACKEND_PORT 또는 셸 환경변수로 바꿀 수 있다.
+# frontend/vite.config.ts 의 프록시도 같은 값을 읽으므로 백엔드/프론트가 자동으로 맞는다.
+BACKEND_PORT = _resolve_backend_port()
+os.environ["BACKEND_PORT"] = BACKEND_PORT  # 자식(vite) 프로세스도 같은 포트를 보게
 BACKEND_URL = f"http://127.0.0.1:{BACKEND_PORT}/"
 FRONTEND_URL = "http://localhost:5173/"
 
