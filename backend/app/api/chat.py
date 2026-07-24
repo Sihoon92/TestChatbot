@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -44,17 +45,45 @@ async def stream_graph(
     - ``token`` : assistant 텍스트 조각 (chat 노드로 한정)
     - ``done``  : 정상 종료
     - ``error`` : 스트리밍 중 오류
+
+    그래프 실행은 **별도 태스크**로 돌리고, 이 제너레이터는 큐에서 꺼내 클라이언트로
+    보내기만 한다. 이렇게 분리하지 않으면 그래프 진행이 "클라이언트가 스트림을 끝까지
+    소비하는지"에 묶여, 스트리밍 종료 타이밍(특히 OpenAI 호환 백엔드)에 따라 마지막
+    단계인 ``on_llm_end``(=디버그 로그 기록)와 체크포인터 저장이 실행되지 않을 수 있다.
+    별도 태스크는 이벤트 루프에서 끝까지 돌므로, 클라이언트가 중간에 끊겨도 로그/메모리
+    저장이 항상 완료된다.
     """
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _drive() -> None:
+        try:
+            async for chunk, meta in graph.astream(inputs, cfg, stream_mode="messages"):
+                if meta.get("langgraph_node") != "chat":
+                    continue
+                text = getattr(chunk, "content", "")
+                if text:
+                    await queue.put(("token", {"delta": text}))
+            await queue.put(("done", {"session_id": session_id}))
+        except Exception as exc:  # noqa: BLE001 - report streaming failures to the client
+            await queue.put(("error", {"message": str(exc)}))
+        finally:
+            await queue.put(None)  # 종료 sentinel
+
+    task = asyncio.create_task(_drive())
     try:
-        async for chunk, meta in graph.astream(inputs, cfg, stream_mode="messages"):
-            if meta.get("langgraph_node") != "chat":
-                continue
-            text = getattr(chunk, "content", "")
-            if text:
-                yield format_sse("token", {"delta": text})
-        yield format_sse("done", {"session_id": session_id})
-    except Exception as exc:  # noqa: BLE001 - report streaming failures to the client
-        yield format_sse("error", {"message": str(exc)})
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            event, data = item
+            yield format_sse(event, data)
+    finally:
+        # 클라이언트가 끊겨 이 제너레이터가 닫혀도 _drive 태스크는 독립적으로 끝까지
+        # 실행된다(취소하지 않는다). 예외가 조용히 사라지지 않도록 콜백만 달아둔다.
+        if not task.done():
+            task.add_done_callback(
+                lambda t: t.exception() if not t.cancelled() else None
+            )
 
 
 @router.post("/sessions/{session_id}/chat")
