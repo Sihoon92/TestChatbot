@@ -37,7 +37,7 @@ def _get_logger(settings: Settings) -> logging.Logger:
     - 경로를 로거 이름에 포함해, 서로 다른 경로(예: 테스트의 tmp_path)가
       독립된 핸들러를 갖도록 한다.
     """
-    abs_path = os.path.abspath(settings.debug_log_path)
+    abs_path = settings.resolved_debug_log_path
     logger = logging.getLogger(f"llm_calls:{abs_path}")
     logger.setLevel(logging.INFO)
     logger.propagate = False
@@ -123,7 +123,7 @@ class DebugCallbackHandler(BaseCallbackHandler):
                 start,
                 run_id,
                 elapsed_ms,
-                output_lines=[f"--- ERROR ---\n{type(error).__name__}: {error}"],
+                output_lines=[f"{type(error).__name__}: {error}"],
                 errored=True,
             )
         except Exception:  # noqa: BLE001

@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -20,6 +21,19 @@ async def lifespan(app: FastAPI):
     cleared = apply_proxy_bypass(settings)
     if cleared:
         print(f"[proxy] llm_backend={settings.llm_backend} → cleared {', '.join(cleared)}")
+
+    # 디버그 로깅 상태를 startup 에 표면화한다. 로그가 조용히 안 남는 상황(디렉토리
+    # 생성 실패/권한 등)을 startup 에서 바로 드러내고, 실제 기록 경로를 알려준다.
+    if settings.debug_log_enabled:
+        log_path = settings.resolved_debug_log_path
+        try:
+            os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
+            print(f"[debug-log] enabled → {log_path}", flush=True)
+        except OSError as exc:
+            print(f"[debug-log] WARNING: 로그 디렉토리를 만들 수 없습니다 ({log_path}): {exc}", flush=True)
+    else:
+        print("[debug-log] disabled (DEBUG_LOG_ENABLED=false)", flush=True)
+
     await init_db(settings.app_db_path)
 
     # LangGraph 의 SQLite 체크포인터가 세션별(=thread_id) 대화 메모리를 영속화한다.

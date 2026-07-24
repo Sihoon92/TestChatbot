@@ -61,7 +61,7 @@ def test_llm_error_written_as_error_block(tmp_path):
     handler.on_llm_error(RuntimeError("boom"), run_id=run_id)
 
     log_text = (tmp_path / "llm_calls.log").read_text(encoding="utf-8")
-    assert "--- ERROR ---" in log_text
+    assert "--- ERROR (" in log_text and "ms) ---" in log_text
     assert "RuntimeError: boom" in log_text
 
 
