@@ -30,6 +30,8 @@ def build_run_config(session_id: str, settings: Any) -> dict:
     cfg: dict = {"configurable": {"thread_id": session_id}}
     if settings.debug_log_enabled:
         cfg["callbacks"] = [DebugCallbackHandler(settings)]
+        if getattr(settings, "debug_log_verbose", False):
+            print(f"[debug-log:trace] 콜백 부착 session={session_id}", flush=True)
     return cfg
 
 

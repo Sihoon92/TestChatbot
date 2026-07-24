@@ -99,3 +99,50 @@ def test_logging_failure_does_not_raise(tmp_path, monkeypatch):
     )
     # 예외가 전파되지 않고 삼켜져야 함
     handler.on_llm_end(_llm_result("ok"), run_id=run_id)
+
+
+def test_failure_is_reported_not_silent(tmp_path, monkeypatch, capsys):
+    settings = _settings(tmp_path)
+    handler = DebugCallbackHandler(settings)
+    run_id = uuid4()
+
+    def _boom(*_a, **_k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("app.observability.debug_callback._get_logger", _boom)
+    handler.on_chat_model_start(
+        {}, [[HumanMessage(content="hi")]], run_id=run_id,
+        metadata={"langgraph_node": "chat", "thread_id": "s"},
+    )
+    handler.on_llm_end(_llm_result("ok"), run_id=run_id)
+    # 무음이 아니라 콘솔에 실패가 드러나야 한다(이번 문제의 핵심).
+    out = capsys.readouterr().out
+    assert "on_llm_end 실패" in out and "disk full" in out
+
+
+def test_verbose_traces_callback_firing(tmp_path, capsys):
+    settings = _settings(tmp_path, debug_log_verbose=True)
+    handler = DebugCallbackHandler(settings)
+    run_id = uuid4()
+
+    handler.on_chat_model_start(
+        {}, [[HumanMessage(content="hi")]], run_id=run_id,
+        metadata={"langgraph_node": "chat", "thread_id": "s"},
+    )
+    handler.on_llm_end(_llm_result("ok"), run_id=run_id)
+    out = capsys.readouterr().out
+    assert "on_chat_model_start 발화" in out
+    assert "on_llm_end 발화" in out
+    assert "블록 기록 완료" in out
+
+
+def test_quiet_by_default(tmp_path, capsys):
+    settings = _settings(tmp_path)  # debug_log_verbose 기본 False
+    handler = DebugCallbackHandler(settings)
+    run_id = uuid4()
+    handler.on_chat_model_start(
+        {}, [[HumanMessage(content="hi")]], run_id=run_id,
+        metadata={"langgraph_node": "chat", "thread_id": "s"},
+    )
+    handler.on_llm_end(_llm_result("ok"), run_id=run_id)
+    assert "[debug-log:trace]" not in capsys.readouterr().out
