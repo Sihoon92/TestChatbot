@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     bypass_proxy: bool = False
     app_db_path: str = "./app.db"
     cors_origins: str = "http://localhost:5173"
+    # LLM 디버그 로깅: 호출마다 입력/출력을 사람이 읽기 좋은 블록으로 파일에 남긴다.
+    debug_log_enabled: bool = True
+    debug_log_path: str = "./logs/llm_calls.log"
+    debug_log_max_bytes: int = 5_000_000  # 5MB, 초과 시 로테이션
+    debug_log_backup_count: int = 5
 
     @property
     def cors_origin_list(self) -> list[str]:
