@@ -17,7 +17,9 @@ class Settings(BaseSettings):
     internal_llm_model: str = ""
     # 사내 TLS: CA 번들(.pem) 경로를 주면 검증 유지(권장). verify_ssl=false 면 검증 끔(비보안)
     internal_llm_ca_bundle: str = ""
-    internal_llm_verify_ssl: bool = True
+    # 기본 false: 사내 CA 검증 불가 환경이 많아 우선 연결이 되도록 함(MITM 위험 감수).
+    # CA 번들을 구할 수 있으면 internal_llm_ca_bundle 지정 + true 로 바꾸는 걸 권장.
+    internal_llm_verify_ssl: bool = False
     # 사내 프록시 우회: true 면 startup 에서 HTTP(S)_PROXY 환경변수를 비워 직접 연결한다
     bypass_proxy: bool = False
     app_db_path: str = "./app.db"
