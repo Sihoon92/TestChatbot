@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     debug_log_path: str = "./logs/llm_calls.log"
     debug_log_max_bytes: int = 5_000_000  # 5MB, 초과 시 로테이션
     debug_log_backup_count: int = 5
+    # 진단용: 로거 내부 동작(콜백 발화·파일핸들러 생성·쓰기 성공)을 콘솔에 추적
+    # 출력한다. 로그가 "왜 안 남는지" 파악할 때만 켠다. 기본 off.
+    debug_log_verbose: bool = False
 
     @property
     def cors_origin_list(self) -> list[str]:

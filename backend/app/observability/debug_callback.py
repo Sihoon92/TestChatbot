@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import traceback
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from typing import Any
@@ -30,6 +31,24 @@ _internal_log = logging.getLogger(__name__)
 _SEP = "=" * 80
 
 
+def _trace(settings: Settings, msg: str) -> None:
+    """진단 모드일 때만 콘솔에 추적 한 줄을 남긴다(startup 로그처럼 flush)."""
+    if getattr(settings, "debug_log_verbose", False):
+        print(f"[debug-log:trace] {msg}", flush=True)
+
+
+def _report_error(settings: Settings, where: str, exc: BaseException) -> None:
+    """로깅 실패는 채팅을 깨뜨리지 않도록 삼키되, '조용히 사라지지'는 않게 한다.
+
+    - 항상 콘솔에 한 줄(원인 요약)을 남긴다(이게 이번 문제의 핵심 — 무음 실패 방지).
+    - 진단 모드면 전체 traceback 까지 출력한다.
+    """
+    print(f"[debug-log] WARNING: {where} 실패: {type(exc).__name__}: {exc}", flush=True)
+    _internal_log.warning("debug logging: %s failed", where, exc_info=True)
+    if getattr(settings, "debug_log_verbose", False):
+        traceback.print_exc()
+
+
 def _get_logger(settings: Settings) -> logging.Logger:
     """설정된 경로로 기록하는 전용 로거를 (경로별로 1회) 준비해 돌려준다.
 
@@ -42,6 +61,7 @@ def _get_logger(settings: Settings) -> logging.Logger:
     logger.setLevel(logging.INFO)
     logger.propagate = False
     if not logger.handlers:
+        _trace(settings, f"파일 핸들러 생성 시도 → {abs_path}")
         os.makedirs(os.path.dirname(abs_path) or ".", exist_ok=True)
         handler = RotatingFileHandler(
             abs_path,
@@ -51,6 +71,7 @@ def _get_logger(settings: Settings) -> logging.Logger:
         )
         handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(handler)
+        _trace(settings, f"파일 핸들러 생성 완료 → {abs_path}")
     return logger
 
 
@@ -95,28 +116,35 @@ class DebugCallbackHandler(BaseCallbackHandler):
     ) -> None:
         try:
             meta = metadata or {}
+            _trace(
+                self.settings,
+                f"on_chat_model_start 발화 run={str(run_id)[:8]} "
+                f"node={meta.get('langgraph_node', '?')} session={meta.get('thread_id', '?')}",
+            )
             self._starts[run_id] = {
                 "t0": time.perf_counter(),
                 "messages": messages[0] if messages else [],
                 "node": meta.get("langgraph_node", "?"),
                 "session": meta.get("thread_id", "?"),
             }
-        except Exception:  # noqa: BLE001 - 로깅이 채팅을 깨뜨리지 않도록 삼킨다
-            _internal_log.warning("debug logging: on_chat_model_start failed", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - 로깅이 채팅을 깨뜨리지 않도록 삼킨다
+            _report_error(self.settings, "on_chat_model_start", exc)
 
     def on_llm_end(self, response: LLMResult, *, run_id: UUID, **kwargs: Any) -> None:
         try:
+            _trace(self.settings, f"on_llm_end 발화 run={str(run_id)[:8]}")
             start = self._starts.pop(run_id, None)
             elapsed_ms = self._elapsed_ms(start)
             output = self._extract_output(response)
             self._write_llm_block(start, run_id, elapsed_ms, output_lines=[output])
-        except Exception:  # noqa: BLE001
-            _internal_log.warning("debug logging: on_llm_end failed", exc_info=True)
+        except Exception as exc:  # noqa: BLE001
+            _report_error(self.settings, "on_llm_end", exc)
 
     def on_llm_error(
         self, error: BaseException, *, run_id: UUID, **kwargs: Any
     ) -> None:
         try:
+            _trace(self.settings, f"on_llm_error 발화 run={str(run_id)[:8]}: {type(error).__name__}")
             start = self._starts.pop(run_id, None)
             elapsed_ms = self._elapsed_ms(start)
             self._write_llm_block(
@@ -126,8 +154,8 @@ class DebugCallbackHandler(BaseCallbackHandler):
                 output_lines=[f"{type(error).__name__}: {error}"],
                 errored=True,
             )
-        except Exception:  # noqa: BLE001
-            _internal_log.warning("debug logging: on_llm_error failed", exc_info=True)
+        except Exception as exc:  # noqa: BLE001
+            _report_error(self.settings, "on_llm_error", exc)
 
     # --- Tool (주제 4 대비: 지금은 호출되지 않지만 미리 구현) --------------------
 
@@ -145,8 +173,8 @@ class DebugCallbackHandler(BaseCallbackHandler):
             self._write_block(
                 [f"--- TOOL CALL: {name}({input_str}) ---"]
             )
-        except Exception:  # noqa: BLE001
-            _internal_log.warning("debug logging: on_tool_start failed", exc_info=True)
+        except Exception as exc:  # noqa: BLE001
+            _report_error(self.settings, "on_tool_start", exc)
 
     def on_tool_end(self, output: Any, *, run_id: UUID, **kwargs: Any) -> None:
         try:
@@ -155,8 +183,8 @@ class DebugCallbackHandler(BaseCallbackHandler):
             self._write_block(
                 [f"--- TOOL RESULT ({elapsed_ms}ms) ---", str(output)]
             )
-        except Exception:  # noqa: BLE001
-            _internal_log.warning("debug logging: on_tool_end failed", exc_info=True)
+        except Exception as exc:  # noqa: BLE001
+            _report_error(self.settings, "on_tool_end", exc)
 
     # --- 내부 헬퍼 ----------------------------------------------------------
 
@@ -205,3 +233,7 @@ class DebugCallbackHandler(BaseCallbackHandler):
         """구분선으로 감싼 한 블록을 파일에 한 번의 info() 로 기록한다."""
         block = "\n".join([_SEP, *lines, _SEP])
         _get_logger(self.settings).info(block)
+        _trace(
+            self.settings,
+            f"블록 기록 완료 ({len(block)} chars) → {self.settings.resolved_debug_log_path}",
+        )
