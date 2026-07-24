@@ -3,9 +3,16 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# 모든 기본 설정값의 단일 출처. cwd(실행 위치)와 무관하게 항상 backend/.env 를
+# 읽도록 절대경로로 고정한다 — 어디서 스크립트/테스트/uvicorn 을 띄우든 동일한
+# 설정을 참조하게 하기 위함(상대경로 ".env" 는 cwd 기준이라 위치에 따라 빗나감).
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]  # backend/
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=_BACKEND_ROOT / ".env", extra="ignore"
+    )
 
     # LLM backend switch: "ollama" | "internal"
     llm_backend: str = "ollama"
