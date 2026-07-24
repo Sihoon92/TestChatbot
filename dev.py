@@ -1,6 +1,6 @@
 """통합 개발 실행 스크립트 (핫리로드).
 
-백엔드(uvicorn --reload, :8000)와 프론트엔드(vite HMR, :5173)를 동시에 띄우고,
+백엔드(uvicorn --reload, 기본 :8000)와 프론트엔드(vite HMR, :5173)를 동시에 띄우고,
 둘 다 준비되면 브라우저를 자동으로 연다. Ctrl+C 하면 둘 다(자식 트리 포함) 종료한다.
 
 사용법 (아무 파이썬으로나 실행 가능 — 백엔드는 venv 파이썬을 자동으로 찾아 씀):
@@ -8,6 +8,9 @@
     python dev.py internal        # 사내 LLM 백엔드로 강제
     python dev.py ollama          # ollama 백엔드로 강제
     python dev.py --llm internal
+
+포트 바꾸기 (8000 점유 시): 환경변수 BACKEND_PORT 지정 — 백엔드와 프론트 프록시가
+같이 따라간다. 예) PowerShell:  $env:BACKEND_PORT="8001"; python dev.py internal
 """
 
 import os
@@ -23,7 +26,10 @@ BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 IS_WIN = os.name == "nt"
 
-BACKEND_URL = "http://127.0.0.1:8000/"
+# 백엔드 포트. 기본 8000, 환경변수 BACKEND_PORT 로 덮어쓸 수 있다(예: 8000 점유 시).
+# 같은 BACKEND_PORT 를 frontend/vite.config.ts 의 프록시도 읽으므로 둘이 자동으로 맞는다.
+BACKEND_PORT = int(os.environ.get("BACKEND_PORT", "8000"))
+BACKEND_URL = f"http://127.0.0.1:{BACKEND_PORT}/"
 FRONTEND_URL = "http://localhost:5173/"
 
 # Windows: 자식을 별도 프로세스 그룹으로 띄워 Ctrl+C가 자식에 직접 전달되지 않게 한다.
@@ -59,7 +65,7 @@ def start_backend(llm_backend: str | None = None) -> subprocess.Popen:
     # --reload-dir 로 app/ 만 감시 (app.db 변경에 의한 재시작 폭주 방지)
     return subprocess.Popen(
         [_backend_python(), "-m", "uvicorn", "app.main:app",
-         "--host", "127.0.0.1", "--port", "8000",
+         "--host", "127.0.0.1", "--port", str(BACKEND_PORT),
          "--reload", "--reload-dir", str(BACKEND / "app")],
         cwd=str(BACKEND),
         creationflags=_CREATE_GROUP,
@@ -69,7 +75,13 @@ def start_backend(llm_backend: str | None = None) -> subprocess.Popen:
 
 def start_frontend() -> subprocess.Popen:
     npm = "npm.cmd" if IS_WIN else "npm"
-    return subprocess.Popen([npm, "run", "dev"], cwd=str(FRONTEND), creationflags=_CREATE_GROUP)
+    # env 를 명시적으로 넘겨 vite(node) 가 BACKEND_PORT 를 확실히 읽게 한다.
+    return subprocess.Popen(
+        [npm, "run", "dev"],
+        cwd=str(FRONTEND),
+        creationflags=_CREATE_GROUP,
+        env=os.environ.copy(),
+    )
 
 
 def wait_for(url: str, label: str, timeout: float = 60.0) -> bool:
@@ -104,7 +116,7 @@ def main() -> None:
     backend_label = llm_backend or "(.env: LLM_BACKEND, 기본 ollama)"
 
     print("개발 서버 시작 중... (핫리로드 ON)")
-    print("  backend  -> http://localhost:8000  (app/ 변경 시 자동 재시작)")
+    print(f"  backend  -> http://localhost:{BACKEND_PORT}  (app/ 변경 시 자동 재시작)")
     print("  frontend -> http://localhost:5173  (HMR)")
     print(f"  LLM 백엔드 -> {backend_label}")
     print("  (전제: ollama -> Ollama 실행 중 / internal -> backend/.env 의 INTERNAL_LLM_* 설정)\n")
