@@ -8,6 +8,7 @@ from app.api.sse import format_sse
 from app.constants import DEFAULT_SESSION_TITLE
 from app.db import sessions_repo as repo
 from app.main import get_app_state
+from app.observability import DebugCallbackHandler
 from app.schemas import ChatBody
 from app.state import AppState
 
@@ -17,6 +18,19 @@ router = APIRouter()
 def _derive_title(text: str) -> str:
     text = text.strip().replace("\n", " ")
     return (text[:40] + "…") if len(text) > 40 else (text or DEFAULT_SESSION_TITLE)
+
+
+def build_run_config(session_id: str, settings: Any) -> dict:
+    """요청 단위 실행 config 를 만든다.
+
+    thread_id=session_id 로 체크포인터가 과거 대화를 자동 로드/저장한다.
+    디버그 로깅이 켜져 있으면 요청 단위로 콜백을 부착한다(그래프 컴파일 시 고정
+    장착하지 않음 — 요청별 on/off 등 유연성 확보). LangChain 표준 패턴.
+    """
+    cfg: dict = {"configurable": {"thread_id": session_id}}
+    if settings.debug_log_enabled:
+        cfg["callbacks"] = [DebugCallbackHandler(settings)]
+    return cfg
 
 
 async def stream_graph(
@@ -53,8 +67,7 @@ async def chat(session_id: str, body: ChatBody, state: AppState = Depends(get_ap
     else:
         await repo.touch_session(state.db_path, session_id)
 
-    # thread_id=session_id 로 체크포인터가 과거 대화를 자동 로드/저장한다.
-    cfg = {"configurable": {"thread_id": session_id}}
+    cfg = build_run_config(session_id, state.settings)
     inputs = {
         "messages": [HumanMessage(content=body.content)],
         "session_id": session_id,
