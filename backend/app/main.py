@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     # 사내 프록시 우회: HTTP 클라이언트(LLM/health)가 만들어지기 전에 처리해야 한다.
     cleared = apply_proxy_bypass(settings)
     if cleared:
-        print(f"[proxy] bypass_proxy=on → cleared {', '.join(cleared)}")
+        print(f"[proxy] llm_backend={settings.llm_backend} → cleared {', '.join(cleared)}")
     await init_db(settings.app_db_path)
 
     # LangGraph 의 SQLite 체크포인터가 세션별(=thread_id) 대화 메모리를 영속화한다.
