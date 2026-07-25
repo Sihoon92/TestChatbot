@@ -1,3 +1,5 @@
+import concurrent.futures
+
 import pytest
 
 xw = pytest.importorskip("xlwings")
@@ -114,3 +116,78 @@ def test_used_values_and_column_values_single_row_sheet(tmp_path):
         assert rows == [["라인", "제품", "수량"]]
         assert book.column_values("데이터", "A") == ["라인"]
         assert book.column_values("데이터", "B") == ["제품"]
+
+
+def test_open_workbook_from_worker_thread(tmp_path):
+    """open_workbook 자체를 메인이 아닌 스레드에서 열어도 동작해야 한다.
+
+    (참고) 이 테스트만으로는 실제 버그를 재현하지 못한다: xlwings 는
+    `xw.App()` 생성 시점에 내부적으로 `pythoncom.CoInitialize()` 를 이미
+    호출하므로, open 과 read 가 '같은' 스레드 안에서 끝나면 그 호출이 COM 을
+    초기화해준다. 진짜 버그는 open 한 스레드와 값을 읽는 스레드가 다를 때
+    발생한다 — 아래 test_open_on_one_thread_read_on_another 참고. 이 테스트는
+    "어느 스레드에서 열든 동작해야 한다"는 요구사항 자체의 회귀 테스트로 남긴다.
+    """
+    path = _write_sample(
+        tmp_path, [["라인", "제품", "수량"], ["A", "제품1", 3], ["B", "제품2", 5]]
+    )
+
+    def _read_in_worker():
+        with open_workbook(str(path)) as book:
+            assert "데이터" in book.sheet_names()
+            rows, top_left = book.used_values("데이터")
+            return rows, top_left, book.used_shape("데이터")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        rows, top_left, shape = executor.submit(_read_in_worker).result()
+
+    assert top_left == "A1"
+    assert shape == (3, 3)
+    assert rows == [
+        ["라인", "제품", "수량"],
+        ["A", "제품1", 3.0],
+        ["B", "제품2", 5.0],
+    ]
+
+
+def test_open_on_one_thread_read_on_another(tmp_path):
+    """실제 관측된 실패를 재현한다: open_workbook 은 스레드 A 에서, 읽기는 스레드 B 에서.
+
+    이것이 사전점검 [3]/`analyze_excel.py` 의 실제 실행 형태다: `open_workbook`
+    으로 워크북을 한 번 연 뒤(호출자 스레드), 그 `wb` 에 바인딩된 도구들은
+    LangGraph 가 내부적으로 별도의 ThreadPoolExecutor 워커 스레드에서 실행한다
+    (직접 확인함: create_react_agent 로 만든 그래프를 동기 invoke() 해도 도구
+    본문은 'ThreadPoolExecutor-N_0' 같은 스레드에서 실행되지, invoke() 를 부른
+    스레드가 아니다). 이때 COM 프록시(App/Book)는 open 한 스레드(A)의 STA 에
+    속해 있는데, 읽기 호출은 스레드 B 에서 일어난다.
+
+    수정 전에는 이 패턴이 -2147221008 ('CoInitialize가 호출되지 않았습니다')
+    로 실패한다(이 스레드는 COM 을 전혀 초기화한 적이 없으므로). 스레드 B 에서
+    단순히 pythoncom.CoInitialize() 만 호출해도 고쳐지지 않는다 — 그러면 오류가
+    -2147417842(RPC_E_WRONG_THREAD, '다른 스레드를 위해 배열된 인터페이스를
+    호출')로 바뀔 뿐이다: A 에서 만든 COM 포인터를 B 에서 그대로 쓰는 것 자체가
+    문제이기 때문이다(둘 다 실측으로 확인함). 그래서 올바른 고침은 이 워크북의
+    모든 COM 호출을 전용 워커 스레드 하나로 위임하는 것이다(open 한 호출자
+    스레드가 무엇이든, 이후 읽기가 어느 스레드에서 오든).
+    """
+    path = _write_sample(
+        tmp_path, [["라인", "제품", "수량"], ["A", "제품1", 3], ["B", "제품2", 5]]
+    )
+
+    with open_workbook(str(path)) as book:  # 이 테스트 함수의 스레드(=메인)에서 open
+        assert "데이터" in book.sheet_names()
+
+        def _read_in_other_thread():
+            rows, top_left = book.used_values("데이터")
+            return rows, top_left, book.used_shape("데이터")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            rows, top_left, shape = executor.submit(_read_in_other_thread).result()
+
+    assert top_left == "A1"
+    assert shape == (3, 3)
+    assert rows == [
+        ["라인", "제품", "수량"],
+        ["A", "제품1", 3.0],
+        ["B", "제품2", 5.0],
+    ]

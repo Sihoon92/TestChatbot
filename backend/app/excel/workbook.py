@@ -9,84 +9,193 @@ Note on `.options(ndim=2)` (applies to every read below — `range_values`,
 단일 셀은 스칼라로 돌려줘 값 모양만으로는 행/열 방향을 구분할 수 없다.
 `ndim=2` 를 강제하면 실제 범위 크기 기준으로 항상 올바른 모양의 2D 리스트를
 얻는다(빈 범위/단일 셀 포함).
+
+## 스레드와 COM (중요 — 이 모듈 전체가 이 제약 위에서 설계됨)
+
+Windows COM 은 기본적으로 STA(단일 스레드 아파트먼트)로 동작한다. 어떤 스레드가
+COM 객체를 쓰려면 그 스레드에서 먼저 `CoInitialize()` 가 불려야 하고, 더 중요한
+제약으로 **한 스레드에서 만든 COM 포인터(App/Book/Sheet/Range)는 그 스레드가
+아닌 다른 스레드에서 직접 호출할 수 없다** — 그 다른 스레드에서 별도로
+`CoInitialize()` 를 호출해도 마찬가지다(실측: CoInitialize 안 하면
+-2147221008 'CoInitialize가 호출되지 않았습니다', 다른 스레드에서
+CoInitialize 만 하고 그대로 쓰면 -2147417842 'RPC_E_WRONG_THREAD' 로 바뀔 뿐
+여전히 실패한다).
+
+`open_workbook` 의 호출자(LangGraph 에이전트)는 워크북을 한 번 연 뒤 그
+`Workbook` 을 여러 도구에 바인딩해두고, 그 도구들을 LangGraph 가 나중에
+(동기 `invoke()` 안에서도) 별도의 ThreadPoolExecutor 워커 스레드에서 실행한다
+— 즉 open 한 스레드와 값을 읽는 스레드가 다른 게 정상 경로다. 그래서 이
+모듈은 "호출한 스레드에서 COM 초기화"가 아니라, **모든 COM 객체의 생성·조회·
+정리를 이 컨텍스트 전용의 스레드 하나(`_executor`, max_workers=1)에 고정**하는
+방식을 쓴다. `open_workbook`/`Workbook` 의 각 메서드는 그 전용 스레드로 작업을
+위임하고 결과만 돌려받으므로, 호출자는 자신이 어느 스레드에 있든(메인 스레드,
+LangGraph 워커 스레드 등) 신경 쓸 필요가 없다. `CoInitialize()`/`CoUninitialize()`
+는 그 전용 스레드에서 한 번씩만, 반드시 짝을 맞춰 호출한다(이 스레드는
+`open_workbook` 이 매번 새로 만들므로 재사용으로 인한 중복 초기화 걱정이 없다).
 """
+import concurrent.futures
 import gc
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Callable, Iterator, TypeVar
 
+import pythoncom
 import xlwings as xw
 
 from app.excel.grid import col_to_letter
 
+_T = TypeVar("_T")
+
+
+def _com_thread_init() -> None:
+    """전용 워커 스레드가 시작될 때 그 스레드에 COM(STA)을 초기화한다."""
+    pythoncom.CoInitialize()
+
+
+def _com_thread_uninit() -> None:
+    """`_com_thread_init` 과 반드시 짝을 맞춰, 같은 스레드가 끝나기 전에 호출한다."""
+    pythoncom.CoUninitialize()
+
 
 class Workbook:
-    def __init__(self, book: "xw.Book") -> None:
+    """xlwings 값 조회 래퍼.
+
+    모든 실제 xlwings/COM 호출은 `_executor`(전용 워커 스레드 하나)로 위임된다
+    — 모듈 docstring의 "스레드와 COM" 절 참고. 호출자는 어느 스레드에서
+    이 메서드들을 부르든 신경 쓸 필요가 없다.
+    """
+
+    def __init__(self, executor: concurrent.futures.ThreadPoolExecutor, book: "xw.Book") -> None:
+        self._executor = executor
         self._book = book
 
+    def _run(self, fn: Callable[[], _T]) -> _T:
+        """COM 을 만지는 콜러블을 전용 워커 스레드에서 실행하고 결과를 돌려준다."""
+        return self._executor.submit(fn).result()
+
     def sheet_names(self) -> list[str]:
-        return [s.name for s in self._book.sheets]
+        return self._run(lambda: [s.name for s in self._book.sheets])
 
     def _sheet(self, sheet: str) -> "xw.Sheet":
         return self._book.sheets[sheet]
 
     def used_shape(self, sheet: str) -> tuple[int, int]:
-        rng = self._sheet(sheet).used_range
-        return (rng.rows.count, rng.columns.count)
+        def _do() -> tuple[int, int]:
+            rng = self._sheet(sheet).used_range
+            return (rng.rows.count, rng.columns.count)
+
+        return self._run(_do)
 
     def range_values(self, sheet: str, address: str) -> list[list]:
-        # ndim=2 rationale: see module docstring.
-        return self._sheet(sheet).range(address).options(ndim=2).value
+        def _do() -> list[list]:
+            # ndim=2 rationale: see module docstring.
+            return self._sheet(sheet).range(address).options(ndim=2).value
+
+        return self._run(_do)
 
     def used_values(self, sheet: str) -> tuple[list[list], str]:
-        rng = self._sheet(sheet).used_range
-        top_left = rng[0, 0].get_address(False, False)  # 예: "A1"
-        return rng.options(ndim=2).value, top_left
+        def _do() -> tuple[list[list], str]:
+            rng = self._sheet(sheet).used_range
+            top_left = rng[0, 0].get_address(False, False)  # 예: "A1"
+            return rng.options(ndim=2).value, top_left
+
+        return self._run(_do)
 
     def column_values(self, sheet: str, column: str, max_rows: int = 5000) -> list:
-        sht = self._sheet(sheet)
-        nrows = min(sht.used_range.rows.count, max_rows)
-        rng = sht.range(f"{column}1:{column}{nrows}")
-        return [row[0] for row in rng.options(ndim=2).value]
+        def _do() -> list:
+            sht = self._sheet(sheet)
+            nrows = min(sht.used_range.rows.count, max_rows)
+            rng = sht.range(f"{column}1:{column}{nrows}")
+            return [row[0] for row in rng.options(ndim=2).value]
+
+        return self._run(_do)
 
 
 @contextmanager
 def open_workbook(path: str) -> Iterator[Workbook]:
-    app = xw.App(visible=False, add_book=False)
-    app.display_alerts = False
-    app.screen_updating = False
+    # 이 컨텍스트 전용의 워커 스레드 하나에 App/Book COM 객체의 생성부터 정리까지
+    # 전부 고정한다 — 이유는 모듈 docstring "스레드와 COM" 절 참고. `open_workbook`
+    # 을 호출한 스레드(메인 스레드일 수도, 다른 워커 스레드일 수도 있다)는 이
+    # 함수 본문(제너레이터 이전/이후 코드)만 그대로 실행하고, 실제 COM 호출은
+    # 전부 `executor.submit(...).result()` 로 이 전용 스레드에 위임한다.
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="xlwings-com"
+    )
     try:
-        book = app.books.open(path, read_only=True, update_links=False)
-        wb = Workbook(book)
+        executor.submit(_com_thread_init).result()
+
+        def _make_app() -> "xw.App":
+            app = xw.App(visible=False, add_book=False)
+            app.display_alerts = False
+            app.screen_updating = False
+            return app
+
+        app = executor.submit(_make_app).result()
         try:
-            yield wb
+            book = executor.submit(
+                lambda: app.books.open(path, read_only=True, update_links=False)
+            ).result()
+            wb = Workbook(executor, book)
+            try:
+                yield wb
+            finally:
+                def _cleanup() -> None:
+                    # book.close() 만으로는 COM 프록시가 즉시 해제되지 않는다:
+                    # 호출자가 `with open_workbook(...) as wb:` 블록을 벗어난
+                    # 뒤에도 `wb`(Workbook 래퍼) 변수를 계속 들고 있을 수 있고,
+                    # 그 래퍼의 `_book` 속성이 여전히 이 xw.Book COM 프록시를
+                    # 강하게 참조한다. 그래서 여기서 래퍼의 내부 참조
+                    # (`wb._book`)와 `open_workbook` 프레임의 `book` 을 모두
+                    # (nonlocal 로) 끊고, Excel 프로세스가 아직 살아있는 이
+                    # 시점에(그리고 COM 프록시의 소유 스레드인 여기서)
+                    # gc.collect() 로 즉시 파이널라이즈되도록 유도한다(COM
+                    # 프록시 정리는 앱 종료 전에 하는 것이 원칙).
+                    #
+                    # `book = None` 을 이 클로저 안에서만 하지 않고 반드시
+                    # nonlocal 로 바깥(open_workbook)의 `book` 변수까지 끊는
+                    # 이유: 그러지 않으면 `open_workbook` 의 제너레이터 프레임이
+                    # (이 with 블록을 연 호출자 스레드에서) 정리될 때 그 프레임의
+                    # 지역변수 `book` 이 마지막 참조로 남아, 참조 카운트가 0이 되는
+                    # 순간 COM 프록시의 파이널라이저가 **호출자 스레드**에서
+                    # 실행돼 버린다(그 스레드는 COM 이 초기화돼 있지 않다) — 실제로
+                    # 이 nonlocal 정리를 빼먹었을 때 0x800401F0(-2147221008,
+                    # CO_E_NOTINITIALIZED)가 호출자 스레드에서 재현됐다.
+                    nonlocal book
+                    book.close()
+                    wb._book = None
+                    book = None
+                    gc.collect()
+
+                executor.submit(_cleanup).result()
         finally:
-            book.close()
-            # book.close() 만으로는 COM 프록시가 즉시 해제되지 않는다: 호출자가
-            # `with open_workbook(...) as wb:` 블록을 벗어난 뒤에도 `wb`(Workbook
-            # 래퍼) 변수를 계속 들고 있을 수 있고, 그 래퍼의 `_book` 속성이 여전히
-            # 이 xw.Book COM 프록시를 강하게 참조한다. 그래서 여기서 래퍼의 내부
-            # 참조(`wb._book`)와 로컬 `book` 을 모두 끊고, Excel 프로세스가 아직
-            # 살아있는 이 시점에 gc.collect() 로 즉시 파이널라이즈되도록 유도한다
-            # (COM 프록시 정리는 앱 종료 전에 하는 것이 원칙).
-            #
-            # 실측 결과(참고용): 이 조치를 적용한 뒤에도 `pytest`(플래그 없이,
-            # faulthandler 기본 활성) 실행 시 `Windows fatal exception: code
-            # 0x800706ba`(RPC_S_SERVER_UNAVAILABLE) 가 테스트 당 2회 출력된다.
-            # 이 예외는 테스트의 모든 assertion 이 통과한 *직후*, 동일 스레드
-            # (0x00007118, pytest_pyfunc_call 내)에서 동기적으로 발생하며, 각
-            # 테스트의 PASSED 직전에 나타난다. pytest 프로세스 종료 단계가 아니라
-            # 테스트 실행 중 이 정리 경로 근처에서 발생함을 의미한다. gc.collect()
-            # 추가 이전에는 테스트 당 3회였으므로, gc.collect() 호출이 발생 빈도에
-            # 영향을 미친다. 근본 원인(gc.collect() 이 COM RPC 채널 정리 중에
-            # 동기적 프록시 파이널라이즈를 강제하는 것인지, 또는 다른 원인인지)은
-            # 확정되지 않았다. 실행 후 EXCEL.EXE 잔여 프로세스는 없고, 작업은
-            # 정상 완료되므로, 러너 플래그나 설정으로 억제하지 않고 있는 그대로
-            # 둔다 — 예외 텍스트가 보이는 상태로 유지된다.
-            wb._book = None
-            book = None
-            gc.collect()
+            def _quit() -> None:
+                # _cleanup 의 `book` 과 같은 이유로, `app` 도 nonlocal 로 끊어서
+                # open_workbook 프레임 정리 시 호출자 스레드에서 COM 파이널라이저가
+                # 도는 일을 막는다.
+                nonlocal app
+                app.quit()
+                app = None
+
+            executor.submit(_quit).result()
     finally:
-        app.quit()
+        # CoUninitialize 는 CoInitialize 를 호출한 바로 그 스레드에서, 그
+        # 스레드가 끝나기 전 마지막으로 실행돼야 한다(요구사항 #2). 이 실행기는
+        # 이 with 블록 전용이라 이후 재사용되지 않으므로, 마지막 작업으로
+        # 큐에 넣고 나서 스레드를 종료(shutdown)한다.
+        #
+        # 실측 결과(참고용, 수정 전부터 있던 기존 한계 — 새로 억제하지 않음):
+        # 전용 워커 스레드 도입 후에도 `pytest`(플래그 없이, faulthandler 기본
+        # 활성) 실행 시 `Windows fatal exception: code 0x800706ba`
+        # (RPC_S_SERVER_UNAVAILABLE) 가 여전히 테스트 당 2회, 각 테스트의 PASSED
+        # 직전에(정리 경로 근처) 출력된다 — 도입 전과 빈도·시점이 동일하다.
+        # faulthandler 크래시 덤프에는 대부분 스레드 섹션이 하나만 찍혀 그것이
+        # 이 파일의 전용 워커 스레드인지 호출자 스레드인지 스택만으로는 완전히
+        # 단정하지 못했다(어느 쪽이든 실행 후 EXCEL.EXE 잔여 프로세스는 없고
+        # 작업은 정상 완료됨은 확인함). 근본 원인은 여전히 미확정이며, 러너
+        # 플래그나 설정으로 억제하지 않고 있는 그대로 둔다.
+        try:
+            executor.submit(_com_thread_uninit).result()
+        finally:
+            executor.shutdown(wait=True)
 
 
 __all__ = ["open_workbook", "Workbook", "col_to_letter"]
