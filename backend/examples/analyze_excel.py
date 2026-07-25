@@ -24,6 +24,8 @@ for _stream_name in ("stdout", "stderr"):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(errors="replace")
 
+from langgraph.errors import GraphRecursionError  # noqa: E402
+
 from app.config import get_settings  # noqa: E402
 from app.excel import open_workbook, run_excel_agent  # noqa: E402
 from app.llm import get_chat_model  # noqa: E402
@@ -61,6 +63,12 @@ def _parse_args(argv: list[str]) -> tuple[list[str], str | None] | None:
 
 
 def main() -> int:
+    # 이 CLI 는 지금까지 어떤 실패(존재하지 않는 경로/LLM 연결 불가/에이전트가
+    # recursion_limit 안에 못 끝남)도 잡지 않았다 — 셋 다 raw traceback 으로
+    # 밖에 나가고, 그중 워크북 관련 예외는 open_workbook 의 COM 정리
+    # (finally 체인)를 감싸는 도중에 터져서 사용자에게는 원인을 알기 어려운
+    # 스택트레이스만 보인다. 사전점검 스크립트(verify_tool_calling.py)가 이미
+    # 쓰고 있는 "명확한 메시지 + 적절한 종료 코드" 스타일을 그대로 따른다.
     parsed = _parse_args(sys.argv[1:])
     if parsed is None:
         print(_USAGE)
@@ -71,14 +79,34 @@ def main() -> int:
         return 2
     path, question = args[0], args[1]
 
-    settings = get_settings()
-    if backend:
-        settings = settings.model_copy(update={"llm_backend": backend})
-    model = get_chat_model(settings)
+    if not Path(path).is_file():
+        print(f"[오류] 워크북을 찾을 수 없다: {path}")
+        print("       예시 워크북이 없다면 먼저 생성: python examples/make_sample_workbook.py")
+        return 2
+
+    try:
+        settings = get_settings()
+        if backend:
+            settings = settings.model_copy(update={"llm_backend": backend})
+        model = get_chat_model(settings)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[오류] LLM 모델 생성 실패: {exc}")
+        return 2
 
     print(f"[분석] 파일={path}\n[질문] {question}\n" + "=" * 60)
-    with open_workbook(path) as wb:
-        out = run_excel_agent(model, wb, question)
+    try:
+        with open_workbook(path) as wb:
+            out = run_excel_agent(model, wb, question)
+    except GraphRecursionError:
+        print(
+            "[오류] 에이전트가 정해진 단계 안에 결론을 내지 못했다"
+            "(recursion_limit 초과). 질문을 더 구체화하거나 범위를 좁혀 다시 시도하라."
+        )
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"[오류] 분석 중 실패: {exc}")
+        return 1
+
     print("사용한 도구:", " → ".join(out["tool_calls"]) or "(없음)")
     print("=" * 60)
     print(out["answer"])

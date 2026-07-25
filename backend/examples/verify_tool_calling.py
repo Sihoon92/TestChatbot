@@ -218,9 +218,18 @@ def _check_excel_tools(model):
     # xlwings 설치가 확인된 뒤에만 import 한다 — app.excel.workbook 이
     # pythoncom/xlwings 를 top-level import 하므로, 이 시점 이전에 import
     # 하면 xlwings 미설치 환경에서 [1]/[2] 까지 함께 죽는다(모듈 상단 주석
-    # 참고).
-    from app.excel.tools import make_excel_tools
-    from app.excel.workbook import open_workbook
+    # 참고). 그런데 `import xlwings` 성공이 곧 `import pythoncom` 성공을
+    # 보장하지는 않는다 — xlwings 는 xlwings 자체가 설치되는(예: 크로스플랫폼
+    # 빌드/테스트) 플랫폼에서도 깔릴 수 있지만, pythoncom(pywin32)은
+    # Windows 전용이다. 그래서 이 import 도 SKIP 을 돌려주는 try 안에서
+    # 해야 한다 — 아니면 여기서 난 ImportError 가 그대로 main() 밖으로
+    # 새어나가 이 가드가 지키려던 [1]/[2] 결과까지 함께 버려진다.
+    try:
+        from app.excel.tools import make_excel_tools
+        from app.excel.workbook import open_workbook
+    except Exception as exc:  # noqa: BLE001
+        print(f"    → SKIP: app.excel 모듈 임포트 실패 ({exc})")
+        return None
 
     token = "엑셀툴검증OK"
     tmp_dir = tempfile.mkdtemp(prefix="verify_tool_calling_")

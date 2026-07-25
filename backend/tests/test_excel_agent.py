@@ -10,6 +10,27 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from app.excel.agent import EXCEL_SYSTEM_PROMPT, run_excel_agent
+from app.excel.grid import parse_a1
+
+
+def _slice_rows(rows: list[list], address: str) -> list[list]:
+    """test_excel_tools.py 의 동일한 이름의 헬퍼와 같은 목적 — address 를
+    무시하고 고정값을 돌려주던 예전 가짜는 사각형 범위 집계 회귀를 못 잡았다."""
+    start, _, end = address.partition(":")
+    end = end or start
+    r1, c1 = parse_a1(start)
+    r2, c2 = parse_a1(end)
+    out = []
+    for r in range(r1, r2 + 1):
+        row_vals = []
+        for c in range(c1, c2 + 1):
+            ri, ci = r - 1, c - 1
+            if 0 <= ri < len(rows) and 0 <= ci < len(rows[ri]):
+                row_vals.append(rows[ri][ci])
+            else:
+                row_vals.append(None)
+        out.append(row_vals)
+    return out
 
 
 class FakeWorkbook:
@@ -30,7 +51,7 @@ class FakeWorkbook:
         return self._rows, "A1"
 
     def range_values(self, sheet, address):
-        return [[3], [3], [5]]
+        return _slice_rows(self._rows, address)
 
     def column_values(self, sheet, column, max_rows=5000):
         return [r[0] for r in self._rows]

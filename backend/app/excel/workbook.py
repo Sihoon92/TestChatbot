@@ -290,9 +290,19 @@ class Workbook:
 
     def column_values(self, sheet: str, column: str, max_rows: int = 5000) -> list:
         def _do() -> list:
-            sht = self._sheet(sheet)
-            nrows = min(sht.used_range.rows.count, max_rows)
-            rng = sht.range(f"{column}1:{column}{nrows}")
+            # 주의: used_range 는 A1 이 아닌 곳(예 C3)에서 시작할 수 있다. 예전
+            # 버전은 `rows.count`(행 개수)를 행 인덱스처럼 써서 `{column}1:
+            # {column}{nrows}` 를 읽었는데, 이는 used_range 가 A1 부터 시작할
+            # 때만 우연히 맞다 — offset 이 있으면 위쪽에 엉뚱한 빈 행을 포함하고
+            # 아래쪽 실제 데이터 행은 잘려나간다(used_values 는 이미
+            # rng[0, 0].get_address 로 offset-aware 하게 top_left 를 구하므로
+            # 이 메서드만 어긋나 있었다). used_range 자신의 주소(.row/.rows.count)
+            # 에서 첫 행·끝 행을 직접 구해 그 구간만 읽는다.
+            used = self._sheet(sheet).used_range
+            first_row = used.row
+            last_row = used.row + used.rows.count - 1
+            end_row = min(last_row, first_row + max_rows - 1)
+            rng = self._sheet(sheet).range(f"{column}{first_row}:{column}{end_row}")
             return [row[0] for row in rng.options(ndim=2).value]
 
         return self._run(_do)

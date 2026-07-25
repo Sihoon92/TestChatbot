@@ -58,9 +58,18 @@ def build(path: str) -> None:
         app.quit()
 
 
+_DEFAULT_OUT = Path(__file__).resolve().parents[1] / "data" / "jobchange.xlsx"
+
+
 def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    out = args[0] if args else "data/jobchange.xlsx"
+    # 기본 출력 경로는 실행 위치(cwd)와 무관하게 항상 backend/data/ 를 가리켜야
+    # 한다 — cwd 상대경로("data/jobchange.xlsx")로 두면 저장소 루트 등 다른
+    # 위치에서 실행할 때 엉뚱한 곳에 조용히 data/ 를 새로 만든다(CLAUDE.md 의
+    # "설정/경로는 cwd 와 무관해야 한다" 규칙과 같은 이유 — Settings 가
+    # backend/.env 를 절대경로로 고정하는 것과 동일한 패턴). 사용자가 직접
+    # 경로를 지정하면(args[0]) 그 값은 그대로 쓴다.
+    out = args[0] if args else str(_DEFAULT_OUT)
     build(out)
     print(f"생성 완료: {out}")
     return 0

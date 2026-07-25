@@ -202,6 +202,55 @@ def test_range_values_empty_range_is_2d_none(tmp_path):
         assert cell == [[None]]
 
 
+def _write_sample_at(tmp_path, top_left: str, values):
+    """values 를 시트 '데이터' 의 top_left 셀부터 쓴 새 워크북을 만들고 경로를
+    반환한다. `_write_sample` 은 항상 A1 부터 쓰므로, used_range 가 A1 이
+    아닌 곳에서 시작하는 경우(A2 회귀)를 재현하려면 시작 셀을 고를 수 있어야
+    한다."""
+    path = tmp_path / "offset.xlsx"
+    app = xw.App(visible=False)
+    try:
+        wb = app.books.add()
+        sht = wb.sheets[0]
+        sht.name = "데이터"
+        sht.range(top_left).value = values
+        wb.save(str(path))
+        wb.close()
+    finally:
+        app.quit()
+    return path
+
+
+def test_column_values_offset_used_range_reads_correct_rows(tmp_path):
+    """A2 회귀 테스트: used_range 가 A1 이 아닌 곳(C3)에서 시작해도
+    column_values 가 실제 데이터 행을 읽어야 한다.
+
+    예전 버전은 `sht.used_range.rows.count`(행 '개수', 이 경우 4)를 행
+    '인덱스'처럼 써서 항상 `{column}1:{column}4` 를 읽었다. used_range 가
+    C3:E6 에서 시작하면 이는 위쪽 2행(대부분 빈 셀)을 포함하고 실제 데이터의
+    마지막 2행(C5:E6)은 통째로 놓친다 — column_profile 이 아무 오류도 없이
+    엉뚱한 개수/샘플을 보고하게 된다. `used_values`(rng[0, 0].get_address 로
+    top_left 를 직접 구함)는 이미 offset-aware 하므로 두 리더가 같은 시트를
+    두고 서로 다른 답을 하고 있었다."""
+    path = _write_sample_at(
+        tmp_path,
+        "C3",
+        [
+            ["라인", "제품", "수량"],
+            ["A", "제품1", 3],
+            ["A", "제품2", 4],
+            ["B", "제품3", 5],
+        ],
+    )
+    with open_workbook(str(path)) as book:
+        # used_range 는 C3:E6 에서 시작해야 한다 — A1 이 아니다.
+        assert book.used_shape("데이터") == (4, 3)
+        col_c = book.column_values("데이터", "C")
+        assert col_c == ["라인", "A", "A", "B"]
+        col_d = book.column_values("데이터", "D")
+        assert col_d == ["제품", "제품1", "제품2", "제품3"]
+
+
 def test_used_values_and_column_values_single_row_sheet(tmp_path):
     path = _write_sample(tmp_path, [["라인", "제품", "수량"]])
     with open_workbook(str(path)) as book:

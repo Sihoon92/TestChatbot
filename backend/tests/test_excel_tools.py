@@ -1,4 +1,29 @@
+from app.excel.grid import parse_a1
 from app.excel.tools import make_excel_tools
+
+
+def _slice_rows(rows: list[list], address: str) -> list[list]:
+    """A1 anchored 2D `rows` 에서 `address`(예 'C2:C4', 'A1:C2')가 가리키는
+    부분 사각형만 잘라 돌려준다. `Workbook.range_values` 의 최소한의 동작을
+    Excel 없이 흉내내기 위한 테스트 전용 헬퍼 — 실제 range_values 의 address
+    인자를 무시하고 고정된 값을 돌려주던 예전 가짜(하드코딩 [[3],[3],[5]])는
+    다중 열 범위를 넘겨도 똑같은 값을 돌려줘, 사각형 범위 집계(B1) 회귀를
+    전혀 잡지 못했다."""
+    start, _, end = address.partition(":")
+    end = end or start
+    r1, c1 = parse_a1(start)
+    r2, c2 = parse_a1(end)
+    out = []
+    for r in range(r1, r2 + 1):
+        row_vals = []
+        for c in range(c1, c2 + 1):
+            ri, ci = r - 1, c - 1
+            if 0 <= ri < len(rows) and 0 <= ci < len(rows[ri]):
+                row_vals.append(rows[ri][ci])
+            else:
+                row_vals.append(None)
+        out.append(row_vals)
+    return out
 
 
 class FakeWorkbook:
@@ -19,7 +44,7 @@ class FakeWorkbook:
         return self._rows, "A1"
 
     def range_values(self, sheet, address):
-        return [[3], [3], [5]]  # C2:C4 흉내
+        return _slice_rows(self._rows, address)
 
     def column_values(self, sheet, column, max_rows=5000):
         return [r[0] for r in self._rows]  # A열
@@ -103,3 +128,77 @@ def test_read_range_truncates_columns_with_note():
     tools = make_excel_tools(wb)
     out = _tool(tools, "read_range").invoke({"sheet": "시트1", "address": "A1:AI1"})
     assert "30열까지만 표시" in out
+
+
+# --- aggregate: 사각형(여러 열) 범위 (Group B1/B4 회귀) ---
+
+
+class _RectWorkbook:
+    """A1 기준 사각형 숫자 그리드 하나만 제공하는 최소 가짜.
+
+    이전 FakeWorkbook.range_values 는 address 인자를 무시하고 항상
+    [[3],[3],[5]] 를 돌려줬으므로, aggregate 에 몇 열짜리 범위를 넘기든 결과가
+    똑같아 여러 열에 걸친 사각형 범위 집계(B1) 가 실제로 동작하는지 전혀
+    검증하지 못했다."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def sheet_names(self):
+        return ["시트1"]
+
+    def used_values(self, sheet):
+        return self._rows, "A1"
+
+    def range_values(self, sheet, address):
+        return _slice_rows(self._rows, address)
+
+    def column_values(self, sheet, column, max_rows=5000):
+        return [r[0] for r in self._rows]
+
+
+def test_aggregate_rectangular_range_sums_all_columns_and_reports_count():
+    rows = [
+        [1, 2, 3],
+        [4, 5, 6],
+    ]
+    wb = _RectWorkbook(rows)
+    tools = make_excel_tools(wb)
+    out = _tool(tools, "aggregate").invoke(
+        {"sheet": "시트1", "address": "A1:C2", "op": "sum"}
+    )
+    # 한 열만 집계했다면(예 A열만) 5 가 나왔을 것 — 6개 셀 전체(1+2+3+4+5+6=21)가
+    # 더해졌는지로 사각형 범위가 실제로 반영됐는지 확인한다.
+    assert "21" in out
+    assert "숫자셀 6개" in out
+
+
+# --- find_value: 200건 초과 잘림 신호 (Group A1 회귀) ---
+
+
+class _FindValueWorkbook:
+    """find_value 가 쓰는 used_values 만 제공하는 최소 가짜."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def used_values(self, sheet):
+        return self._rows, "A1"
+
+
+def test_find_value_truncates_over_200_hits_with_note():
+    rows = [[f"항목{i}"] for i in range(205)]  # 205건 모두 '항목' 부분일치
+    wb = _FindValueWorkbook(rows)
+    tools = make_excel_tools(wb)
+    out = _tool(tools, "find_value").invoke({"sheet": "시트1", "query": "항목"})
+    assert "200건" in out
+    assert "200건까지만 표시" in out
+
+
+def test_find_value_exact_200_hits_has_no_truncation_note():
+    rows = [[f"항목{i}"] for i in range(200)]  # 정확히 200건 — 잘림이 아니다
+    wb = _FindValueWorkbook(rows)
+    tools = make_excel_tools(wb)
+    out = _tool(tools, "find_value").invoke({"sheet": "시트1", "query": "항목"})
+    assert "200건" in out
+    assert "까지만 표시" not in out

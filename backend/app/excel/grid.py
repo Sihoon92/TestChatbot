@@ -104,6 +104,19 @@ def _type_name(v: Any) -> str:
     return "other"
 
 
+def numeric_count(values: list) -> int:
+    """집계에 실제로 쓰인(숫자로 인정된) 셀 개수. bool 은 제외 — aggregate_values
+    와 동일한 필터 기준.
+
+    LLM 이 무슨 값을 넘겼는지도 모른 채 결과 숫자만 받으면, 좁은 열 하나만
+    집계했는지 의도한 사각형 범위를 전부 집계했는지 구분할 근거가 없다.
+    aggregate 도구가 결과와 함께 "숫자셀 n개" 를 보여줄 때 쓴다 — 값을 다시
+    계산(sum/mean 등)하지 않고 개수만 세므로 "LLM 에게도, 도구 자체에도
+    산수를 시키지 않는다" 는 aggregate_values 의 계약을 건드리지 않는다.
+    """
+    return sum(1 for v in values if isinstance(v, _NUMERIC) and not isinstance(v, bool))
+
+
 def aggregate_values(values: list, op: str) -> float:
     """숫자 셀만 골라 sum/mean/min/max/count. bool 은 숫자에서 제외."""
     nums = [v for v in values if isinstance(v, _NUMERIC) and not isinstance(v, bool)]
