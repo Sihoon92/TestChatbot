@@ -4,7 +4,7 @@ import pytest
 
 xw = pytest.importorskip("xlwings")
 
-from app.excel.workbook import open_workbook  # noqa: E402
+from app.excel.workbook import WorkbookClosedError, open_workbook  # noqa: E402
 
 
 def _excel_available() -> bool:
@@ -148,6 +148,94 @@ def test_open_workbook_from_worker_thread(tmp_path):
         ["A", "제품1", 3.0],
         ["B", "제품2", 5.0],
     ]
+
+
+def test_cleanup_severs_references_and_quits_app_when_close_raises(tmp_path, monkeypatch):
+    """Critical 1 회귀 테스트: book.close() 가 예외를 던져도 app.quit() 은 실행되고,
+    (wb._book/제너레이터 프레임의) 참조는 끊겨야 한다.
+
+    close() 가 실패했는데 참조를 못 끊으면, 이 전용 워커 스레드가 join 되고
+    CoUninitialize 된 뒤 호출자 스레드에서 COM 프록시가 파이널라이즈되며
+    0x800401F0(CO_E_NOTINITIALIZED) 이 재현된다 — 이 테스트는 그 경로로 가지
+    않는지를 확인한다.
+    """
+    path = _write_sample(tmp_path, [["라인", "제품"], ["A", "제품1"]])
+
+    def _raising_close(self):
+        raise RuntimeError("close 실패 시뮬레이션")
+
+    monkeypatch.setattr(xw.Book, "close", _raising_close)
+
+    quit_calls: list[bool] = []
+    orig_quit = xw.App.quit
+
+    def _tracking_quit(self):
+        quit_calls.append(True)
+        return orig_quit(self)
+
+    monkeypatch.setattr(xw.App, "quit", _tracking_quit)
+
+    wb_ref = None
+    with pytest.raises(RuntimeError, match="close 실패 시뮬레이션"):
+        with open_workbook(str(path)) as wb:
+            wb_ref = wb
+            assert "데이터" in wb.sheet_names()  # close() 전에는 정상 동작
+
+    # close() 가 실패했더라도 app.quit() 은 바깥 finally 에서 여전히 호출돼야
+    # 한다 — "유령 프로세스 방지" 제약을 지키는 부분.
+    assert quit_calls, "app.quit() 가 book.close() 실패에도 호출되어야 한다"
+
+    # book.close() 가 실패해도 참조 끊기(wb._book = None)는 try/finally 로
+    # 보장돼야 한다.
+    assert wb_ref is not None
+    assert wb_ref._book is None
+
+
+def test_app_quits_when_context_body_raises(tmp_path, monkeypatch):
+    """with 블록 본문에서 예외가 나도 app.quit() 은 실행돼 유령 프로세스가 남지
+    않아야 한다."""
+    path = _write_sample(tmp_path, [["라인", "제품"], ["A", "제품1"]])
+
+    quit_calls: list[bool] = []
+    orig_quit = xw.App.quit
+
+    def _tracking_quit(self):
+        quit_calls.append(True)
+        return orig_quit(self)
+
+    monkeypatch.setattr(xw.App, "quit", _tracking_quit)
+
+    class _BodyBoom(Exception):
+        pass
+
+    with pytest.raises(_BodyBoom):
+        with open_workbook(str(path)) as wb:
+            wb.sheet_names()  # 컨텍스트가 정상 동작 중임을 확인
+            raise _BodyBoom("본문에서 실패")
+
+    assert quit_calls, "with 블록 본문에서 예외가 나도 app.quit() 이 호출돼야 한다"
+
+
+def test_workbook_method_after_close_raises_clear_domain_error(tmp_path):
+    """Minor 9 회귀 테스트: with 블록을 벗어난 뒤 Workbook 메서드를 호출하면
+    "cannot schedule new futures after shutdown" 같은 내부 구현 디테일이 아니라
+    명확한 WorkbookClosedError 가 나야 한다 (LangGraph 실행이 with 블록보다
+    오래 살아남는 시나리오)."""
+    path = _write_sample(tmp_path, [["라인", "제품"], ["A", "제품1"]])
+
+    with open_workbook(str(path)) as wb:
+        assert "데이터" in wb.sheet_names()
+
+    with pytest.raises(WorkbookClosedError):
+        wb.sheet_names()
+    with pytest.raises(WorkbookClosedError):
+        wb.used_shape("데이터")
+    with pytest.raises(WorkbookClosedError):
+        wb.range_values("데이터", "A1")
+    with pytest.raises(WorkbookClosedError):
+        wb.used_values("데이터")
+    with pytest.raises(WorkbookClosedError):
+        wb.column_values("데이터", "A")
 
 
 def test_open_on_one_thread_read_on_another(tmp_path):

@@ -56,6 +56,14 @@ def _com_thread_uninit() -> None:
     pythoncom.CoUninitialize()
 
 
+class WorkbookClosedError(RuntimeError):
+    """`open_workbook` 의 with 블록을 벗어난 뒤 `Workbook` 메서드를 호출하면 발생한다.
+
+    예: LangGraph 에이전트 실행이 `with open_workbook(...) as wb:` 블록보다
+    오래 살아남아, 블록이 끝난 뒤에도 도구가 `wb` 를 계속 참조하며 호출하는 경우.
+    """
+
+
 class Workbook:
     """xlwings 값 조회 래퍼.
 
@@ -70,12 +78,24 @@ class Workbook:
 
     def _run(self, fn: Callable[[], _T]) -> _T:
         """COM 을 만지는 콜러블을 전용 워커 스레드에서 실행하고 결과를 돌려준다."""
+        if self._book is None:
+            # open_workbook 의 with 블록이 이미 종료되어 워커 스레드/Excel 프로세스가
+            # 정리된 뒤다. executor 는 shutdown 되어 있어 그냥 submit 하면
+            # "cannot schedule new futures after shutdown" 라는 내부 구현 디테일이
+            # 그대로 새어나간다 — 여기서 먼저 걸러 의도가 분명한 도메인 에러로 바꾼다.
+            raise WorkbookClosedError(
+                "open_workbook 컨텍스트가 이미 종료되어 이 Workbook 은 더 이상 사용할 수 없다."
+            )
         return self._executor.submit(fn).result()
 
     def sheet_names(self) -> list[str]:
         return self._run(lambda: [s.name for s in self._book.sheets])
 
     def _sheet(self, sheet: str) -> "xw.Sheet":
+        # 주의: COM 프록시(self._book)를 직접 만지므로 반드시 `_run` 이 위임한
+        # 전용 워커 스레드 안에서만 호출해야 한다. 호출자 스레드에서 이 메서드를
+        # 직접 부르면 RPC_E_WRONG_THREAD 로 실패한다 — 모듈 docstring의
+        # "스레드와 COM" 절 참고.
         return self._book.sheets[sheet]
 
     def used_shape(self, sheet: str) -> tuple[int, int]:
@@ -120,13 +140,27 @@ def open_workbook(path: str) -> Iterator[Workbook]:
     executor = concurrent.futures.ThreadPoolExecutor(
         max_workers=1, thread_name_prefix="xlwings-com"
     )
+    # CoInitialize 가 실제로 성공했을 때만 짝이 되는 CoUninitialize 를 부르기
+    # 위한 플래그. `.result()` 가 예외를 던지면(초기화 실패) 이 값이 False로
+    # 남아, 초기화된 적 없는 스레드에 CoUninitialize 를 잘못 호출하는 일을 막는다.
+    com_initialized = False
     try:
         executor.submit(_com_thread_init).result()
+        com_initialized = True
 
         def _make_app() -> "xw.App":
             app = xw.App(visible=False, add_book=False)
-            app.display_alerts = False
-            app.screen_updating = False
+            # xw.App(...) 시점에 이미 EXCEL.EXE 프로세스가 떠 있다. 아래 속성
+            # 대입 중 하나라도 실패하면 그 예외만 퓨처를 통해 전파되고 지역
+            # 변수 app 은 버려지는데, 그러면 아무도 quit() 을 부르지 못해
+            # "유령 프로세스 방지" 제약을 어기는 EXCEL.EXE 가 남는다. 그래서
+            # 실패 시 여기서 먼저 quit() 하고 나서 원래 예외를 다시 던진다.
+            try:
+                app.display_alerts = False
+                app.screen_updating = False
+            except Exception:
+                app.quit()
+                raise
             return app
 
         app = executor.submit(_make_app).result()
@@ -150,30 +184,51 @@ def open_workbook(path: str) -> Iterator[Workbook]:
                     # gc.collect() 로 즉시 파이널라이즈되도록 유도한다(COM
                     # 프록시 정리는 앱 종료 전에 하는 것이 원칙).
                     #
-                    # `book = None` 을 이 클로저 안에서만 하지 않고 반드시
-                    # nonlocal 로 바깥(open_workbook)의 `book` 변수까지 끊는
-                    # 이유: 그러지 않으면 `open_workbook` 의 제너레이터 프레임이
-                    # (이 with 블록을 연 호출자 스레드에서) 정리될 때 그 프레임의
-                    # 지역변수 `book` 이 마지막 참조로 남아, 참조 카운트가 0이 되는
-                    # 순간 COM 프록시의 파이널라이저가 **호출자 스레드**에서
-                    # 실행돼 버린다(그 스레드는 COM 이 초기화돼 있지 않다) — 실제로
-                    # 이 nonlocal 정리를 빼먹었을 때 0x800401F0(-2147221008,
-                    # CO_E_NOTINITIALIZED)가 호출자 스레드에서 재현됐다.
+                    # 이 참조 끊기(및 gc.collect())를 nonlocal/wb._book 을 통해
+                    # **반드시** 실행하는 이유: 안 그러면 `open_workbook` 의
+                    # 제너레이터 프레임이나 `wb` 래퍼가 COM 프록시를 계속 들고
+                    # 있다가, 이 전용 스레드가 join 되고 CoUninitialize 된 뒤
+                    # **호출자 스레드**에서 마지막 참조가 풀려 파이널라이저가
+                    # 그 스레드(COM 미초기화 상태)에서 실행된다 — 실제로 이 정리를
+                    # 빼먹었을 때 0x800401F0(-2147221008, CO_E_NOTINITIALIZED)가
+                    # 호출자 스레드에서 재현됐다.
+                    #
+                    # book.close() 자체가 예외를 던질 수도 있다(Excel 모달 상태,
+                    # RPC 실패, 읽기 전용 잠금 등 — 이 모듈이 이미 겪고 있는
+                    # RPC_S_SERVER_UNAVAILABLE 노이즈도 바로 이 경로에서 난다).
+                    # close() 가 실패하더라도 위와 같은 이유로 참조 끊기와
+                    # gc.collect() 는 반드시 실행돼야 하므로 try/finally 로 묶는다.
+                    # app.quit() 은 바깥 finally 에서 별도로 보장되므로 여기서
+                    # close() 실패를 그대로 다시 던져도 프로세스가 남지 않는다.
                     nonlocal book
-                    book.close()
-                    wb._book = None
-                    book = None
-                    gc.collect()
+                    try:
+                        book.close()
+                    finally:
+                        wb._book = None
+                        book = None
+                        # 실측치(0x800706ba 관련 배경 — 자세한 현상은 모듈
+                        # 하단 CoUninitialize 근처 주석 참고): 이 gc.collect() 를
+                        # 추가하기 전에는 `Windows fatal exception: code
+                        # 0x800706ba` 가 테스트 당 3회 발생했고, 추가한 뒤로는
+                        # 테스트 당 2회로 줄었다. 근본 원인 규명은 못 했지만,
+                        # 이 호출이 현상의 빈도에 실제 영향을 준다는 유일한
+                        # 근거라서 유지한다.
+                        gc.collect()
 
                 executor.submit(_cleanup).result()
         finally:
             def _quit() -> None:
                 # _cleanup 의 `book` 과 같은 이유로, `app` 도 nonlocal 로 끊어서
                 # open_workbook 프레임 정리 시 호출자 스레드에서 COM 파이널라이저가
-                # 도는 일을 막는다.
+                # 도는 일을 막는다. app.quit() 이 예외를 던져도(RPC 실패 등)
+                # `app = None` 은 반드시 실행돼야 한다 — 안 그러면 이 프레임의
+                # `app` 지역변수가 마지막 참조로 남아 호출자 스레드에서
+                # 파이널라이즈되며 같은 부류의 크래시를 일으킨다.
                 nonlocal app
-                app.quit()
-                app = None
+                try:
+                    app.quit()
+                finally:
+                    app = None
 
             executor.submit(_quit).result()
     finally:
@@ -193,9 +248,10 @@ def open_workbook(path: str) -> Iterator[Workbook]:
         # 작업은 정상 완료됨은 확인함). 근본 원인은 여전히 미확정이며, 러너
         # 플래그나 설정으로 억제하지 않고 있는 그대로 둔다.
         try:
-            executor.submit(_com_thread_uninit).result()
+            if com_initialized:
+                executor.submit(_com_thread_uninit).result()
         finally:
             executor.shutdown(wait=True)
 
 
-__all__ = ["open_workbook", "Workbook", "col_to_letter"]
+__all__ = ["open_workbook", "Workbook", "WorkbookClosedError", "col_to_letter"]
