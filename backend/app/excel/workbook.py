@@ -54,7 +54,6 @@ def open_workbook(path: str) -> Iterator[Workbook]:
     app = xw.App(visible=False, add_book=False)
     app.display_alerts = False
     app.screen_updating = False
-    wb: "Workbook | None" = None
     try:
         book = app.books.open(path, read_only=True, update_links=False)
         wb = Workbook(book)
@@ -72,16 +71,18 @@ def open_workbook(path: str) -> Iterator[Workbook]:
             #
             # 실측 결과(참고용): 이 조치를 적용한 뒤에도 `pytest`(플래그 없이,
             # faulthandler 기본 활성) 실행 시 `Windows fatal exception: code
-            # 0x800706ba`(RPC_S_SERVER_UNAVAILABLE) 가 여전히 출력된다. 이 예외는
-            # book.close()/app.quit() 이 모두 끝나고 테스트의 모든 assertion 이
-            # 통과한 *이후*, pytest 프로세스 종료 단계에서 다른 스레드로부터
-            # 비동기적으로 발생한다(테스트는 여전히 PASSED 로 보고됨). 즉 이
-            # 함수의 정리 순서 문제가 아니라, 이 시점 이후 어딘가(인터프리터
-            # 종료 시 pywin32 COM 잔여 스텁의 지연 파이널라이즈로 추정)에서
-            # 발생하는, 이 레이어에서는 해결되지 않는 현상이다. 러너 플래그나
-            # 설정으로 억제하지 않고 있는 그대로 둔다 — 실행 후 EXCEL.EXE 잔여
-            # 프로세스는 없음을 확인했다(정상 종료 신호).
-            wb._book = None  # type: ignore[union-attr]
+            # 0x800706ba`(RPC_S_SERVER_UNAVAILABLE) 가 테스트 당 2회 출력된다.
+            # 이 예외는 테스트의 모든 assertion 이 통과한 *직후*, 동일 스레드
+            # (0x00007118, pytest_pyfunc_call 내)에서 동기적으로 발생하며, 각
+            # 테스트의 PASSED 직전에 나타난다. pytest 프로세스 종료 단계가 아니라
+            # 테스트 실행 중 이 정리 경로 근처에서 발생함을 의미한다. gc.collect()
+            # 추가 이전에는 테스트 당 3회였으므로, gc.collect() 호출이 발생 빈도에
+            # 영향을 미친다. 근본 원인(gc.collect() 이 COM RPC 채널 정리 중에
+            # 동기적 프록시 파이널라이즈를 강제하는 것인지, 또는 다른 원인인지)은
+            # 확정되지 않았다. 실행 후 EXCEL.EXE 잔여 프로세스는 없고, 작업은
+            # 정상 완료되므로, 러너 플래그나 설정으로 억제하지 않고 있는 그대로
+            # 둔다 — 예외 텍스트가 보이는 상태로 유지된다.
+            wb._book = None
             book = None
             gc.collect()
     finally:
