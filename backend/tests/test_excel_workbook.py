@@ -1,5 +1,6 @@
 import concurrent.futures
 import subprocess
+import time
 
 import pytest
 
@@ -34,15 +35,52 @@ def _leaked_xlwings_locals(exc: BaseException) -> list[str]:
     `isinstance(var_val, (xw.Book, xw.App))` 만 검사했는데, 새로 고친 두
     지점(`_open_book`, `Workbook._run`)이 새는 타입은 `xw.Books`/`xw.Sheets`/
     `xw.Sheet`/`xw.Range` 라서 좁은 검사로는 회귀를 못 잡는다).
+
+    `exc.__traceback__` 뿐 아니라 `__context__`/`__cause__` 체인도 재귀적으로
+    walk 한다 — `raise ... from None` 은 `__suppress_context__` 만 세우고
+    `__context__` 자체는 지우지 않으므로, 최상위 예외의 traceback 이 깨끗해도
+    `__context__` 체인 어딘가에 원본 예외(및 그 안의 COM 프록시)가 그대로
+    남아있을 수 있다(Critical 1 회귀: `raise WorkbookOperationError(...) from
+    None` 이 `except` 블록 **안**에 있으면 바로 이 경로로 샌다).
+
+    또한 `concurrent.futures.Future` 지역변수를 만나면 그 `_exception` 도
+    재귀적으로 walk 한다 — `_WorkItem.run` 이 워커 스레드에서 발생한 예외를
+    `future._exception` 에 저장해두므로, (수정 전 버전처럼) `_run` 이 호출자
+    스레드에서 `future.result()` 를 캐치해 처리하는 구조라면 그 `future` 가
+    `_run` 프레임의 지역변수로 남고, `future._exception` 은 (새로 던져진
+    예외가 아니라) COM 프록시를 물고 있는 **원본** 예외를 계속 붙들고 있을 수
+    있다(Critical 2). 다만 단순히 `_exception` 이 설정돼 있다는 사실 자체는
+    정상이다 — `future.result()` 가 예외를 재던진 뒤에도 `Future` 객체는
+    `_exception` 속성을 계속 들고 있고, 지금 바로 이 `exc`(walk 중인 최상위
+    예외) 도 대개 그 값과 동일한 객체다. 그래서 `inner_exc is not e` 로
+    "이미 지금 보고 있는 바로 그 예외"로의 사소한 자기참조는 건너뛰고, 그
+    외의(=진짜로 다른, 아직 안 걸러진) 예외만 재귀적으로 walk 해 그 안에
+    COM 프록시가 있으면 잡아낸다.
     """
     leaked: list[str] = []
-    tb = exc.__traceback__
-    while tb is not None:
-        frame = tb.tb_frame
-        for var_name, var_val in frame.f_locals.items():
-            if type(var_val).__module__.startswith("xlwings"):
-                leaked.append(f"{frame.f_code.co_name}.{var_name} ({type(var_val).__name__})")
-        tb = tb.tb_next
+    seen_ids: set[int] = set()
+
+    def _walk(e: BaseException | None, chain: str) -> None:
+        if e is None or id(e) in seen_ids:
+            return
+        seen_ids.add(id(e))
+        tb = e.__traceback__
+        while tb is not None:
+            frame = tb.tb_frame
+            for var_name, var_val in frame.f_locals.items():
+                if type(var_val).__module__.startswith("xlwings"):
+                    leaked.append(
+                        f"[{chain}] {frame.f_code.co_name}.{var_name} ({type(var_val).__name__})"
+                    )
+                if isinstance(var_val, concurrent.futures.Future):
+                    inner_exc = var_val._exception  # noqa: SLF001
+                    if inner_exc is not None and inner_exc is not e:
+                        _walk(inner_exc, f"{chain}.future({var_name})._exception")
+            tb = tb.tb_next
+        _walk(e.__cause__, f"{chain}.__cause__")
+        _walk(e.__context__, f"{chain}.__context__")
+
+    _walk(exc, "exc")
     return leaked
 
 
@@ -55,6 +93,24 @@ def _excel_process_count() -> int:
         check=False,
     )
     return completed.stdout.upper().count("EXCEL.EXE")
+
+
+def _wait_for_excel_process_count(expected: int, timeout: float = 3.0) -> int:
+    """`app.quit()` 이후 EXCEL.EXE 개수가 `expected` 로 수렴할 때까지 최대
+    `timeout` 초 폴링한다.
+
+    `app.quit()` 은 Excel 프로세스 종료를 기다리지 않고 비동기로 반환한다 —
+    호출 직후 한 번만 `tasklist` 를 찍으면 프로세스가 아직 종료 중이라
+    `after == before` 비교가 양방향으로 flaky 해진다(과다 카운트로 거짓
+    실패, 혹은 드물게 다른 타이밍에 거짓 통과). 짧은 간격으로 재시도해
+    수렴을 기다린다.
+    """
+    deadline = time.monotonic() + timeout
+    count = _excel_process_count()
+    while count != expected and time.monotonic() < deadline:
+        time.sleep(0.2)
+        count = _excel_process_count()
+    return count
 
 
 def test_open_and_read(tmp_path):
@@ -386,11 +442,18 @@ def test_open_nonexistent_path_raises_clear_error_without_leak_or_orphan(tmp_pat
     with pytest.raises(RuntimeError, match="워크북 열기 실패") as exc_info:
         with open_workbook(str(missing_path)):
             pass  # _open_book 단계에서 이미 실패하므로 본문은 실행되지 않는다
-    after = _excel_process_count()
 
     leaked = _leaked_xlwings_locals(exc_info.value)
     assert not leaked, f"호출자 스레드로 전파된 예외의 traceback 에 COM 객체가 남아있다: {leaked}"
 
+    # `_open_book` 은 except 블록 밖에서 완전히 새 RuntimeError 를 던지므로
+    # __context__ 가 없어야 한다 — 세 곳(`_open_book`/`_cleanup`(아래 close
+    # 실패 테스트)/`Workbook._run`) 모두 같은 불변식으로 고정한다.
+    assert exc_info.value.__context__ is None
+
+    # app.quit() 은 비동기로 반환하므로 (Windows 프로세스 종료는 즉시가
+    # 아니다), 한 번만 찍으면 양방향으로 flaky 하다 — 수렴할 때까지 폴링한다.
+    after = _wait_for_excel_process_count(before)
     assert after == before, "테스트 종료 후 유령 EXCEL.EXE 프로세스가 남았다"
 
 
@@ -414,9 +477,32 @@ def test_bad_sheet_name_raises_workbook_operation_error_without_leak(tmp_path):
         assert "데이터" in wb.sheet_names()
 
     message = str(exc_info.value)
-    # 원본 예외의 타입 이름/메시지가 텍스트로 보존돼 있어야 진단할 수 있다.
+    # 원본 예외의 타입 이름이 (렌더링이 아니라 짧게 자른) 메시지에도 텍스트로
+    # 보존돼 있어야 최소한의 진단이 가능하다. 실측: 존재하지 않는 시트 이름을
+    # 조회하면 xlwings 가 COM 호출(Sheets.__call__ -> InvokeTypes) 단계에서
+    # 실패해 원본 예외 타입은 `pywintypes.com_error` 다 — `len(message) > 40`
+    # 같은 느슨한 길이 체크는 메시지를 짧게 자른 뒤(LLM 프롬프트 보호)에는
+    # 의미가 없으므로, 구체적인 원본 타입 이름 포함 여부로 바꾼다.
     assert "엑셀 작업 실패" in message
-    assert len(message) > 40, "원본 예외의 타입/메시지/traceback 이 보존돼야 한다"
+    assert "com_error" in message, f"원본 예외 타입 이름이 메시지에 보존돼야 한다: {message!r}"
+    assert len(message) < 400, "LLM 프롬프트로 들어가는 메시지는 짧게 잘려야 한다"
+
+    # 전체 렌더(전체 traceback)는 메시지가 아니라 note 로만 붙는다 — `ToolNode`
+    # 의 `handle_tool_errors=True` 가 담는 `repr(e)` 에는 note 가 포함되지
+    # 않으므로 프롬프트는 짧게 유지되지만, 오퍼레이터/로그에서는 여전히 전체
+    # 정보를 볼 수 있어야 한다.
+    notes = "".join(getattr(exc_info.value, "__notes__", []))
+    assert "com_error" in notes and "xlwings" in notes, (
+        f"전체 traceback 렌더가 note 로 보존돼야 한다: {notes!r}"
+    )
+
+    # Critical 1 회귀 검증: `_run` 이 워커 스레드에서 (except 블록 밖에서) 새로
+    # 던지므로 __context__ 가 없어야 한다. 예전 버전은
+    # `raise WorkbookOperationError(...) from None` 을 `except` 블록 **안**에
+    # 두고 있어서, `__suppress_context__` 만 세워지고 `__context__` 자체는
+    # (원본 pywintypes.com_error 와 그 안의 xlwings COM 프록시 프레임까지)
+    # 그대로 남아있었다 — 아래 assert 가 없으면 이 회귀를 못 잡는다.
+    assert exc_info.value.__context__ is None
 
     leaked = _leaked_xlwings_locals(exc_info.value)
     assert not leaked, f"호출자 스레드로 전파된 예외의 traceback 에 COM 객체가 남아있다: {leaked}"

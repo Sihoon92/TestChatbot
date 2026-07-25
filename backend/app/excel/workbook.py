@@ -59,6 +59,24 @@ def _render_exception(exc: BaseException) -> str:
     return "".join(traceback.format_exception(exc))
 
 
+def _innermost_frame_location(exc: BaseException) -> str | None:
+    """예외 traceback 의 가장 안쪽(마지막) 프레임 위치를 "file:line" 문자열로 돌려준다.
+
+    `Workbook._run` 이 LLM 프롬프트에 실리는 짧은 메시지에 최소한의 진단
+    실마리를 덧붙이기 위해 쓴다. 프레임/COM 객체 자체는 붙잡지 않고
+    파일명·줄번호만 문자열로 뽑아내므로 `_render_exception` 과 같은 이유로
+    스레드/아파트먼트 경계를 넘어도 안전하다.
+    """
+    tb = exc.__traceback__
+    last = None
+    while tb is not None:
+        last = tb
+        tb = tb.tb_next
+    if last is None:
+        return None
+    return f"{last.tb_frame.f_code.co_filename}:{last.tb_lineno}"
+
+
 def _com_thread_init() -> None:
     """전용 워커 스레드가 시작될 때 그 스레드에 COM(STA)을 초기화한다."""
     pythoncom.CoInitialize()
@@ -109,9 +127,25 @@ class WorkbookOperationError(RuntimeError):
     __traceback__ 째 호출자 스레드로 그대로 넘기면, 그 프록시들의 마지막
     릴리스가 호출자 스레드(전용 워커가 아직 살아있더라도 그 소유 스레드가
     아닌 곳)에서 실행되는 크로스 아파트먼트 릴리스가 재현되기 때문이다.
-    그래서 원본은 `_render_exception` 으로 문자열만 렌더링해 담고, 새 예외를
-    던진다 — 원본의 타입 이름과 메시지는 텍스트로 보존되어 여전히 진단할
-    수 있다.
+
+    **caught-and-raised 는 반드시 워커 스레드 쪽에서**: `_run` 은 캐치·렌더·
+    재던지기를 전부 `_worker` 라는 워커 스레드 쪽 클로저 안에서 수행한다
+    (`_open_book`/`_make_app`/`_cleanup`/`_quit` 과 동일한 패턴). 호출자
+    스레드의 `_run` 은 `future.result()` 가 돌려주는, 이미 안전하게 완성된
+    이 예외를 그대로 재던지기만 한다 — 만약 캐치를 호출자 스레드에서
+    한다면 `future.result()` 시점에 이미 원본 예외가 __traceback__ 째
+    호출자 스레드로 넘어온 뒤이므로 늦다.
+
+    이 예외의 메시지는 다섯 조회 메서드 중 유일하게 `create_react_agent` 의
+    `ToolNode` 를 거쳐 LLM 프롬프트에 그대로 들어간다(`handle_tool_errors=True`
+    기본값이 예외를 `repr(e)` 로 감싼다) — 다른 네 지점은 `open_workbook`
+    자체를 벗어나 오퍼레이터에게만 보이므로 전체 traceback 렌더를 유지하지만,
+    여기는 에이전트 재시도마다 반복되므로 메시지를 짧게(대략 250자) 자른다
+    (`f"{type(exc).__name__}: {exc}"` + 가능하면 가장 안쪽 프레임의
+    `file:line`). 전체 렌더(`_render_exception`)는 `exc.add_note(...)` 로만
+    붙인다 — `ToolNode` 가 담는 `repr(e)` 에는 note 가 포함되지 않으므로
+    프롬프트는 짧고, 예외 객체를 직접 보는 오퍼레이터(로그 등)는 여전히
+    전체 정보를 얻는다.
     """
 
 
@@ -130,11 +164,21 @@ class Workbook:
     def _run(self, fn: Callable[[], _T]) -> _T:
         """COM 을 만지는 콜러블을 전용 워커 스레드에서 실행하고 결과를 돌려준다.
 
-        `fn` 이 워커 스레드에서 예외를 던지면 원본 객체를 그대로 호출자
-        스레드로 넘기지 않는다 — `WorkbookOperationError` 문서 참고. 대신
-        `_render_exception` 으로 문자열만 렌더링해 새 예외로 다시 던진다.
+        캐치·렌더링·재던지기를 전부 워커 스레드 쪽 클로저(`_worker`, 아래)
+        안에서 수행한다 — `_open_book`/`_make_app`/`_cleanup`/`_quit` 과
+        동일한, 이 모듈에서 이미 검증된 패턴이다(`WorkbookOperationError`
+        문서 참고). `fn` 이 던진 원본 예외는 워커 스레드에서 캐치해 문자열로만
+        렌더링하고, `except` 블록 **밖**에서 완전히 새 `WorkbookOperationError`
+        를 던진다 — 원본 객체·프레임(그 안의 xlwings COM 프록시)·암묵적
+        `__context__` 체이닝이 전부 워커 스레드 안에서 끝난다. 캐치를 이
+        (호출자) 스레드에서 했다면 이미 늦다: `future.result()` 가 원본
+        예외를 __traceback__ 째 호출자 스레드로 넘긴 **뒤에야** 캐치하게
+        되므로, 그 프레임에 걸린 COM 프록시가 호출자 스레드에서 파이널라이즈
+        되는 크로스 아파트먼트 릴리스를 막지 못한다. 그래서 아래 `_run` 본문은
+        `future.result()` 가 돌려주는(또는 재던지는) 값/예외를 그대로
+        전달하기만 한다 — 다시 감싸지 않는다.
 
-        의도적으로 남겨둔 좁은 한계: 여기서는 `Exception` 만 잡는다.
+        의도적으로 남겨둔 좁은 한계: `_worker` 는 `Exception` 만 잡는다.
         `KeyboardInterrupt`/`GeneratorExit` 같은 `BaseException` 이 워커 실행
         도중 발생하는 극히 드문 경우, 원본 프레임(및 그 안의 COM 프록시)이
         그대로 넘어갈 수 있다 — catch 범위를 넓히지 않기로 결정했다.
@@ -147,6 +191,37 @@ class Workbook:
             raise WorkbookClosedError(
                 "open_workbook 컨텍스트가 이미 종료되어 이 Workbook 은 더 이상 사용할 수 없다."
             )
+
+        def _worker() -> _T:
+            # 전용 워커 스레드에서 실행된다(executor.submit) — COM 객체의
+            # 소유 스레드에서 캐치·렌더·재던지기를 끝내야 하는 이유는 위
+            # `_run` docstring 참고. `fn()` 이 성공하면 `op_error_short` 가
+            # None 으로 남아 아래 `if` 를 건너뛰고 바로 `result` 를 돌려준다
+            # (`_open_book` 의 `open_error`/`book` 패턴과 동일).
+            result: _T | None = None
+            op_error_short: str | None = None
+            op_error_full: str | None = None
+            try:
+                result = fn()
+            except Exception as exc:  # noqa: BLE001
+                op_error_short = f"{type(exc).__name__}: {exc}"
+                location = _innermost_frame_location(exc)
+                if location is not None:
+                    op_error_short = f"{op_error_short} ({location})"
+                op_error_full = _render_exception(exc)
+            if op_error_short is not None:
+                # LLM 프롬프트에 실리는 메시지는 짧게 자른다(도구 반환을
+                # 항상 잘라서 주는 이 레이어의 다른 관례와 동일 — 컨텍스트
+                # 보호). 전체 렌더는 note 로만 붙여 오퍼레이터/로그에서는
+                # 여전히 전체 정보를 볼 수 있게 한다 — `WorkbookOperationError`
+                # 문서 참고.
+                if len(op_error_short) > 250:
+                    op_error_short = op_error_short[:250] + "…(truncated)"
+                err = WorkbookOperationError(f"엑셀 작업 실패: {op_error_short}")
+                err.add_note(op_error_full)
+                raise err
+            return result
+
         # 위 self._book is None 검사와 아래 submit() 사이에는 시간 간격이 있다
         # (TOCTOU) — 이 간격에 (예: LangGraph 가 도구를 별도 스레드에서 실행하는
         # 동안) `open_workbook` 의 with 블록이 다른 스레드에서 동시에 종료되면
@@ -159,20 +234,27 @@ class Workbook:
         # 반드시 먼저(같은 워커 스레드에서 순서대로) 실행하므로, 이 submit()
         # 이 RuntimeError 로 실패한 시점에 `self._book` 이 이미 None 이라면
         # 원인은 shutdown 뿐이라고 확정할 수 있다.
+        #
+        # 주의: 이 재확인은 executor.submit() 자체가 (shutdown 상태라서) 던지는
+        # RuntimeError 만 잡는다 — `self._book` 이 None 이 아닌 채로 with 블록이
+        # 열려 있는 동안 인터프리터 종료(interpreter shutdown)가 시작되면 같은
+        # 메시지의 RuntimeError 가 이 submit() 에서 새어나갈 수 있는데, 그때는
+        # `self._book is None` 이 False 이므로 아래 `raise` (원본 그대로)로
+        # 빠진다 — 즉 "state 재확인은 `_book is None` 인 경우만 도메인 에러로
+        # 바꾼다"는 좁은 커버리지다.
         try:
-            future = self._executor.submit(fn)
+            future = self._executor.submit(_worker)
         except RuntimeError:
             if self._book is None:
                 raise WorkbookClosedError(
                     "open_workbook 컨텍스트가 이미 종료되어 이 Workbook 은 더 이상 사용할 수 없다."
                 ) from None
             raise
-        try:
-            return future.result()
-        except Exception as exc:  # noqa: BLE001
-            raise WorkbookOperationError(
-                f"엑셀 작업 실패: {_render_exception(exc)}"
-            ) from None
+        # `_worker` 가 이미 워커 스레드에서 안전하게 렌더링/재던지기를 끝냈다
+        # (성공하면 값을, 실패하면 완성된 WorkbookOperationError 를 갖고 있다).
+        # 여기서는 그 결과를 그대로 돌려주거나 재던지기만 한다 — 다시 감싸지
+        # 않는다.
+        return future.result()
 
     def sheet_names(self) -> list[str]:
         return self._run(lambda: [s.name for s in self._book.sheets])
