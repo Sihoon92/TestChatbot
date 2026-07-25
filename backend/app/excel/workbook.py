@@ -35,6 +35,7 @@ LangGraph 워커 스레드 등) 신경 쓸 필요가 없다. `CoInitialize()`/`C
 """
 import concurrent.futures
 import gc
+import traceback
 from contextlib import contextmanager
 from typing import Callable, Iterator, TypeVar
 
@@ -44,6 +45,18 @@ import xlwings as xw
 from app.excel.grid import col_to_letter
 
 _T = TypeVar("_T")
+
+
+def _render_exception(exc: BaseException) -> str:
+    """예외를 COM 객체 참조 없이 문자열로만 렌더링한다.
+
+    `"".join(traceback.format_exception(exc))` 는 문자열만 돌려주므로, 원본
+    예외 객체·프레임·그 프레임에 걸린 xlwings COM 프록시가 호출자 스레드로
+    전혀 넘어가지 않는다(문자열은 스레드/아파트먼트 경계를 넘어도 안전하다).
+    `f"{type(exc).__name__}: {exc}"` 와 달리 실패가 일어난 정확한 위치(어느
+    xlwings 프레임의 몇 번째 줄)까지 보존해 진단에 쓸 수 있다.
+    """
+    return "".join(traceback.format_exception(exc))
 
 
 def _com_thread_init() -> None:
@@ -83,6 +96,25 @@ class WorkbookCleanupError(RuntimeError):
     """
 
 
+class WorkbookOperationError(RuntimeError):
+    """`Workbook` 의 조회 메서드(`sheet_names`/`used_shape`/`range_values`/
+    `used_values`/`column_values`)가 전용 워커 스레드에서 실패했을 때 발생한다.
+
+    예: 존재하지 않는 시트 이름, 잘못된 셀 주소. `_run` 이 위임한 워커 스레드
+    안에서 `self._book.sheets[sheet]`/`sht.range(...)` 등이 던지는 예외는
+    xlwings 라이브러리 내부 프레임(`Sheets.__getitem__`, `Range` 생성자 등)에
+    `self` 로 살아있는 `xw.Sheets`/`xw.Sheet`/`xw.Range` COM 프록시를 물고 있다.
+    `WorkbookCleanupError` 와 같은 이유로 원본 예외 객체를 그대로 재던지지
+    않는다 — `concurrent.futures.Future.__get_result` 가 그 프레임들을
+    __traceback__ 째 호출자 스레드로 그대로 넘기면, 그 프록시들의 마지막
+    릴리스가 호출자 스레드(전용 워커가 아직 살아있더라도 그 소유 스레드가
+    아닌 곳)에서 실행되는 크로스 아파트먼트 릴리스가 재현되기 때문이다.
+    그래서 원본은 `_render_exception` 으로 문자열만 렌더링해 담고, 새 예외를
+    던진다 — 원본의 타입 이름과 메시지는 텍스트로 보존되어 여전히 진단할
+    수 있다.
+    """
+
+
 class Workbook:
     """xlwings 값 조회 래퍼.
 
@@ -96,7 +128,17 @@ class Workbook:
         self._book = book
 
     def _run(self, fn: Callable[[], _T]) -> _T:
-        """COM 을 만지는 콜러블을 전용 워커 스레드에서 실행하고 결과를 돌려준다."""
+        """COM 을 만지는 콜러블을 전용 워커 스레드에서 실행하고 결과를 돌려준다.
+
+        `fn` 이 워커 스레드에서 예외를 던지면 원본 객체를 그대로 호출자
+        스레드로 넘기지 않는다 — `WorkbookOperationError` 문서 참고. 대신
+        `_render_exception` 으로 문자열만 렌더링해 새 예외로 다시 던진다.
+
+        의도적으로 남겨둔 좁은 한계: 여기서는 `Exception` 만 잡는다.
+        `KeyboardInterrupt`/`GeneratorExit` 같은 `BaseException` 이 워커 실행
+        도중 발생하는 극히 드문 경우, 원본 프레임(및 그 안의 COM 프록시)이
+        그대로 넘어갈 수 있다 — catch 범위를 넓히지 않기로 결정했다.
+        """
         if self._book is None:
             # open_workbook 의 with 블록이 이미 종료되어 워커 스레드/Excel 프로세스가
             # 정리된 뒤다. executor 는 shutdown 되어 있어 그냥 submit 하면
@@ -109,17 +151,28 @@ class Workbook:
         # (TOCTOU) — 이 간격에 (예: LangGraph 가 도구를 별도 스레드에서 실행하는
         # 동안) `open_workbook` 의 with 블록이 다른 스레드에서 동시에 종료되면
         # executor 가 그 사이에 shutdown 되어, 검사는 통과했지만 submit() 에서
-        # 여전히 "cannot schedule new futures after shutdown" (RuntimeError) 가
-        # 새어나갈 수 있다. 이 RuntimeError 를 여기서 명확한 도메인 에러로
-        # 다시 변환해 그 경쟁 창을 닫는다.
+        # 여전히 RuntimeError 가 새어나갈 수 있다. `ThreadPoolExecutor.submit`
+        # 은 이 경우 파이썬 버전에 따라 메시지가 다른 RuntimeError 를 던진다
+        # ("cannot schedule new futures after shutdown" 대
+        # "... after interpreter shutdown") — 문자열 매칭 대신 상태를
+        # 재확인한다. `_cleanup` 이 `wb._book = None` 을 executor shutdown 보다
+        # 반드시 먼저(같은 워커 스레드에서 순서대로) 실행하므로, 이 submit()
+        # 이 RuntimeError 로 실패한 시점에 `self._book` 이 이미 None 이라면
+        # 원인은 shutdown 뿐이라고 확정할 수 있다.
         try:
-            return self._executor.submit(fn).result()
-        except RuntimeError as exc:
-            if "cannot schedule new futures after shutdown" in str(exc):
+            future = self._executor.submit(fn)
+        except RuntimeError:
+            if self._book is None:
                 raise WorkbookClosedError(
                     "open_workbook 컨텍스트가 이미 종료되어 이 Workbook 은 더 이상 사용할 수 없다."
                 ) from None
             raise
+        try:
+            return future.result()
+        except Exception as exc:  # noqa: BLE001
+            raise WorkbookOperationError(
+                f"엑셀 작업 실패: {_render_exception(exc)}"
+            ) from None
 
     def sheet_names(self) -> list[str]:
         return self._run(lambda: [s.name for s in self._book.sheets])
@@ -201,24 +254,48 @@ def open_workbook(path: str) -> Iterator[Workbook]:
                 app.display_alerts = False
                 app.screen_updating = False
             except Exception as exc:  # noqa: BLE001
-                setup_error = f"{type(exc).__name__}: {exc}"
+                setup_error = _render_exception(exc)
             if setup_error is not None:
+                # quit() 자체가 실패해도 진짜 원인(setup_error)을 가리지 않도록
+                # non-demoting 하게(예외 타입/우선순위를 바꾸지 않고) 처리한다 —
+                # 다만 이전에는 이 실패를 조용히 삼켜서, 진짜로 유령 프로세스가
+                # 남는 경우에도 아무 증거가 남지 않았다(Minor 3). 여기서는
+                # quit_error 로 캡처해 최종 메시지에 덧붙여 가시성을 남긴다.
+                quit_error: str | None = None
                 try:
                     app.quit()
-                except Exception:  # noqa: BLE001
-                    # quit() 자체의 실패로 진짜 원인(setup_error)이 가려지면
-                    # 안 되므로 여기서는 삼킨다 — 유령 프로세스 방지가 목적이지
-                    # quit() 성공 여부를 보고하는 게 목적이 아니다.
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    quit_error = _render_exception(exc)
                 app = None
+                if quit_error is not None:
+                    raise RuntimeError(
+                        f"Excel App 초기화 실패: {setup_error} "
+                        f"(정리용 quit() 도 실패: {quit_error})"
+                    )
                 raise RuntimeError(f"Excel App 초기화 실패: {setup_error}")
             return app
 
         app = executor.submit(_make_app).result()
         try:
-            book = executor.submit(
-                lambda: app.books.open(path, read_only=True, update_links=False)
-            ).result()
+            def _open_book() -> "xw.Book":
+                # app.books.open() 이 실패하는 입력(존재하지 않는 경로, 잠긴
+                # 파일, 손상된 워크북 등)은 LLM 에이전트가 만들어낼 가능성이
+                # 가장 높은 나쁜 입력이다. 실패하면 그 예외는 xlwings 내부
+                # 프레임(예: Books.open 내부의 self=xw.Books/xw.App)에 걸린
+                # 채로 전파된다 — _make_app 과 동일한 크로스 아파트먼트 위험
+                # (WorkbookCleanupError 문서 참고). 그래서 여기서도 원본을
+                # 그대로 다시 던지지 않고, 렌더링한 문자열만 담아 새 예외를
+                # 던진다.
+                open_error: str | None = None
+                try:
+                    book = app.books.open(path, read_only=True, update_links=False)
+                except Exception as exc:  # noqa: BLE001
+                    open_error = _render_exception(exc)
+                if open_error is not None:
+                    raise RuntimeError(f"워크북 열기 실패: {open_error}")
+                return book
+
+            book = executor.submit(_open_book).result()
             wb = Workbook(executor, book)
             try:
                 yield wb
@@ -265,7 +342,7 @@ def open_workbook(path: str) -> Iterator[Workbook]:
                     try:
                         book.close()
                     except Exception as exc:  # noqa: BLE001
-                        close_error = f"{type(exc).__name__}: {exc}"
+                        close_error = _render_exception(exc)
                     finally:
                         wb._book = None
                         book = None
@@ -298,7 +375,7 @@ def open_workbook(path: str) -> Iterator[Workbook]:
                 try:
                     app.quit()
                 except Exception as exc:  # noqa: BLE001
-                    quit_error = f"{type(exc).__name__}: {exc}"
+                    quit_error = _render_exception(exc)
                 finally:
                     app = None
                 if quit_error is not None:
@@ -333,5 +410,6 @@ __all__ = [
     "Workbook",
     "WorkbookClosedError",
     "WorkbookCleanupError",
+    "WorkbookOperationError",
     "col_to_letter",
 ]

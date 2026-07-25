@@ -1,4 +1,5 @@
 import concurrent.futures
+import subprocess
 
 import pytest
 
@@ -7,6 +8,7 @@ xw = pytest.importorskip("xlwings")
 from app.excel.workbook import (  # noqa: E402
     WorkbookCleanupError,
     WorkbookClosedError,
+    WorkbookOperationError,
     open_workbook,
 )
 
@@ -21,6 +23,38 @@ def _excel_available() -> bool:
 
 
 pytestmark = pytest.mark.skipif(not _excel_available(), reason="Excel COM 미설치")
+
+
+def _leaked_xlwings_locals(exc: BaseException) -> list[str]:
+    """예외의 traceback 프레임 지역변수 중 살아있는 xlwings 객체를 모두 찾는다.
+
+    `type(var_val).__module__.startswith("xlwings")` 로 판정한다 — `xw.Book`/
+    `xw.App` 뿐 아니라 `xw.Books`/`xw.Sheets`/`xw.Sheet`/`xw.Range` 등 이
+    모듈이 다루는 모든 xlwings 래퍼 타입을 한 번에 잡기 위함이다(원래는
+    `isinstance(var_val, (xw.Book, xw.App))` 만 검사했는데, 새로 고친 두
+    지점(`_open_book`, `Workbook._run`)이 새는 타입은 `xw.Books`/`xw.Sheets`/
+    `xw.Sheet`/`xw.Range` 라서 좁은 검사로는 회귀를 못 잡는다).
+    """
+    leaked: list[str] = []
+    tb = exc.__traceback__
+    while tb is not None:
+        frame = tb.tb_frame
+        for var_name, var_val in frame.f_locals.items():
+            if type(var_val).__module__.startswith("xlwings"):
+                leaked.append(f"{frame.f_code.co_name}.{var_name} ({type(var_val).__name__})")
+        tb = tb.tb_next
+    return leaked
+
+
+def _excel_process_count() -> int:
+    """현재 떠 있는 EXCEL.EXE 프로세스 수. 유령 프로세스 검증(전후 비교)에 쓴다."""
+    completed = subprocess.run(
+        ["tasklist", "/FI", "IMAGENAME eq EXCEL.EXE", "/FO", "CSV", "/NH"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.stdout.upper().count("EXCEL.EXE")
 
 
 def test_open_and_read(tmp_path):
@@ -207,14 +241,7 @@ def test_cleanup_severs_references_and_quits_app_when_close_raises(tmp_path, mon
     # 파이널라이즈된다는 뜻이고, 그게 바로 이 회귀가 막으려는 크로스
     # 아파트먼트 릴리스다.
     exc = exc_info.value
-    tb = exc.__traceback__
-    leaked: list[str] = []
-    while tb is not None:
-        frame = tb.tb_frame
-        for var_name, var_val in frame.f_locals.items():
-            if isinstance(var_val, (xw.Book, xw.App)):
-                leaked.append(f"{frame.f_code.co_name}.{var_name} ({type(var_val).__name__})")
-        tb = tb.tb_next
+    leaked = _leaked_xlwings_locals(exc)
     assert not leaked, f"호출자 스레드로 전파된 예외의 traceback 에 COM 객체가 남아있다: {leaked}"
 
     # __context__ 체이닝을 통해서도 원본 예외(및 그 traceback)가 새어나가지
@@ -342,3 +369,54 @@ def test_open_on_one_thread_read_on_another(tmp_path):
         ["A", "제품1", 3.0],
         ["B", "제품2", 5.0],
     ]
+
+
+def test_open_nonexistent_path_raises_clear_error_without_leak_or_orphan(tmp_path):
+    """Critical 회귀 테스트: app.books.open() 이 실패하는(존재하지 않는 경로) 가장
+    흔한 나쁜 입력이 발생했을 때, `_open_book` 이 원본 xlwings 예외를 렌더링만
+    해서 새 RuntimeError 로 다시 던지는지 검증한다. `_make_app` 과 동일한
+    크로스 아파트먼트 위험이 세 줄 옆(`app.books.open(...)`)에도 있었다 —
+    원본을 그대로 재던졌다면 그 예외의 traceback 프레임(Books.open 내부의
+    self=xw.Books/xw.App 등)에 살아있는 COM 프록시가 호출자 스레드까지
+    실려갔을 것이다. 유령 EXCEL.EXE 도 남지 않아야 한다(app.quit() 은 바깥
+    finally 에서 여전히 보장된다)."""
+    missing_path = tmp_path / "does_not_exist.xlsx"
+
+    before = _excel_process_count()
+    with pytest.raises(RuntimeError, match="워크북 열기 실패") as exc_info:
+        with open_workbook(str(missing_path)):
+            pass  # _open_book 단계에서 이미 실패하므로 본문은 실행되지 않는다
+    after = _excel_process_count()
+
+    leaked = _leaked_xlwings_locals(exc_info.value)
+    assert not leaked, f"호출자 스레드로 전파된 예외의 traceback 에 COM 객체가 남아있다: {leaked}"
+
+    assert after == before, "테스트 종료 후 유령 EXCEL.EXE 프로세스가 남았다"
+
+
+def test_bad_sheet_name_raises_workbook_operation_error_without_leak(tmp_path):
+    """Important 회귀 테스트: 살아있는 컨텍스트 안에서 존재하지 않는 시트 이름으로
+    `Workbook` 메서드를 호출하면 `WorkbookOperationError` 로 감싸져야 한다.
+    `app/excel/tools.py` 는 `wb.*` 호출을 (aggregate 를 빼면) 전혀 try/except
+    로 감싸지 않으므로, LLM 이 지어낸 잘못된 시트 이름은 이 경로를 그대로
+    타고 나온다. `self._book.sheets[sheet]`(`Workbook._sheet`)가 실패하면 그
+    예외는 xlwings 내부 프레임(`Sheets.__getitem__` 등)에 `self`(xw.Sheets)를
+    물고 있으므로, `Workbook._run` 이 렌더링 없이 원본을 그대로 재던졌다면
+    그 COM 프록시가 호출자 스레드까지 실려갔을 것이다."""
+    path = _write_sample(tmp_path, [["라인", "제품"], ["A", "제품1"]])
+
+    with open_workbook(str(path)) as wb:
+        with pytest.raises(WorkbookOperationError) as exc_info:
+            wb.used_shape("존재하지않는시트")
+
+        # with 블록을 벗어나기 전, 컨텍스트가 여전히 정상 동작하는지 확인
+        # (WorkbookOperationError 가 워크북 자체를 망가뜨리지 않아야 한다).
+        assert "데이터" in wb.sheet_names()
+
+    message = str(exc_info.value)
+    # 원본 예외의 타입 이름/메시지가 텍스트로 보존돼 있어야 진단할 수 있다.
+    assert "엑셀 작업 실패" in message
+    assert len(message) > 40, "원본 예외의 타입/메시지/traceback 이 보존돼야 한다"
+
+    leaked = _leaked_xlwings_locals(exc_info.value)
+    assert not leaked, f"호출자 스레드로 전파된 예외의 traceback 에 COM 객체가 남아있다: {leaked}"
