@@ -64,6 +64,25 @@ class WorkbookClosedError(RuntimeError):
     """
 
 
+class WorkbookCleanupError(RuntimeError):
+    """정리(cleanup) 단계(`book.close()`/`app.quit()`)에서 COM 호출이 실패했을 때 발생한다.
+
+    중요: 이 예외는 항상 **새로 만들어** 던진다 — 원본 예외 객체를 그대로
+    다시 던지거나(`raise`) `raise ... from exc` 로 체이닝하지 않는다. 원본
+    예외 객체의 `__traceback__` 은 그 예외가 지나온 모든 프레임(예:
+    xlwings `Book.close`/`App.quit` 내부의 `self`)의 지역변수를 살려두는데,
+    `concurrent.futures.Future.__get_result` 는 워커 스레드에서 던져진
+    예외 객체를 __traceback__ 째로 그대로 호출자 스레드에 재던지기 때문에,
+    원본을 그대로 던지면 그 프레임에 걸린 xlwings COM 프록시(App/Book)가
+    호출자 스레드로 "탈출"한다 — 이 프록시의 마지막 릴리스가 호출자
+    스레드(이 전용 워커가 join 되고 CoUninitialize 된 뒤)에서 실행되면
+    이 모듈이 곳곳에서 막고 있는 바로 그 크로스 아파트먼트 릴리스가
+    재현된다. 그래서 여기서는 원본 예외를 문자열로만 렌더링해 메시지에
+    담고, `except` 블록 **밖**에서 완전히 새 예외를 던져 원본 객체·
+    프레임·(암묵적 `__context__` 체이닝까지) 전부 이 스레드 안에서 끝낸다.
+    """
+
+
 class Workbook:
     """xlwings 값 조회 래퍼.
 
@@ -86,7 +105,21 @@ class Workbook:
             raise WorkbookClosedError(
                 "open_workbook 컨텍스트가 이미 종료되어 이 Workbook 은 더 이상 사용할 수 없다."
             )
-        return self._executor.submit(fn).result()
+        # 위 self._book is None 검사와 아래 submit() 사이에는 시간 간격이 있다
+        # (TOCTOU) — 이 간격에 (예: LangGraph 가 도구를 별도 스레드에서 실행하는
+        # 동안) `open_workbook` 의 with 블록이 다른 스레드에서 동시에 종료되면
+        # executor 가 그 사이에 shutdown 되어, 검사는 통과했지만 submit() 에서
+        # 여전히 "cannot schedule new futures after shutdown" (RuntimeError) 가
+        # 새어나갈 수 있다. 이 RuntimeError 를 여기서 명확한 도메인 에러로
+        # 다시 변환해 그 경쟁 창을 닫는다.
+        try:
+            return self._executor.submit(fn).result()
+        except RuntimeError as exc:
+            if "cannot schedule new futures after shutdown" in str(exc):
+                raise WorkbookClosedError(
+                    "open_workbook 컨텍스트가 이미 종료되어 이 Workbook 은 더 이상 사용할 수 없다."
+                ) from None
+            raise
 
     def sheet_names(self) -> list[str]:
         return self._run(lambda: [s.name for s in self._book.sheets])
@@ -155,12 +188,30 @@ def open_workbook(path: str) -> Iterator[Workbook]:
             # 변수 app 은 버려지는데, 그러면 아무도 quit() 을 부르지 못해
             # "유령 프로세스 방지" 제약을 어기는 EXCEL.EXE 가 남는다. 그래서
             # 실패 시 여기서 먼저 quit() 하고 나서 원래 예외를 다시 던진다.
+            #
+            # 단, 원본 예외 객체를 그대로 다시 던지면(`raise`) 그 예외의
+            # __traceback__ 프레임에 걸린 이 지역변수 app(xw.App COM 프록시)이
+            # Future.__get_result 를 통해 호출자 스레드까지 그대로 실려간다
+            # (WorkbookCleanupError 문서 참고 — 이 함수도 같은 위험에 노출돼
+            # 있다). 그래서 여기서도 원본을 문자열로만 렌더링해 담고, quit() 을
+            # 방어적으로(그 자체가 실패해도 삼켜서 원래 원인을 가리지 않게)
+            # 호출한 뒤, 지역변수를 끊고 나서 완전히 새 예외를 던진다.
+            setup_error: str | None = None
             try:
                 app.display_alerts = False
                 app.screen_updating = False
-            except Exception:
-                app.quit()
-                raise
+            except Exception as exc:  # noqa: BLE001
+                setup_error = f"{type(exc).__name__}: {exc}"
+            if setup_error is not None:
+                try:
+                    app.quit()
+                except Exception:  # noqa: BLE001
+                    # quit() 자체의 실패로 진짜 원인(setup_error)이 가려지면
+                    # 안 되므로 여기서는 삼킨다 — 유령 프로세스 방지가 목적이지
+                    # quit() 성공 여부를 보고하는 게 목적이 아니다.
+                    pass
+                app = None
+                raise RuntimeError(f"Excel App 초기화 실패: {setup_error}")
             return app
 
         app = executor.submit(_make_app).result()
@@ -199,10 +250,22 @@ def open_workbook(path: str) -> Iterator[Workbook]:
                     # close() 가 실패하더라도 위와 같은 이유로 참조 끊기와
                     # gc.collect() 는 반드시 실행돼야 하므로 try/finally 로 묶는다.
                     # app.quit() 은 바깥 finally 에서 별도로 보장되므로 여기서
-                    # close() 실패를 그대로 다시 던져도 프로세스가 남지 않는다.
+                    # close() 실패를 그대로 다시 던져도 프로세스가 남지 않는다 —
+                    # 다만 "그대로"(원본 예외 객체를 `raise` 로 재던짐)는 하지
+                    # 않는다: WorkbookCleanupError 문서에 적었듯, 원본 예외의
+                    # __traceback__ 프레임(xlwings Book.close 내부의 self 등)이
+                    # Future 를 통해 호출자 스레드까지 살아서 넘어가 그 프록시의
+                    # 마지막 릴리스가 호출자 스레드에서 실행되는 걸 막아야 한다.
+                    # 그래서 원본은 문자열로만 렌더링해 담고(close_error),
+                    # try/finally/if 블록이 전부 끝난 뒤(= except 블록 밖, 진행
+                    # 중인 예외 없음) 완전히 새 예외를 던진다 — 원본 객체·
+                    # 프레임·암묵적 __context__ 체이닝 전부 여기서 끝난다.
                     nonlocal book
+                    close_error: str | None = None
                     try:
                         book.close()
+                    except Exception as exc:  # noqa: BLE001
+                        close_error = f"{type(exc).__name__}: {exc}"
                     finally:
                         wb._book = None
                         book = None
@@ -214,6 +277,8 @@ def open_workbook(path: str) -> Iterator[Workbook]:
                         # 이 호출이 현상의 빈도에 실제 영향을 준다는 유일한
                         # 근거라서 유지한다.
                         gc.collect()
+                    if close_error is not None:
+                        raise WorkbookCleanupError(f"book.close() 실패: {close_error}")
 
                 executor.submit(_cleanup).result()
         finally:
@@ -224,11 +289,20 @@ def open_workbook(path: str) -> Iterator[Workbook]:
                 # `app = None` 은 반드시 실행돼야 한다 — 안 그러면 이 프레임의
                 # `app` 지역변수가 마지막 참조로 남아 호출자 스레드에서
                 # 파이널라이즈되며 같은 부류의 크래시를 일으킨다.
+                #
+                # _cleanup 과 같은 이유로 원본 예외 객체는 그대로 던지지 않는다
+                # (WorkbookCleanupError 문서 참고) — 문자열로만 렌더링해 담고,
+                # try/finally/if 가 전부 끝난 뒤 새 예외를 던진다.
                 nonlocal app
+                quit_error: str | None = None
                 try:
                     app.quit()
+                except Exception as exc:  # noqa: BLE001
+                    quit_error = f"{type(exc).__name__}: {exc}"
                 finally:
                     app = None
+                if quit_error is not None:
+                    raise WorkbookCleanupError(f"app.quit() 실패: {quit_error}")
 
             executor.submit(_quit).result()
     finally:
@@ -254,4 +328,10 @@ def open_workbook(path: str) -> Iterator[Workbook]:
             executor.shutdown(wait=True)
 
 
-__all__ = ["open_workbook", "Workbook", "WorkbookClosedError", "col_to_letter"]
+__all__ = [
+    "open_workbook",
+    "Workbook",
+    "WorkbookClosedError",
+    "WorkbookCleanupError",
+    "col_to_letter",
+]

@@ -32,22 +32,30 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/
 
 # Windows 콘솔 코드페이지(cp949 등)에서도 print() 의 이모지(✅/❌/⏭️)가
-# UnicodeEncodeError 로 죽지 않도록, stdout/stderr 를 UTF-8 로 강제한다.
-# (원인: 콘솔 코드페이지가 cp949 면 기본 stdout 인코딩도 cp949 라 그 밖의
-# 문자를 인코딩하지 못한다. UTF-8 로 재설정하면 문자 자체는 그대로 인코딩되고
-# 실제 화면 렌더링만 터미널/폰트 설정에 달렸을 뿐, 정보 손실은 없다.)
+# UnicodeEncodeError 로 죽지 않게 한다. 단, encoding="utf-8" 로 강제하면
+# 출력이 파이프/파일로 리다이렉트될 때(리더가 여전히 cp949 를 기대하는 경우)
+# 이모지뿐 아니라 스크립트 전체의 한글 텍스트까지 UTF-8 바이트로 나가
+# 깨져 보인다. errors="replace" 만 주고 스트림 자체의 인코딩(cp949 등)은
+# 그대로 둔다 — cp949 로 인코딩 못 하는 이모지만 대체 문자로 깨지고(어차피
+# mark() 가 PASS/FAIL/SKIP 문자열도 함께 출력하므로 정보 손실은 없다), 나머지
+# 한글 텍스트의 인코딩은 리다이렉트 대상과 일치한 채로 유지된다.
 for _stream_name in ("stdout", "stderr"):
     _stream = getattr(sys, _stream_name)
     if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+        _stream.reconfigure(errors="replace")
 
 from langchain_core.messages import HumanMessage  # noqa: E402
 from langchain_core.tools import tool  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
-from app.excel.tools import make_excel_tools  # noqa: E402
-from app.excel.workbook import open_workbook  # noqa: E402
 from app.llm import get_chat_model  # noqa: E402
+
+# 주의: app.excel.tools/app.excel.workbook 은 여기서 top-level import 하지
+# 않는다 — 그 모듈들이 pythoncom/xlwings 를 top-level import 하므로, Excel
+# 도구가 전혀 설치되지 않은 PC 에서는 이 스크립트가 main() 진입 전에
+# ImportError 로 죽어버려 Excel 이 필요 없는 [1]/[2] 단계까지 함께 막힌다.
+# 대신 _check_excel_tools 안에서 xlwings 설치 여부를 먼저 확인한 뒤에만
+# import 해서, [3] 만 SKIP 되고 [1]/[2] 는 정상 실행되게 한다.
 
 
 @tool
@@ -206,6 +214,13 @@ def _check_excel_tools(model):
     except Exception as exc:  # noqa: BLE001
         print(f"    → create_react_agent import 실패: {exc}")
         return False
+
+    # xlwings 설치가 확인된 뒤에만 import 한다 — app.excel.workbook 이
+    # pythoncom/xlwings 를 top-level import 하므로, 이 시점 이전에 import
+    # 하면 xlwings 미설치 환경에서 [1]/[2] 까지 함께 죽는다(모듈 상단 주석
+    # 참고).
+    from app.excel.tools import make_excel_tools
+    from app.excel.workbook import open_workbook
 
     token = "엑셀툴검증OK"
     tmp_dir = tempfile.mkdtemp(prefix="verify_tool_calling_")

@@ -4,7 +4,11 @@ import pytest
 
 xw = pytest.importorskip("xlwings")
 
-from app.excel.workbook import WorkbookClosedError, open_workbook  # noqa: E402
+from app.excel.workbook import (  # noqa: E402
+    WorkbookCleanupError,
+    WorkbookClosedError,
+    open_workbook,
+)
 
 
 def _excel_available() -> bool:
@@ -152,7 +156,14 @@ def test_open_workbook_from_worker_thread(tmp_path):
 
 def test_cleanup_severs_references_and_quits_app_when_close_raises(tmp_path, monkeypatch):
     """Critical 1 회귀 테스트: book.close() 가 예외를 던져도 app.quit() 은 실행되고,
-    (wb._book/제너레이터 프레임의) 참조는 끊겨야 한다.
+    (wb._book/제너레이터 프레임의) 참조는 끊겨야 한다. 또한 호출자 스레드로
+    전파되는 예외는 원본 xlwings 예외 객체가 아니라 새로 만들어진
+    WorkbookCleanupError 여야 한다 — 원본을 그대로(`raise`) 전파하면
+    concurrent.futures 가 그 __traceback__ 을 프레임째 호출자 스레드로 넘기고,
+    그 프레임들(xlwings Book.close 내부의 self 등)이 살아있는 xw.Book/xw.App
+    COM 프록시를 들고 있어 그 프록시의 마지막 릴리스가 호출자 스레드(전용
+    워커가 join 되고 CoUninitialize 된 뒤)에서 실행되는, 이 모듈이 곳곳에서
+    막고 있는 바로 그 크로스 아파트먼트 릴리스가 재현된다.
 
     close() 가 실패했는데 참조를 못 끊으면, 이 전용 워커 스레드가 join 되고
     CoUninitialize 된 뒤 호출자 스레드에서 COM 프록시가 파이널라이즈되며
@@ -176,7 +187,7 @@ def test_cleanup_severs_references_and_quits_app_when_close_raises(tmp_path, mon
     monkeypatch.setattr(xw.App, "quit", _tracking_quit)
 
     wb_ref = None
-    with pytest.raises(RuntimeError, match="close 실패 시뮬레이션"):
+    with pytest.raises(WorkbookCleanupError, match="close 실패 시뮬레이션") as exc_info:
         with open_workbook(str(path)) as wb:
             wb_ref = wb
             assert "데이터" in wb.sheet_names()  # close() 전에는 정상 동작
@@ -189,6 +200,27 @@ def test_cleanup_severs_references_and_quits_app_when_close_raises(tmp_path, mon
     # 보장돼야 한다.
     assert wb_ref is not None
     assert wb_ref._book is None
+
+    # Critical 1 핵심 검증: 호출자 스레드로 넘어온 예외의 traceback 프레임
+    # 어디에도 살아있는 xw.Book/xw.App COM 프록시가 지역변수로 남아있으면 안
+    # 된다 — 남아있다면 그 프록시가 워커 스레드가 아니라 이 (호출자) 스레드에서
+    # 파이널라이즈된다는 뜻이고, 그게 바로 이 회귀가 막으려는 크로스
+    # 아파트먼트 릴리스다.
+    exc = exc_info.value
+    tb = exc.__traceback__
+    leaked: list[str] = []
+    while tb is not None:
+        frame = tb.tb_frame
+        for var_name, var_val in frame.f_locals.items():
+            if isinstance(var_val, (xw.Book, xw.App)):
+                leaked.append(f"{frame.f_code.co_name}.{var_name} ({type(var_val).__name__})")
+        tb = tb.tb_next
+    assert not leaked, f"호출자 스레드로 전파된 예외의 traceback 에 COM 객체가 남아있다: {leaked}"
+
+    # __context__ 체이닝을 통해서도 원본 예외(및 그 traceback)가 새어나가지
+    # 않아야 한다 — WorkbookCleanupError 는 except 블록 밖에서 새로 던져지므로
+    # __context__ 가 없어야 한다.
+    assert exc.__context__ is None
 
 
 def test_app_quits_when_context_body_raises(tmp_path, monkeypatch):
@@ -214,6 +246,37 @@ def test_app_quits_when_context_body_raises(tmp_path, monkeypatch):
             raise _BodyBoom("본문에서 실패")
 
     assert quit_calls, "with 블록 본문에서 예외가 나도 app.quit() 이 호출돼야 한다"
+
+
+def test_make_app_quits_ghost_process_when_setup_raises(tmp_path, monkeypatch):
+    """Minor 3 회귀 테스트: _make_app 내부에서 app.display_alerts 대입이 실패해도
+    (그 시점에 이미 떠 있는) EXCEL.EXE 프로세스에 app.quit() 이 호출돼야 한다 —
+    안 그러면 아무도 정리하지 못하는 유령 프로세스가 남는다."""
+    path = _write_sample(tmp_path, [["라인", "제품"], ["A", "제품1"]])
+
+    quit_calls: list[bool] = []
+    orig_quit = xw.App.quit
+
+    def _tracking_quit(self):
+        quit_calls.append(True)
+        return orig_quit(self)
+
+    monkeypatch.setattr(xw.App, "quit", _tracking_quit)
+
+    orig_display_alerts = xw.App.display_alerts  # property, .fget 은 그대로 재사용
+
+    def _raising_setter(self, value):
+        raise RuntimeError("display_alerts 대입 실패 시뮬레이션")
+
+    monkeypatch.setattr(
+        xw.App, "display_alerts", property(orig_display_alerts.fget, _raising_setter)
+    )
+
+    with pytest.raises(RuntimeError, match="Excel App 초기화 실패"):
+        with open_workbook(str(path)):
+            pass  # _make_app 단계에서 이미 실패하므로 본문은 실행되지 않는다
+
+    assert quit_calls, "app.quit() 가 _make_app 초기화 실패에도 호출되어야 한다"
 
 
 def test_workbook_method_after_close_raises_clear_domain_error(tmp_path):
