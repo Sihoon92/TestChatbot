@@ -1,5 +1,5 @@
 import type { ProductionRun } from "../../types/mold";
-import { DASH, fmtPercent, fmtText } from "./formatters";
+import { DASH, fmtInstallation, fmtPercent, fmtText } from "./formatters";
 
 /** 화면에 있는 행들에 등장한 불량 항목의 합집합(처음 등장한 순서 유지).
  *
@@ -48,9 +48,7 @@ export default function ProductionTable({ runs }: { runs: ProductionRun[] }) {
             return (
               <tr key={run.install_seq}>
                 <td className={TD}>{run.install_seq}</td>
-                <td className={TD}>
-                  {run.line}-{run.machine}
-                </td>
+                <td className={TD}>{fmtInstallation(run.line, run.machine)}</td>
                 <td className={TD}>
                   {run.started_at} ~ {fmtText(run.ended_at)}
                 </td>
