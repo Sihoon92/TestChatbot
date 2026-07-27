@@ -25,12 +25,20 @@ describe("molds API client", () => {
     expect(url).toContain("q=M-10");
   });
 
+  it("omits whitespace-only q from the query string", async () => {
+    await listMolds({ q: "   ", status: "all", line: null, machine: null });
+    const url = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toBe("/api/molds");
+    expect(url).not.toContain("q=");
+  });
+
   it("does not send status when it is 'all'", async () => {
     await listMolds({ q: "", status: "all", line: "3", machine: "2" });
     const url = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     expect(url).not.toContain("status=");
     // 상태가 '전체'면 라인/호기 필터도 의미가 없다(종속 관계).
     expect(url).not.toContain("line=");
+    expect(url).not.toContain("machine=");
   });
 
   it("throws on HTTP error so callers can show the error banner", async () => {
