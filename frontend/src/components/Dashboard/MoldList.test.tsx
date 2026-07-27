@@ -96,4 +96,27 @@ describe("MoldList", () => {
     await userEvent.click(screen.getByRole("button", { name: "필터 초기화" }));
     expect(useDashboardStore.getState().filters).toEqual(DEFAULT_FILTERS);
   });
+
+  // 전체 리뷰 케이스 (c): loadMolds 가 네트워크 실패로 비어 있는 것과
+  // "조건에 맞는 금형이 없어서" 비어 있는 것은 다른 사실이다. 실패일 때
+  // 필터 초기화 버튼을 보여주면, 문제였던 적 없는 필터를 고치라고
+  // 유도하는 오판이 된다 — 페이지 상단 배너가 이미 실패를 알리므로
+  // 여기서는 필터 초기화를 권하지 않는다.
+  it("does not offer a filter reset when the list is empty because loading failed", () => {
+    useDashboardStore.setState({
+      molds: [],
+      filters: { ...DEFAULT_FILTERS },
+      listLoading: false,
+      listError: "HTTP 500",
+    });
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <Routes>
+          <Route path="/dashboard" element={<MoldList />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText("조건에 맞는 금형이 없습니다")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "필터 초기화" })).not.toBeInTheDocument();
+  });
 });

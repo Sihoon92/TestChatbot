@@ -13,8 +13,16 @@ export default function MoldFilterBar() {
   const setFilter = useDashboardStore((s) => s.setFilter);
 
   const installations = options?.installations ?? [];
-  const installationValue =
-    filters.line && filters.machine ? `${filters.line}-${filters.machine}` : "";
+  // 라인/호기 값을 `${line}-${machine}` 문자열로 합쳤다가 split("-")로
+  // 되돌리면, line 이나 machine 자체에 하이픈이 들어있는 경우(스펙의
+  // 가정 목록에 없는 형식) 조용히 잘못 나뉜다(예: "A-1-2".split("-") →
+  // line "A", machine "1", 나머지 "2"는 유실). 그 재파싱을 아예 없애기
+  // 위해 배열 인덱스를 값으로 쓰고, 선택 시 그 인덱스로 배열을 다시
+  // 찾는다.
+  const installationIndex = installations.findIndex(
+    (i) => i.line === filters.line && i.machine === filters.machine,
+  );
+  const installationValue = installationIndex >= 0 ? String(installationIndex) : "";
 
   return (
     <div className="flex shrink-0 flex-col gap-2 border-b border-paper-dark p-3">
@@ -54,14 +62,14 @@ export default function MoldFilterBar() {
             <select
               value={installationValue}
               onChange={(e) => {
-                const [line, machine] = e.target.value.split("-");
-                setFilter({ line: line || null, machine: machine || null });
+                const picked = e.target.value === "" ? undefined : installations[Number(e.target.value)];
+                setFilter({ line: picked?.line ?? null, machine: picked?.machine ?? null });
               }}
               className={SELECT_CLASS}
             >
               <option value="">전체</option>
-              {installations.map(({ line, machine }) => (
-                <option key={`${line}-${machine}`} value={`${line}-${machine}`}>
+              {installations.map(({ line, machine }, index) => (
+                <option key={index} value={index}>
                   {line}-{machine}
                 </option>
               ))}

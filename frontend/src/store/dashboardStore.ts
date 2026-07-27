@@ -19,7 +19,29 @@ interface DashboardState {
   detail: MoldDetail | null;
   listLoading: boolean;
   detailLoading: boolean;
-  error: string | null;
+  // 전체 리뷰에서 확인된 버그: 예전에는 error 필드 하나를 loadOptions /
+  // loadMolds / loadDetail 세 loader 가 함께 썼다. 그 결과 아무 loader나
+  // 성공하면 error: null 을 써서 다른 loader의 실패를 지워버렸다 — 예를
+  // 들어 상세 조회가 404 로 실패한 채로 필터만 바꿔도(목록 조회 성공)
+  // 상세 패널의 에러가 사라져 "불러오는 중…"에 영구히 멈췄다. 목록 쪽
+  // (loadOptions, loadMolds)과 상세 쪽(loadDetail)의 실패는 서로 독립된
+  // 필드에 적어 이 교차 오염을 없앤다.
+  listError: string | null;
+  detailError: string | null;
+  // listError 는 loadOptions 와 loadMolds 가 함께 쓰는 필드다 — 필터
+  // 선택지든 목록이든 실패하면 똑같이 "목록 화면이 온전하지 않다"는 뜻이라
+  // 배너 하나로 합쳐 보여준다. 하지만 둘 중 하나의 성공이 다른 하나의
+  // 살아있는 실패를 지워버리면 안 된다(예: loadOptions 가 404 로 실패한
+  // 채로 필터가 바뀌어 loadMolds 가 성공하면, listError: null 을 무조건
+  // 쓰는 순간 options 는 여전히 null 인데 에러 배너는 사라진다 — 상태
+  // select 가 '전체'만 보여주면서도 화면은 조용하다). 그래서 두 loader
+  // 각각의 최근 실패를 별도로 기억해뒀다가 listError 는 그 조합으로
+  // 계산한다. 이 두 값은 DashboardState 밖의 클로저가 아니라 상태 필드로
+  // 둔다 — 테스트의 beforeEach 가 setState 로 리셋할 수 있어야 하기
+  // 때문이다. 어떤 컴포넌트도 이 두 필드를 직접 읽지 않는다(listError만
+  // 읽는다).
+  _optionsError: string | null;
+  _moldsError: string | null;
   detailToken: number;
 
   setFilter: (patch: Partial<MoldFilters>) => void;
@@ -34,6 +56,11 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function combineListError(moldsError: string | null, optionsError: string | null): string | null {
+  if (moldsError && optionsError) return `${moldsError} / ${optionsError}`;
+  return moldsError ?? optionsError;
+}
+
 export const useDashboardStore = create<DashboardState>((set, get) => ({
   filters: { ...DEFAULT_FILTERS },
   options: null,
@@ -46,7 +73,10 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   // 아닌데 사용자에게 필터를 고치라고 유도하는 오판이다.
   listLoading: true,
   detailLoading: false,
-  error: null,
+  listError: null,
+  detailError: null,
+  _optionsError: null,
+  _moldsError: null,
   detailToken: 0,
 
   setFilter: (patch) =>
@@ -66,18 +96,22 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
   loadOptions: async () => {
     try {
-      set({ options: await getFilterOptions() });
+      const options = await getFilterOptions();
+      set({ options, _optionsError: null, listError: combineListError(get()._moldsError, null) });
     } catch (err) {
-      set({ error: message(err) });
+      const optionsError = message(err);
+      set({ _optionsError: optionsError, listError: combineListError(get()._moldsError, optionsError) });
     }
   },
 
   loadMolds: async () => {
     set({ listLoading: true });
     try {
-      set({ molds: await listMolds(get().filters), error: null });
+      const molds = await listMolds(get().filters);
+      set({ molds, _moldsError: null, listError: combineListError(null, get()._optionsError) });
     } catch (err) {
-      set({ error: message(err) });
+      const moldsError = message(err);
+      set({ _moldsError: moldsError, listError: combineListError(moldsError, get()._optionsError) });
     } finally {
       set({ listLoading: false });
     }
@@ -92,12 +126,13 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     try {
       const detail = await getMold(moldNo);
       if (get().detailToken !== token) return; // 더 최신 요청이 있다 — 버린다
-      set({ detail, error: null });
+      set({ detail, detailError: null });
     } catch (err) {
       if (get().detailToken !== token) return;
       // 상세 조회 실패 시 옛 금형의 상세가 남아 있으면 다른 금형의 데이터를
-      // 보고 있다고 오해하게 된다. 반드시 비운다.
-      set({ detail: null, error: message(err) });
+      // 보고 있다고 오해하게 된다. 반드시 비운다. listError 는 건드리지
+      // 않는다 — 상세 조회 실패는 목록 화면과 무관하다.
+      set({ detail: null, detailError: message(err) });
     } finally {
       if (get().detailToken === token) set({ detailLoading: false });
     }

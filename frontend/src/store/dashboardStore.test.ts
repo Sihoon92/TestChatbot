@@ -18,7 +18,10 @@ describe("dashboardStore", () => {
       detail: null,
       options: null,
       detailLoading: false,
-      error: null,
+      listError: null,
+      detailError: null,
+      _optionsError: null,
+      _moldsError: null,
     });
     vi.clearAllMocks();
   });
@@ -76,14 +79,51 @@ describe("dashboardStore", () => {
   it("stores an error message when the list request fails", async () => {
     vi.mocked(listMolds).mockRejectedValueOnce(new Error("HTTP 500"));
     await useDashboardStore.getState().loadMolds();
-    expect(useDashboardStore.getState().error).toContain("HTTP 500");
+    expect(useDashboardStore.getState().listError).toContain("HTTP 500");
     expect(useDashboardStore.getState().listLoading).toBe(false);
   });
 
-  it("clears a previous error once a request succeeds", async () => {
-    useDashboardStore.setState({ error: "옛 오류" });
+  // 예전 테스트("clears a previous error once a request succeeds")는 error
+  // 필드 하나를 세 loader 가 공유하던 버그를 "의도된 동작"처럼 검증하고
+  // 있었다 — loadMolds 의 성공이 (그 자신과 무관한) detailError 까지
+  // 지워버리는 것을 정상으로 취급한 것이다. 전체 리뷰에서 확인된 실제
+  // 재현 케이스: /dashboard/M-9999 로 들어가 상세 조회가 404 로 실패한 뒤
+  // 필터를 바꾸면(목록 조회는 성공) 상세 패널의 에러가 사라져 "불러오는
+  // 중…"에 영구히 멈춘다. 이제는 listError/detailError 가 분리되어 있으니,
+  // "한 loader의 성공이 다른 loader의 실패를 지우지 않는다"는 격리
+  // 자체를 검증해야 한다.
+  it("does not let a loadMolds success clear a live detailError", async () => {
+    useDashboardStore.setState({ detailError: "상세 조회 실패" });
+    vi.mocked(listMolds).mockResolvedValueOnce([]);
     await useDashboardStore.getState().loadMolds();
-    expect(useDashboardStore.getState().error).toBeNull();
+    expect(useDashboardStore.getState().detailError).toBe("상세 조회 실패");
+  });
+
+  it("does not let a loadDetail success clear a live listError", async () => {
+    useDashboardStore.setState({ listError: "목록 조회 실패" });
+    const fakeDetail = { summary: { mold_no: "M-10" } } as unknown as MoldDetail;
+    vi.mocked(getMold).mockResolvedValueOnce(fakeDetail);
+    await useDashboardStore.getState().loadDetail("M-10");
+    expect(useDashboardStore.getState().listError).toBe("목록 조회 실패");
+  });
+
+  // Finding(전체 리뷰) 회귀 테스트: /dashboard/M-9999 로 직접 들어가면 패널이
+  // "불러오지 못했습니다"를 정확히 보여준다. 그 후 필터를 아무거나 바꾸면
+  // loadMolds 가 성공하는데, 이때 detailError 가 지워지면 패널은 실패도
+  // 로딩도 아닌 상태로 떨어져 "불러오는 중…"에 영구히 멈춘다(detailLoading
+  // 은 이미 false 다) — 사용자는 그 금형이 없다는 사실을 영영 알 수 없다.
+  it("keeps a detail 404 visible after an unrelated loadMolds success (regression: stuck on 불러오는 중…)", async () => {
+    vi.mocked(getMold).mockRejectedValueOnce(new Error("HTTP 404"));
+    await useDashboardStore.getState().loadDetail("M-9999");
+    expect(useDashboardStore.getState().detailError).toContain("HTTP 404");
+    expect(useDashboardStore.getState().detailLoading).toBe(false);
+
+    vi.mocked(listMolds).mockResolvedValueOnce([]);
+    await useDashboardStore.getState().loadMolds();
+
+    const state = useDashboardStore.getState();
+    expect(state.detailError).toContain("HTTP 404");
+    expect(state.detailLoading).toBe(false);
   });
 
   it("populates options from getFilterOptions on success", async () => {
@@ -99,7 +139,32 @@ describe("dashboardStore", () => {
   it("stores an error message when loadOptions fails", async () => {
     vi.mocked(getFilterOptions).mockRejectedValueOnce(new Error("HTTP 500"));
     await useDashboardStore.getState().loadOptions();
-    expect(useDashboardStore.getState().error).toContain("HTTP 500");
+    expect(useDashboardStore.getState().listError).toContain("HTTP 500");
+  });
+
+  // 전체 리뷰 케이스 (b): loadOptions 가 실패한 채로 loadMolds 가 성공하면,
+  // listError 는 두 loader가 공유하는 필드지만 loadMolds 의 성공이 그
+  // 원인이 아닌 loadOptions 의 실패까지 지워서는 안 된다 — 그러면 배너가
+  // 사라지고 options 는 null 로 남는데 화면은 조용히 "정상"인 척한다.
+  it("keeps a loadOptions failure visible through a later loadMolds success", async () => {
+    vi.mocked(getFilterOptions).mockRejectedValueOnce(new Error("HTTP 500"));
+    await useDashboardStore.getState().loadOptions();
+    expect(useDashboardStore.getState().listError).toContain("HTTP 500");
+
+    vi.mocked(listMolds).mockResolvedValueOnce([]);
+    await useDashboardStore.getState().loadMolds();
+    expect(useDashboardStore.getState().listError).toContain("HTTP 500");
+  });
+
+  // 대칭 케이스: loadMolds 가 실패한 채로 loadOptions 가 성공해도 마찬가지다.
+  it("keeps a loadMolds failure visible through a later loadOptions success", async () => {
+    vi.mocked(listMolds).mockRejectedValueOnce(new Error("HTTP 500"));
+    await useDashboardStore.getState().loadMolds();
+    expect(useDashboardStore.getState().listError).toContain("HTTP 500");
+
+    vi.mocked(getFilterOptions).mockResolvedValueOnce({ statuses: [], installations: [] });
+    await useDashboardStore.getState().loadOptions();
+    expect(useDashboardStore.getState().listError).toContain("HTTP 500");
   });
 
   it("populates detail from getMold on success", async () => {
@@ -108,7 +173,7 @@ describe("dashboardStore", () => {
     await useDashboardStore.getState().loadDetail("M-10");
     const state = useDashboardStore.getState();
     expect(state.detail).toEqual(fakeDetail);
-    expect(state.error).toBeNull();
+    expect(state.detailError).toBeNull();
     expect(state.detailLoading).toBe(false);
   });
 
@@ -120,7 +185,7 @@ describe("dashboardStore", () => {
     await useDashboardStore.getState().loadDetail("M-99");
     const state = useDashboardStore.getState();
     expect(state.detail).toBeNull();
-    expect(state.error).toContain("HTTP 404");
+    expect(state.detailError).toContain("HTTP 404");
     expect(state.detailLoading).toBe(false);
   });
 });

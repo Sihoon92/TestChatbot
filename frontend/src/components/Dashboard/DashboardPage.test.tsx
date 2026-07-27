@@ -66,7 +66,8 @@ describe("DashboardPage", () => {
       installations: [{ line: "3", machine: "2" }],
     });
     useDashboardStore.setState({
-      filters: { ...DEFAULT_FILTERS }, molds: [], detail: null, error: null,
+      filters: { ...DEFAULT_FILTERS }, molds: [], detail: null,
+      listError: null, detailError: null, _optionsError: null, _moldsError: null,
     });
   });
 
@@ -105,7 +106,20 @@ describe("DashboardPage", () => {
   it("explains that the mold does not exist when the detail request 404s", async () => {
     vi.mocked(getMold).mockRejectedValue(new Error("HTTP 404"));
     renderAt("/dashboard/M-9999");
-    expect(await screen.findByText(/HTTP 404/)).toBeInTheDocument();
+    expect(await screen.findByText(/M-9999.*존재하지 않는 금형 번호/)).toBeInTheDocument();
+    const backLink = screen.getByRole("link", { name: "목록으로 돌아가기" });
+    expect(backLink).toHaveAttribute("href", "/dashboard");
+  });
+
+  it("retrying after a failure re-requests filter options too, not just the list and detail", async () => {
+    vi.mocked(listMolds).mockRejectedValue(new Error("HTTP 500"));
+    renderAt("/dashboard");
+    await screen.findByText(/HTTP 500/);
+    vi.mocked(getFilterOptions).mockClear();
+    vi.mocked(listMolds).mockResolvedValue([SUMMARY]);
+
+    await userEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(getFilterOptions).toHaveBeenCalled();
   });
 
   // Finding 1 회귀 테스트: M-1024 를 보다가 M-1031 을 고르면, M-1031 요청이

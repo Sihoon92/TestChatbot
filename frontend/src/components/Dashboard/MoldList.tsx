@@ -8,12 +8,21 @@ import { fmtInstallation, fmtNumber, fmtPercent } from "./formatters";
 export default function MoldList() {
   const molds = useDashboardStore((s) => s.molds);
   const listLoading = useDashboardStore((s) => s.listLoading);
+  const listError = useDashboardStore((s) => s.listError);
   const resetFilters = useDashboardStore((s) => s.resetFilters);
   const navigate = useNavigate();
   const { moldNo } = useParams();
 
   if (listLoading && molds.length === 0) {
     return <p className="p-4 text-sm text-ink/60">불러오는 중…</p>;
+  }
+
+  // 목록이 비어 있는 이유가 "조건에 맞는 게 없어서"가 아니라 "불러오지
+  // 못해서"일 때는 필터 초기화 버튼을 보여주지 않는다 — 문제였던 적 없는
+  // 필터를 고치라고 유도하는 오판이 된다. 실패 사실 자체는 페이지 상단
+  // 배너(DashboardPage)가 이미 알려준다.
+  if (molds.length === 0 && listError !== null) {
+    return <p className="p-4 text-sm text-ink/60">목록을 불러오지 못했습니다</p>;
   }
 
   if (molds.length === 0) {

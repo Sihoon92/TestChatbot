@@ -43,10 +43,14 @@ export default function ProductionTable({ runs }: { runs: ProductionRun[] }) {
           </tr>
         </thead>
         <tbody>
-          {runs.map((run) => {
+          {runs.map((run, index) => {
             const byLabel = new Map(run.defects.map((d) => [d.label, d.rate]));
+            // install_seq 만으로는 유일성이 보장되지 않는다 — 스펙에서
+            // "한 행 = 한 설치"는 검증되지 않은 가정이라고 명시한다.
+            // StageItemPanel 이 label 에 대해 하는 것과 같은 패턴으로
+            // index 를 key 에 더한다.
             return (
-              <tr key={run.install_seq}>
+              <tr key={`${run.install_seq}-${index}`}>
                 <td className={TD}>{run.install_seq}</td>
                 <td className={TD}>{fmtInstallation(run.line, run.machine)}</td>
                 <td className={TD}>

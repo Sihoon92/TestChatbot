@@ -108,6 +108,32 @@ describe("StageTabs", () => {
     expect(screen.getByText("HRC 62")).toBeInTheDocument();
   });
 
+  // 전체 리뷰 finding: 생산결과/설계 탭은 StagePanel 이 아니라 전용 스키마를
+  // 써서 StageItemPanel 의 에러 분기를 타지 않는다. stage_status 가
+  // "error"인데도 그냥 그리면, 생산결과 탭은 추출 실패를 "생산 이력이
+  // 없습니다"라는 거짓 확언으로 보여준다.
+  it('does not claim "생산 이력이 없습니다" when the install stage extraction errored', () => {
+    const detailWithInstallError: MoldDetail = {
+      ...DETAIL,
+      summary: { ...DETAIL.summary, stage_status: { ...DETAIL.summary.stage_status, install: "error" } },
+      productions: [],
+    };
+    render(<StageTabs detail={detailWithInstallError} />);
+    expect(screen.queryByText("생산 이력이 없습니다")).not.toBeInTheDocument();
+    expect(screen.getByText("추출에 실패했습니다")).toBeInTheDocument();
+  });
+
+  it("shows a failure message on the design tab when its extraction errored", async () => {
+    const detailWithDesignError: MoldDetail = {
+      ...DETAIL,
+      summary: { ...DETAIL.summary, stage_status: { ...DETAIL.summary.stage_status, design: "error" } },
+    };
+    render(<StageTabs detail={detailWithDesignError} />);
+    await userEvent.click(screen.getByRole("tab", { name: /설계/ }));
+    expect(screen.getByText("추출에 실패했습니다")).toBeInTheDocument();
+    expect(screen.queryByText("각도")).not.toBeInTheDocument();
+  });
+
   it("resets to the production tab when a different mold is shown, but keeps the tab for the same mold", async () => {
     const { rerender } = render(<StageTabs detail={DETAIL} />);
     await userEvent.click(screen.getByRole("tab", { name: "PQC ⚠" }));

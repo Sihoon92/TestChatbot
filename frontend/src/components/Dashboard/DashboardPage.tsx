@@ -8,7 +8,8 @@ import MoldList from "./MoldList";
 export default function DashboardPage() {
   const { moldNo } = useParams();
   const filters = useDashboardStore((s) => s.filters);
-  const error = useDashboardStore((s) => s.error);
+  const listError = useDashboardStore((s) => s.listError);
+  const detailError = useDashboardStore((s) => s.detailError);
   const loadOptions = useDashboardStore((s) => s.loadOptions);
   const loadMolds = useDashboardStore((s) => s.loadMolds);
   const loadDetail = useDashboardStore((s) => s.loadDetail);
@@ -42,15 +43,25 @@ export default function DashboardPage() {
     void loadDetail(moldNo);
   }, [moldNo, loadDetail, clearDetail]);
 
+  // listError 와 detailError 는 서로 다른 실패를 가리킨다(목록 화면 vs
+  // 상세 화면). 하나가 다른 하나를 가리면 안 되므로 둘 다 있으면 둘 다
+  // 보여준다 — 조용히 하나를 버리지 않는다.
+  const errors = [listError, detailError].filter((e): e is string => e !== null);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <h1 className="sr-only">금형 관리</h1>
 
-      {error !== null && (
+      {errors.length > 0 && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-accent bg-accent/10 px-3 py-2 text-sm">
-          <span>불러오지 못했습니다: {error}</span>
+          <span>불러오지 못했습니다: {errors.join(" / ")}</span>
           <button
             onClick={() => {
+              // /filters(loadOptions), /molds(loadMolds), 상세(loadDetail)
+              // 중 무엇이 실패했는지 배너만 봐서는 알 수 없다. 셋 다 다시
+              // 시도해야, /filters 가 원인이었을 때도 재시도가 실제로
+              // 문제를 고칠 수 있다.
+              void loadOptions();
               void loadMolds();
               if (moldNo !== undefined) void loadDetail(moldNo);
             }}
