@@ -16,11 +16,24 @@ app/llm.py(get_chat_model)가 하는 일을, 프레임워크 없이 압축해 �
   INTERNAL_LLM_MODEL=gemma3n:e4b
 """
 import os
+import sys
 from pathlib import Path
 
 import httpx
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
+
+
+# 디버그 로깅(선택). 이 예제는 app 패키지에 의존하지 않는 단일 파일이 원칙이지만,
+# 이 저장소 안에서 실행할 때는 LLM 입출력을 backend/logs/llm_calls.log 에 남겨두면
+# 실습에 도움이 된다. import 가 실패하면(파일만 따로 복사해 쓰는 경우 등) 빈 config
+# 를 돌려주고 예제는 그대로 동작한다 — 로깅 때문에 예제가 깨지지 않게 한다.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/
+try:
+    from app.observability import debug_run_config
+except Exception:  # noqa: BLE001
+    def debug_run_config(script: str) -> dict:  # type: ignore[misc]
+        return {}
 
 
 # 0) backend/.env 를 직접 읽어 환경변수로 채운다. 이 예제는 앱과 달리 프레임워크
@@ -71,6 +84,6 @@ messages = [
     HumanMessage(content="사내 LLM 연결을 한 문장으로 설명해줘."),
 ]
 
-# 4) 실행 & 아웃풋
-reply = llm.invoke(messages)
+# 4) 실행 & 아웃풋 (config 로 디버그 로깅 콜백을 붙인다 — 로깅이 꺼져 있으면 빈 dict)
+reply = llm.invoke(messages, config=debug_run_config("connect_llm"))
 print(reply.content)

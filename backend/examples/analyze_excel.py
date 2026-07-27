@@ -29,6 +29,7 @@ from langgraph.errors import GraphRecursionError  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.excel import open_workbook, run_excel_agent  # noqa: E402
 from app.llm import get_chat_model  # noqa: E402
+from app.observability import debug_run_config  # noqa: E402
 
 _USAGE = '사용법: python examples/analyze_excel.py <파일경로> "<질문>" [--backend internal]'
 
@@ -94,9 +95,16 @@ def main() -> int:
         return 2
 
     print(f"[분석] 파일={path}\n[질문] {question}\n" + "=" * 60)
+    if settings.debug_log_enabled:
+        print(f"[debug-log] LLM/도구 호출 기록 → {settings.resolved_debug_log_path}")
     try:
         with open_workbook(path) as wb:
-            out = run_excel_agent(model, wb, question)
+            out = run_excel_agent(
+                model,
+                wb,
+                question,
+                config=debug_run_config("analyze_excel", settings),
+            )
     except GraphRecursionError:
         print(
             "[오류] 에이전트가 정해진 단계 안에 결론을 내지 못했다"

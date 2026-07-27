@@ -30,6 +30,17 @@ from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
+# 디버그 로깅(선택). 이 예제는 app 패키지에 의존하지 않는 단일 파일이 원칙이지만,
+# 이 저장소 안에서 실행할 때는 LLM 입출력과 도구 호출을 backend/logs/llm_calls.log 에
+# 남겨두면 실습에 도움이 된다(특히 step 3~5 에서 "언제 실제로 도구가 실행되는지"를
+# 로그로 확인할 수 있다). import 가 실패하면 빈 config 를 돌려주고 예제는 그대로 동작한다.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/
+try:
+    from app.observability import debug_run_config
+except Exception:  # noqa: BLE001
+    def debug_run_config(script: str) -> dict:  # type: ignore[misc]
+        return {}
+
 A, B = 4823, 6791  # 암산으로는 못 맞히는 크기 - 도구가 필요한 이유를 보여준다
 
 
@@ -85,7 +96,10 @@ def multiply(a: int, b: int) -> int:
 
 def step_1(model) -> None:
     """Step 1: 도구 없이 큰 수 곱셈을 직접 시키기"""
-    reply = model.invoke(f"{A} 곱하기 {B} 는 얼마야? 숫자만 답해.")
+    reply = model.invoke(
+        f"{A} 곱하기 {B} 는 얼마야? 숫자만 답해.",
+        config=debug_run_config("tool_calling/step_1"),
+    )
     correct = A * B
     print(f"모델 답변: {reply.content!r}")
     print(f"정답({correct})이 답변에 포함됐는가: {str(correct) in reply.content}")
@@ -96,14 +110,20 @@ def step_2(model) -> None:
     print("도구 이름:", multiply.name)
     print("도구 설명(LLM 이 읽는 부분):", multiply.description)
     print("도구 스키마:", multiply.args)
-    print("직접 호출:", multiply.invoke({"a": A, "b": B}))
+    # 이 직접 호출도 콜백을 타므로 로그에 TOOL CALL 블록이 남는다 — LLM 없이
+    # 우리 코드가 도구를 실행한 것이라는 점이 로그에서도 그대로 드러난다.
+    print(
+        "직접 호출:",
+        multiply.invoke({"a": A, "b": B}, config=debug_run_config("tool_calling/step_2")),
+    )
 
 
 def step_3(model) -> None:
     """Step 3: bind_tools - LLM 이 '부르고 싶다'고 말하는 것을 확인"""
     bound = model.bind_tools([multiply])
     reply = bound.invoke(
-        [HumanMessage(content=f"{A} 곱하기 {B} 를 계산해줘. 반드시 도구를 써라.")]
+        [HumanMessage(content=f"{A} 곱하기 {B} 를 계산해줘. 반드시 도구를 써라.")],
+        config=debug_run_config("tool_calling/step_3"),
     )
     print("tool_calls:", reply.tool_calls)
     print("content(비어있을 수 있다 - 아직 계산 안 함):", repr(reply.content))
@@ -115,21 +135,22 @@ def step_3(model) -> None:
 
 def step_4(model) -> None:
     """Step 4: 수동 왕복 루프 - 도구를 실제로 실행하고 결과를 되돌려준다"""
+    cfg = debug_run_config("tool_calling/step_4")
     tools_by_name = {multiply.name: multiply}
     bound = model.bind_tools([multiply])
 
     messages = [
         HumanMessage(content=f"{A} 곱하기 {B} 를 계산해줘. 반드시 도구를 써라.")
     ]
-    ai_msg = bound.invoke(messages)
+    ai_msg = bound.invoke(messages, config=cfg)
     messages.append(ai_msg)
 
     for call in ai_msg.tool_calls:
-        result = tools_by_name[call["name"]].invoke(call["args"])
+        result = tools_by_name[call["name"]].invoke(call["args"], config=cfg)
         print(f"[실행] {call['name']}({call['args']}) = {result}")
         messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
 
-    final = bound.invoke(messages)
+    final = bound.invoke(messages, config=cfg)
     print("최종 답변:", final.content)
 
 
@@ -141,7 +162,8 @@ def step_5(model) -> None:
             "messages": [
                 HumanMessage(content=f"{A} 곱하기 {B} 를 계산해줘. 반드시 도구를 써라.")
             ]
-        }
+        },
+        config=debug_run_config("tool_calling/step_5"),
     )
     used = [
         c["name"]
@@ -190,7 +212,10 @@ def step_6(model) -> None:
             "그다음 excel_read_cell 로 B2 를 읽어 그 값을 그대로 알려줘. "
             "반드시 두 도구를 순서대로 사용해라."
         )
-        result = agent.invoke({"messages": [HumanMessage(content=prompt)]})
+        result = agent.invoke(
+            {"messages": [HumanMessage(content=prompt)]},
+            config=debug_run_config("tool_calling/step_6"),
+        )
         used = [
             c["name"]
             for m in result["messages"]

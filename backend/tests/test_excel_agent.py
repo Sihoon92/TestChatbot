@@ -9,8 +9,10 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
+from app.config import Settings
 from app.excel.agent import EXCEL_SYSTEM_PROMPT, run_excel_agent
 from app.excel.grid import parse_a1
+from app.observability import debug_run_config
 
 
 def _slice_rows(rows: list[list], address: str) -> list[list]:
@@ -129,3 +131,62 @@ def test_run_excel_agent_injects_system_prompt_as_message():
     assert first_call_messages[0].type == "system"
     assert first_call_messages[0].content == EXCEL_SYSTEM_PROMPT
     assert first_call_messages[1].content == "질문"
+
+
+def test_run_excel_agent_writes_debug_log_when_config_given(tmp_path):
+    """호출자가 넘긴 콜백이 LLM·도구 호출 모두에 실제로 닿는지 확인한다.
+
+    이전에는 run_excel_agent 가 config 를 통째로 고정(`recursion_limit` 만)해서
+    호출자가 콜백을 붙일 자리가 없었고, 그 결과 CLI 경로(analyze_excel.py)로
+    돌린 엑셀 분석은 LLM 입출력도 도구 호출도 로그에 하나도 남지 않았다
+    (웹 채팅 경로만 build_run_config 를 통해 콜백을 붙이고 있었다).
+    """
+    settings = Settings(debug_log_path=str(tmp_path / "llm_calls.log"))
+    model = FakeToolCallingModel(
+        responses=[
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "list_sheets", "args": {}, "id": "call_1"}],
+            ),
+            AIMessage(content="시트는 데이터 하나뿐이다.", tool_calls=[]),
+        ]
+    )
+
+    run_excel_agent(
+        model,
+        FakeWorkbook(),
+        "시트가 몇 개야?",
+        config=debug_run_config("test_excel_agent", settings),
+    )
+
+    log_text = (tmp_path / "llm_calls.log").read_text(encoding="utf-8")
+    # 어느 실행에서 나온 블록인지 구분되는가(여러 진입점이 한 파일을 공유한다)
+    assert "script=test_excel_agent" in log_text
+    # LLM 입출력
+    assert "--- INPUT (" in log_text
+    assert "[ai] 시트는 데이터 하나뿐이다." in log_text
+    # 도구 호출과 그 결과
+    assert "--- TOOL CALL: list_sheets" in log_text
+    assert "--- TOOL RESULT: list_sheets" in log_text
+    assert "시트 목록: 데이터" in log_text
+
+
+def test_run_excel_agent_keeps_recursion_limit_when_config_given():
+    """호출자 config 를 합쳐도 모듈이 정한 recursion_limit 이 사라지지 않아야 한다."""
+    seen: dict = {}
+
+    class RecordingModel(FakeToolCallingModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            from langchain_core.runnables import config as config_mod
+
+            seen.update(config_mod.var_child_runnable_config.get() or {})
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    run_excel_agent(
+        RecordingModel(responses=[AIMessage(content="답변", tool_calls=[])]),
+        FakeWorkbook(),
+        "질문",
+        config={"metadata": {"script": "x"}},
+    )
+
+    assert seen.get("recursion_limit") == 40

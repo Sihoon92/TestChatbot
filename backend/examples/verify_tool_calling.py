@@ -49,6 +49,7 @@ from langchain_core.tools import tool  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.llm import get_chat_model  # noqa: E402
+from app.observability import debug_run_config  # noqa: E402
 
 # 주의: app.excel.tools/app.excel.workbook 은 여기서 top-level import 하지
 # 않는다 — 그 모듈들이 pythoncom/xlwings 를 top-level import 하므로, Excel
@@ -89,6 +90,8 @@ def main() -> int:
     print("=" * 64)
     print("llm_backend =", settings.llm_backend)
     print("model       =", settings.active_model)
+    if settings.debug_log_enabled:
+        print("debug-log   =", settings.resolved_debug_log_path)
     print("=" * 64)
 
     try:
@@ -97,9 +100,9 @@ def main() -> int:
         print(f"[중단] 모델 생성 실패: {exc}")
         return 2
 
-    ok_bind = _check_bind_tools(model)
-    ok_agent = _check_react_agent(model)
-    ok_excel = _check_excel_tools(model)  # True / False / None(SKIP)
+    ok_bind = _check_bind_tools(model, settings)
+    ok_agent = _check_react_agent(model, settings)
+    ok_excel = _check_excel_tools(model, settings)  # True / False / None(SKIP)
 
     def mark(v):
         if v is None:
@@ -125,11 +128,12 @@ def main() -> int:
     return 1
 
 
-def _check_bind_tools(model) -> bool:
+def _check_bind_tools(model, settings) -> bool:
     print("\n[1] 저수준 검증: model.bind_tools([multiply]).invoke(...)")
     bound = model.bind_tools([multiply])
     resp = bound.invoke(
-        [HumanMessage(content="23 곱하기 7은 얼마야? 반드시 도구를 써서 계산해줘.")]
+        [HumanMessage(content="23 곱하기 7은 얼마야? 반드시 도구를 써서 계산해줘.")],
+        config=debug_run_config("verify_tool_calling/1_bind_tools", settings),
     )
     tool_calls = getattr(resp, "tool_calls", None) or []
     if tool_calls:
@@ -140,7 +144,7 @@ def _check_bind_tools(model) -> bool:
     return False
 
 
-def _check_react_agent(model) -> bool:
+def _check_react_agent(model, settings) -> bool:
     print("\n[2] 대표 검증: langgraph create_react_agent")
     try:
         from langgraph.prebuilt import create_react_agent
@@ -150,7 +154,8 @@ def _check_react_agent(model) -> bool:
 
     agent = create_react_agent(model, [multiply])
     result = agent.invoke(
-        {"messages": [HumanMessage(content="23 곱하기 7을 도구로 계산해서 숫자로 알려줘.")]}
+        {"messages": [HumanMessage(content="23 곱하기 7을 도구로 계산해서 숫자로 알려줘.")]},
+        config=debug_run_config("verify_tool_calling/2_react_agent", settings),
     )
     msgs = result["messages"]
     used = _tool_names(msgs)
@@ -185,7 +190,7 @@ def _seed_workbook_with_token(path: str, token: str) -> None:
         app.quit()
 
 
-def _check_excel_tools(model):
+def _check_excel_tools(model, settings):
     """`open_workbook` + `app.excel.tools` 의 실제 읽기 전용 도구가 프롬프트로
     지시했을 때 실제로 호출되어, 미리 심어둔 셀 값을 정확히 읽어오는지 확인한다.
 
@@ -250,7 +255,10 @@ def _check_excel_tools(model):
                 "엑셀 시트 '데이터'의 B2:B2 범위를 read_range 도구로 읽어서 "
                 "그 값을 그대로 알려줘. 반드시 read_range 도구를 사용해라."
             )
-            result = agent.invoke({"messages": [HumanMessage(content=prompt)]})
+            result = agent.invoke(
+                {"messages": [HumanMessage(content=prompt)]},
+                config=debug_run_config("verify_tool_calling/3_excel_tools", settings),
+            )
             msgs = result["messages"]
             used = _tool_names(msgs)
             final = getattr(msgs[-1], "content", "")
