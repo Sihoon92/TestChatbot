@@ -35,8 +35,14 @@ export default function StageItemPanel({ panel }: { panel: StagePanel | undefine
         <p className="mb-2 text-xs text-ink/50">기준일 {panel.updated_at}</p>
       )}
       <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-        {panel.items.map((item) => (
-          <div key={item.label} className="flex justify-between gap-2">
+        {/* label 은 자유 형식 AI 추출값이라 유일성이 보장되지 않는다(예: AI복검이
+            IQC 와 같은 "경도"를 다시 검사). 게다가 IQC/PQC/AI복검 세 탭이 같은
+            <StageItemPanel> 엘리먼트를 공유하므로 탭 전환은 리마운트가 아니라
+            prop 갱신이다 — key 를 label 만으로 잡으면 서로 다른 단계의 항목이
+            같은 key 로 충돌한다. 항목 순서도 의미가 있으므로(원본 파일 순서)
+            index 를 key 의 일부로 쓰는 것이 정당하다. */}
+        {panel.items.map((item, index) => (
+          <div key={`${item.label}-${index}`} className="flex justify-between gap-2">
             <dt className="text-ink/60">{item.label}</dt>
             <dd className="flex items-center gap-1 font-medium">
               <span title={sourceTitle(item.source)}>{item.value}</span>

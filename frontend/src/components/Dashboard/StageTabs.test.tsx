@@ -84,4 +84,46 @@ describe("StageTabs", () => {
       "IQC/2021-02-14_M-0998.xlsx · 검사 · C12",
     );
   });
+
+  it("renders both values when two items in the same stage share a label", async () => {
+    // label 은 유일성이 보장되지 않는다 — AI복검이 IQC 와 같은 항목을 다시
+    // 검사하는 경우가 대표적이다. 이 테스트가 없으면 key 충돌로 한쪽 값이
+    // 사라지는 회귀를 잡지 못한다.
+    const detailWithDuplicateLabels: MoldDetail = {
+      ...DETAIL,
+      stages: [
+        {
+          stage: "iqc", status: "ok", updated_at: "2021-02-14", error: null,
+          items: [
+            { label: "경도", value: "HRC 60", judgment: "ok", source: null },
+            { label: "경도", value: "HRC 62", judgment: "ok", source: null },
+          ],
+        },
+        ...DETAIL.stages.filter((s) => s.stage !== "iqc"),
+      ],
+    };
+    render(<StageTabs detail={detailWithDuplicateLabels} />);
+    await userEvent.click(screen.getByRole("tab", { name: "IQC" }));
+    expect(screen.getByText("HRC 60")).toBeInTheDocument();
+    expect(screen.getByText("HRC 62")).toBeInTheDocument();
+  });
+
+  it("resets to the production tab when a different mold is shown, but keeps the tab for the same mold", async () => {
+    const { rerender } = render(<StageTabs detail={DETAIL} />);
+    await userEvent.click(screen.getByRole("tab", { name: "PQC ⚠" }));
+    expect(screen.getByRole("tab", { name: "PQC ⚠" })).toHaveAttribute("aria-selected", "true");
+
+    const OTHER_DETAIL: MoldDetail = {
+      ...DETAIL,
+      summary: { ...DETAIL.summary, mold_no: "M-0001" },
+    };
+    rerender(<StageTabs detail={OTHER_DETAIL} />);
+    expect(screen.getByRole("tab", { name: "생산결과" })).toHaveAttribute("aria-selected", "true");
+
+    await userEvent.click(screen.getByRole("tab", { name: "PQC ⚠" }));
+    // Same mold_no, but a fresh object — proves the reset keys off mold identity
+    // (mold_no), not object reference or "every rerender".
+    rerender(<StageTabs detail={{ ...OTHER_DETAIL }} />);
+    expect(screen.getByRole("tab", { name: "PQC ⚠" })).toHaveAttribute("aria-selected", "true");
+  });
 });

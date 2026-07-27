@@ -14,6 +14,17 @@ function badge(status: StageStatus): string {
 
 export default function StageTabs({ detail }: { detail: MoldDetail }) {
   const [active, setActive] = useState<StageKey>("install");
+
+  // 선택된 금형이 바뀌면 항상 생산결과 탭으로 되돌아가야 한다 — Task 11 은
+  // 이 컴포넌트를 금형별로 다시 렌더링할 뿐 리마운트한다는 보장이 없다.
+  // 렌더링 도중(이펙트가 아니라) 상태를 조정해, 잘못된 탭이 한 프레임이라도
+  // 보이는 일이 없게 한다. React 공식 문서의 "prop 변경 시 state 조정" 패턴.
+  const [shownMold, setShownMold] = useState(detail.summary.mold_no);
+  if (shownMold !== detail.summary.mold_no) {
+    setShownMold(detail.summary.mold_no);
+    setActive("install");
+  }
+
   const panel = detail.stages.find((s) => s.stage === active);
 
   return (
