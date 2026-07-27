@@ -57,8 +57,16 @@ function message(err: unknown): string {
 }
 
 function combineListError(moldsError: string | null, optionsError: string | null): string | null {
-  if (moldsError && optionsError) return `${moldsError} / ${optionsError}`;
-  return moldsError ?? optionsError;
+  // 두 연산자를 일치시킨다 — moldsError 가 빈 문자열("")이면 falsy 지만
+  // null 은 아니다. `moldsError && optionsError` 로 가드하고
+  // `moldsError ?? optionsError` 로 돌려주면, 빈 문자열 moldsError 가
+  // 가드는 통과 못 해 옵션 에러를 삼키지 않으면서도 ?? 는 그 빈 문자열을
+  // "값 있음"으로 돌려줘 배너가 콜론만 남는("불러오지 못했습니다: ") 상황이
+  // 생길 수 있다. 오늘의 API 클라이언트(new Error(`HTTP ${status}`))로는
+  // 빈 문자열 에러가 나올 수 없어 도달 불가능하지만, 두 연산자가 같은
+  // 기준(!== null)을 쓰도록 맞춰 둔다.
+  if (moldsError !== null && optionsError !== null) return `${moldsError} / ${optionsError}`;
+  return moldsError !== null ? moldsError : optionsError;
 }
 
 export const useDashboardStore = create<DashboardState>((set, get) => ({
@@ -138,5 +146,13 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     }
   },
 
-  clearDetail: () => set({ detail: null }),
+  // detailError 도 함께 지운다. detail 만 지우면(이전 구현), 404로 실패한
+  // 채로 "목록으로 돌아가기"를 눌러 moldNo 가 undefined 로 바뀌어도
+  // detailError 가 살아남는다 — 필터 변경은 listError 만 건드리고, 다시
+  // 시도는 moldNo === undefined 일 때 loadDetail 을 부르지 않으니, 다른
+  // 금형을 열기 전까지 배너("불러오지 못했습니다: HTTP 404")가 영구히
+  // 남는다. error 필드를 listError/detailError 로 쪼개기 전에는 다음
+  // loadMolds 성공이 이 값을 지워 저절로 나았는데, 쪼갠 뒤로는 그 자연
+  // 치유가 사라져 이 상태가 사실상 영구화됐다.
+  clearDetail: () => set({ detail: null, detailError: null }),
 }));

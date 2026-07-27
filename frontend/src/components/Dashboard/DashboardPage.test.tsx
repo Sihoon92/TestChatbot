@@ -111,6 +111,23 @@ describe("DashboardPage", () => {
     expect(backLink).toHaveAttribute("href", "/dashboard");
   });
 
+  // 재리뷰 finding B1(회귀): 위 테스트는 링크의 href만 확인하고 실제로
+  // 클릭하지 않아서, clearDetail() 이 detailError 를 남겨두는 회귀를
+  // 놓쳤다. 실제로 클릭해 moldNo 가 undefined 로 바뀐 뒤 배너가 사라지는지
+  // 끝까지 확인한다.
+  it("clears the 404 error banner after clicking 목록으로 돌아가기", async () => {
+    vi.mocked(getMold).mockRejectedValue(new Error("HTTP 404"));
+    renderAt("/dashboard/M-9999");
+    await screen.findByText(/M-9999.*존재하지 않는 금형 번호/);
+    expect(screen.getByText(/HTTP 404/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("link", { name: "목록으로 돌아가기" }));
+
+    expect(await screen.findByText("왼쪽에서 금형을 선택하세요")).toBeInTheDocument();
+    expect(screen.queryByText(/HTTP 404/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+  });
+
   it("retrying after a failure re-requests filter options too, not just the list and detail", async () => {
     vi.mocked(listMolds).mockRejectedValue(new Error("HTTP 500"));
     renderAt("/dashboard");

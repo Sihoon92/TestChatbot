@@ -188,4 +188,17 @@ describe("dashboardStore", () => {
     expect(state.detailError).toContain("HTTP 404");
     expect(state.detailLoading).toBe(false);
   });
+
+  // 재리뷰 finding B1(회귀): detail 만 지우고 detailError 를 남겨두면, 404로
+  // 실패한 채로 "목록으로 돌아가기"를 눌러 moldNo 가 undefined 로 바뀌어도
+  // (DashboardPage 의 moldNo 이펙트가 clearDetail() 을 부른다) 배너의
+  // detailError 가 영구히 남는다 — 필터 변경은 listError 만 건드리고,
+  // moldNo === undefined 일 때는 다시 시도도 loadDetail 을 부르지 않기
+  // 때문이다. error 를 listError/detailError 로 쪼개기 전에는 다음
+  // loadMolds 성공이 공유 필드를 지워 저절로 나았던 상태다.
+  it("clears detailError along with detail, so a stale 404 does not survive clearDetail", () => {
+    useDashboardStore.setState({ detail: null, detailError: "HTTP 404" });
+    useDashboardStore.getState().clearDetail();
+    expect(useDashboardStore.getState().detailError).toBeNull();
+  });
 });
