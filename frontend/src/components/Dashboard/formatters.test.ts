@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DASH, fmtInstallation, fmtMeasure, fmtNumber, fmtPercent, fmtText } from "./formatters";
+import { DASH, fmtInstallation, fmtMeasure, fmtMeasurePair, fmtNumber, fmtPercent, fmtText } from "./formatters";
 
 describe("formatters", () => {
   it("renders null as a dash, never as zero", () => {
@@ -39,5 +39,17 @@ describe("formatters", () => {
     expect(fmtInstallation("3", "2")).toBe("3-2");
     expect(fmtInstallation(null, null)).toBe(DASH);
     expect(fmtInstallation("3", null)).toBe(DASH);
+  });
+
+  it("formats a pair of dimensions, dashing if either is null", () => {
+    expect(fmtMeasurePair(140, 80, "mm")).toBe("140×80mm");
+    expect(fmtMeasurePair(null, 80, "mm")).toBe(DASH);
+    expect(fmtMeasurePair(140, null, "mm")).toBe(DASH);
+    expect(fmtMeasurePair(null, null, "mm")).toBe(DASH);
+  });
+
+  it("keeps a real zero pair distinguishable from null in measurements", () => {
+    expect(fmtMeasurePair(0, 0, "mm")).toBe("0×0mm");
+    expect(fmtMeasurePair(0, null, "mm")).toBe(DASH);
   });
 });

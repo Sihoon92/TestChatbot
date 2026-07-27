@@ -51,4 +51,20 @@ describe("SummaryCards", () => {
     const card = screen.getByRole("region", { name: "누적 이력" });
     expect(within(card).getByText("총 생산 수량").nextSibling).toHaveTextContent("2,811,300");
   });
+
+  it("dashes the Plate row when either dimension is null", () => {
+    render(<SummaryCards detail={DETAIL} />);
+    const card = screen.getByRole("region", { name: "설계" });
+    expect(within(card).getByText("Plate(높이×넓이)").nextSibling).toHaveTextContent("—");
+  });
+
+  it("renders both Plate dimensions when both are present", () => {
+    const moldWithBothPlates = {
+      ...DETAIL,
+      design: { ...DETAIL.design, plate_height_mm: 140, plate_width_mm: 80 },
+    };
+    render(<SummaryCards detail={moldWithBothPlates} />);
+    const card = screen.getByRole("region", { name: "설계" });
+    expect(within(card).getByText("Plate(높이×넓이)").nextSibling).toHaveTextContent("140×80mm");
+  });
 });

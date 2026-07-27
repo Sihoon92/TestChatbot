@@ -23,3 +23,8 @@ export function fmtText(v: string | null): string {
 export function fmtInstallation(line: string | null, machine: string | null): string {
   return line !== null && machine !== null ? `${line}-${machine}` : DASH;
 }
+
+// A half-known dimension like 140×—mm is not a dimension; treat any partial pair as missing.
+export function fmtMeasurePair(a: number | null, b: number | null, unit: string): string {
+  return a === null || b === null ? DASH : `${a}×${b}${unit}`;
+}

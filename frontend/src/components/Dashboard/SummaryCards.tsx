@@ -1,5 +1,5 @@
 import { STATUS_LABEL, type MoldDetail } from "../../types/mold";
-import { fmtInstallation, fmtMeasure, fmtNumber, fmtText } from "./formatters";
+import { fmtInstallation, fmtMeasure, fmtMeasurePair, fmtNumber, fmtText } from "./formatters";
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -33,11 +33,7 @@ export default function SummaryCards({ detail }: { detail: MoldDetail }) {
         <Row label="전체" value={fmtMeasure(design.overall_mm, "mm")} />
         <Row
           label="Plate(높이×넓이)"
-          value={
-            design.plate_height_mm === null || design.plate_width_mm === null
-              ? fmtMeasure(null, "")
-              : `${design.plate_height_mm}×${design.plate_width_mm}mm`
-          }
+          value={fmtMeasurePair(design.plate_height_mm, design.plate_width_mm, "mm")}
         />
       </Card>
 
