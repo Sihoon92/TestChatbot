@@ -1,8 +1,68 @@
-// Task 6~11 에서 필터바·목록·상세를 붙인다. 지금은 라우팅이 닿는지만 확인한다.
+import { useEffect } from "react";
+import { useParams } from "react-router-dom";
+import { useDashboardStore } from "../../store/dashboardStore";
+import MoldDetailPanel from "./MoldDetailPanel";
+import MoldFilterBar from "./MoldFilterBar";
+import MoldList from "./MoldList";
+
 export default function DashboardPage() {
+  const { moldNo } = useParams();
+  const filters = useDashboardStore((s) => s.filters);
+  const error = useDashboardStore((s) => s.error);
+  const loadOptions = useDashboardStore((s) => s.loadOptions);
+  const loadMolds = useDashboardStore((s) => s.loadMolds);
+  const loadDetail = useDashboardStore((s) => s.loadDetail);
+  const clearDetail = useDashboardStore((s) => s.clearDetail);
+
+  // 필터 선택지는 한 번만 받으면 된다.
+  useEffect(() => {
+    void loadOptions();
+  }, [loadOptions]);
+
+  // 필터가 바뀔 때마다 목록을 다시 받는다. filters 객체는 setFilter 가 매번 새로
+  // 만들므로, 값이 실제로 바뀐 경우에만 이 효과가 돈다.
+  useEffect(() => {
+    void loadMolds();
+  }, [filters, loadMolds]);
+
+  // 선택은 URL 이 진실이다. 주소창에 직접 입력하거나 링크로 진입해도 같은
+  // 경로를 타도록, 목록 클릭이 아니라 moldNo 변화를 트리거로 삼는다.
+  useEffect(() => {
+    if (moldNo === undefined) {
+      clearDetail();
+      return;
+    }
+    void loadDetail(moldNo);
+  }, [moldNo, loadDetail, clearDetail]);
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col p-4">
-      <h1 className="text-lg font-semibold">금형 관리</h1>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <h1 className="sr-only">금형 관리</h1>
+
+      {error !== null && (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-accent bg-accent/10 px-3 py-2 text-sm">
+          <span>불러오지 못했습니다: {error}</span>
+          <button
+            onClick={() => {
+              void loadMolds();
+              if (moldNo !== undefined) void loadDetail(moldNo);
+            }}
+            className="shrink-0 rounded-md bg-accent px-3 py-1 text-white hover:bg-accent-dark"
+          >
+            다시 시도
+          </button>
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1">
+        <aside className="flex w-72 shrink-0 flex-col border-r border-paper-dark">
+          <MoldFilterBar />
+          <MoldList />
+        </aside>
+        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+          <MoldDetailPanel moldNo={moldNo} />
+        </main>
+      </div>
     </div>
   );
 }
