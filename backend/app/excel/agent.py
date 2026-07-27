@@ -47,9 +47,17 @@ def build_excel_agent(model, wb):
     return create_react_agent(model, make_excel_tools(wb))
 
 
-def run_excel_agent(model, wb, question: str) -> dict:
-    """에이전트를 돌려 최종 답과 사용한 도구 목록을 돌려준다."""
+def run_excel_agent(model, wb, question: str, *, config: dict | None = None) -> dict:
+    """에이전트를 돌려 최종 답과 사용한 도구 목록을 돌려준다.
+
+    `config` 로 실행 config 를 덧붙일 수 있다(예: 디버그 로깅 콜백). 이 함수가
+    직접 get_settings() 를 불러 콜백을 붙이지 않는 이유는, 라이브러리 함수가
+    전역 설정에 묶이면 테스트/재사용이 어려워지기 때문이다 — 호출자가 config 에
+    콜백을 넣어주는 LangChain 표준 패턴을 따른다(app/api/chat.py 와 동일).
+    `recursion_limit` 은 호출자가 명시하지 않는 한 이 모듈의 값을 유지한다.
+    """
     agent = build_excel_agent(model, wb)
+    run_config = {"recursion_limit": _RECURSION_LIMIT, **(config or {})}
     result = agent.invoke(
         {
             "messages": [
@@ -57,7 +65,7 @@ def run_excel_agent(model, wb, question: str) -> dict:
                 HumanMessage(content=question),
             ]
         },
-        config={"recursion_limit": _RECURSION_LIMIT},
+        config=run_config,
     )
     msgs = result["messages"]
     tool_calls: list[str] = []
