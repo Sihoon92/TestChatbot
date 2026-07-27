@@ -6,8 +6,9 @@ vi.mock("../api/molds", () => ({
   getFilterOptions: vi.fn(async () => ({ statuses: [], installations: [] })),
 }));
 
-import { listMolds } from "../api/molds";
+import { getFilterOptions, getMold, listMolds } from "../api/molds";
 import { DEFAULT_FILTERS, useDashboardStore } from "./dashboardStore";
+import type { FilterOptions, MoldDetail } from "../types/mold";
 
 describe("dashboardStore", () => {
   beforeEach(() => {
@@ -15,6 +16,8 @@ describe("dashboardStore", () => {
       filters: { ...DEFAULT_FILTERS },
       molds: [],
       detail: null,
+      options: null,
+      detailLoading: false,
       error: null,
     });
     vi.clearAllMocks();
@@ -42,6 +45,14 @@ describe("dashboardStore", () => {
     expect(filters.machine).toBe("2");
   });
 
+  it("clears line/machine when a single patch sets both them and a non-in_use status", () => {
+    const st = useDashboardStore.getState();
+    st.setFilter({ status: "standby", line: "3", machine: "2" });
+    const { filters } = useDashboardStore.getState();
+    expect(filters.line).toBeNull();
+    expect(filters.machine).toBeNull();
+  });
+
   it("restores every filter to its default on reset", () => {
     const st = useDashboardStore.getState();
     st.setFilter({ q: "zzz", status: "retired" });
@@ -60,5 +71,43 @@ describe("dashboardStore", () => {
     useDashboardStore.setState({ error: "옛 오류" });
     await useDashboardStore.getState().loadMolds();
     expect(useDashboardStore.getState().error).toBeNull();
+  });
+
+  it("populates options from getFilterOptions on success", async () => {
+    const options: FilterOptions = {
+      statuses: ["in_use"],
+      installations: [{ line: "3", machine: "2" }],
+    };
+    vi.mocked(getFilterOptions).mockResolvedValueOnce(options);
+    await useDashboardStore.getState().loadOptions();
+    expect(useDashboardStore.getState().options).toEqual(options);
+  });
+
+  it("stores an error message when loadOptions fails", async () => {
+    vi.mocked(getFilterOptions).mockRejectedValueOnce(new Error("HTTP 500"));
+    await useDashboardStore.getState().loadOptions();
+    expect(useDashboardStore.getState().error).toContain("HTTP 500");
+  });
+
+  it("populates detail from getMold on success", async () => {
+    const fakeDetail = { summary: { mold_no: "M-10" } } as unknown as MoldDetail;
+    vi.mocked(getMold).mockResolvedValueOnce(fakeDetail);
+    await useDashboardStore.getState().loadDetail("M-10");
+    const state = useDashboardStore.getState();
+    expect(state.detail).toEqual(fakeDetail);
+    expect(state.error).toBeNull();
+    expect(state.detailLoading).toBe(false);
+  });
+
+  it("clears a stale detail when loadDetail fails, so the previous mold's data is not shown", async () => {
+    // 이전에 선택한 금형의 상세가 남아 있으면, 실패 후에도 그 값이 새로
+    // 선택한 금형의 것처럼 보일 수 있다 — 반드시 비워야 한다.
+    useDashboardStore.setState({ detail: { summary: { mold_no: "OLD" } } as unknown as MoldDetail });
+    vi.mocked(getMold).mockRejectedValueOnce(new Error("HTTP 404"));
+    await useDashboardStore.getState().loadDetail("M-99");
+    const state = useDashboardStore.getState();
+    expect(state.detail).toBeNull();
+    expect(state.error).toContain("HTTP 404");
+    expect(state.detailLoading).toBe(false);
   });
 });
