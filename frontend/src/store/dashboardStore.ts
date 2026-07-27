@@ -38,7 +38,12 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   options: null,
   molds: [],
   detail: null,
-  listLoading: false,
+  // 초기값을 true 로 둔다: 대시보드는 마운트되면 항상 loadMolds()를 호출하므로
+  // "증명되기 전까지는 로딩 중"이 정직한 기본값이다. false 로 두면 목록이
+  // 도착하기 전 한 프레임 동안 molds=[] 와 겹쳐 "조건에 맞는 금형이
+  // 없습니다"+필터 초기화 버튼이 잘못 뜬다 — 실제로는 아무 필터도 문제가
+  // 아닌데 사용자에게 필터를 고치라고 유도하는 오판이다.
+  listLoading: true,
   detailLoading: false,
   error: null,
 

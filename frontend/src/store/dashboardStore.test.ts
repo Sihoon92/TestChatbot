@@ -27,6 +27,19 @@ describe("dashboardStore", () => {
     expect(DEFAULT_FILTERS.status).toBe("in_use");
   });
 
+  it("defaults listLoading to true, since the dashboard always loads on mount", async () => {
+    // beforeEach 는 filters/molds/detail/options/detailLoading/error 만 리셋하고
+    // listLoading 은 건드리지 않는다 — 앞선 테스트들이 loadMolds()를 실행하며
+    // 이 싱글턴의 listLoading 을 이미 true/false 로 바꿔놨을 수 있어, 현재
+    // getState() 를 읽으면 모듈 최초 생성 시점의 값을 증명하지 못한다.
+    // vi.resetModules() 로 모듈 레지스트리를 비우고 다시 import 해 신선한
+    // 스토어 인스턴스를 만들어야, "마운트 전에는 로딩 중"이라는 문서화된
+    // 기본값을 실제로 검증할 수 있다.
+    vi.resetModules();
+    const fresh = await import("./dashboardStore");
+    expect(fresh.useDashboardStore.getState().listLoading).toBe(true);
+  });
+
   it("clears line/machine when status moves away from in_use", () => {
     const st = useDashboardStore.getState();
     st.setFilter({ line: "3", machine: "2" });
