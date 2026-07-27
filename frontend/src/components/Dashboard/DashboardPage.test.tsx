@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -30,6 +31,19 @@ const DETAIL: MoldDetail = {
   productions: [],
   stages: [],
 };
+
+const SUMMARY_1031: MoldSummary = { ...SUMMARY, mold_no: "M-1031" };
+const DETAIL_1031: MoldDetail = { ...DETAIL, summary: SUMMARY_1031 };
+
+/** 테스트가 직접 resolve 시점을 통제할 수 있는 프라미스. 타이머가 아니라
+ * 명시적 resolve 순서로 경쟁 조건을 결정적으로 재현하기 위해 쓴다. */
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 function renderAt(path: string) {
   return render(
@@ -92,5 +106,55 @@ describe("DashboardPage", () => {
     vi.mocked(getMold).mockRejectedValue(new Error("HTTP 404"));
     renderAt("/dashboard/M-9999");
     expect(await screen.findByText(/HTTP 404/)).toBeInTheDocument();
+  });
+
+  // Finding 1 회귀 테스트: M-1024 를 보다가 M-1031 을 고르면, M-1031 요청이
+  // 아직 끝나지 않은 그 순간에도 화면에 M-1024 의 상세가 남아 있으면 안
+  // 된다 — 남아 있으면 URL/목록의 선택 표시와 상세 패널이 서로 다른 금형을
+  // 가리키는 상태가 요청이 끝날 때까지 보인다는 뜻이다. 요청을 수동으로
+  // 통제하는 프라미스로 묶어 그 "요청 도중" 프레임을 직접 검사한다.
+  it("clears the previous mold's detail immediately on selection, before the new request resolves", async () => {
+    vi.mocked(listMolds).mockResolvedValue([SUMMARY, SUMMARY_1031]);
+    const deferred1031 = createDeferred<MoldDetail>();
+    vi.mocked(getMold)
+      .mockResolvedValueOnce(DETAIL) // 최초 진입: M-1024
+      .mockImplementationOnce(() => deferred1031.promise); // M-1031 선택: 아직 응답 안 함
+
+    renderAt("/dashboard/M-1024");
+    expect(await screen.findByRole("heading", { name: "M-1024", level: 2 })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /M-1031/ }));
+
+    // M-1031 요청이 아직 끝나지 않았다 — 이 시점에 M-1024 상세가 보이면 안 된다.
+    expect(screen.queryByRole("heading", { name: "M-1024", level: 2 })).not.toBeInTheDocument();
+
+    deferred1031.resolve(DETAIL_1031);
+    expect(await screen.findByRole("heading", { name: "M-1031", level: 2 })).toBeInTheDocument();
+  });
+
+  // Finding 1 회귀 테스트(경쟁 조건): 빠르게 M-A 를 고르고 곧바로 M-B 를
+  // 고르면 두 loadDetail 호출이 동시에 진행된다. 먼저 보낸 M-A 요청이 나중에
+  // 응답하더라도, 최신 선택인 M-B 의 데이터가 스토어에 남아야 한다. 타이머가
+  // 아니라 수동으로 통제하는 프라미스로 응답 순서를 결정적으로 뒤집는다.
+  it("keeps the latest selection's detail even when an earlier request resolves later (race)", async () => {
+    const deferredA = createDeferred<MoldDetail>();
+    const deferredB = createDeferred<MoldDetail>();
+    vi.mocked(getMold).mockImplementationOnce(() => deferredA.promise).mockImplementationOnce(() => deferredB.promise);
+
+    const DETAIL_A: MoldDetail = { ...DETAIL, summary: { ...SUMMARY, mold_no: "M-A" } };
+    const DETAIL_B: MoldDetail = { ...DETAIL, summary: { ...SUMMARY, mold_no: "M-B" } };
+
+    const store = useDashboardStore.getState();
+    const loadA = store.loadDetail("M-A");
+    const loadB = store.loadDetail("M-B");
+
+    // 나중에 고른 B 가 먼저 응답한다.
+    deferredB.resolve(DETAIL_B);
+    await loadB;
+    // 먼저 고른 A 가 뒤늦게 응답한다 — 이게 store 를 덮어쓰면 안 된다.
+    deferredA.resolve(DETAIL_A);
+    await loadA;
+
+    expect(useDashboardStore.getState().detail?.summary.mold_no).toBe("M-B");
   });
 });

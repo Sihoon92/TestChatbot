@@ -20,18 +20,25 @@ export default function DashboardPage() {
   }, [loadOptions]);
 
   // 필터가 바뀔 때마다 목록을 다시 받는다. filters 객체는 setFilter 가 매번 새로
-  // 만들므로, 값이 실제로 바뀐 경우에만 이 효과가 돈다.
+  // 만들므로(참조가 바뀌므로), 값이 실제로 바뀌었는지와 무관하게 setFilter 를
+  // 호출할 때마다 이 효과가 다시 돈다.
   useEffect(() => {
     void loadMolds();
   }, [filters, loadMolds]);
 
   // 선택은 URL 이 진실이다. 주소창에 직접 입력하거나 링크로 진입해도 같은
   // 경로를 타도록, 목록 클릭이 아니라 moldNo 변화를 트리거로 삼는다.
+  //
+  // moldNo 가 바뀔 때마다(undefined 로 바뀔 때만이 아니라) 먼저 detail 을
+  // 비운다 — 그러지 않으면 새 moldNo 로 loadDetail 이 도는 동안 화면에는
+  // 이전 금형의 데이터가 그대로 남아, URL/목록의 선택 표시와 상세 패널이
+  // 다른 금형을 가리키는 상태가 요청이 끝날 때까지 보인다.
   useEffect(() => {
     if (moldNo === undefined) {
       clearDetail();
       return;
     }
+    clearDetail();
     void loadDetail(moldNo);
   }, [moldNo, loadDetail, clearDetail]);
 

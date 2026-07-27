@@ -20,6 +20,7 @@ interface DashboardState {
   listLoading: boolean;
   detailLoading: boolean;
   error: string | null;
+  detailToken: number;
 
   setFilter: (patch: Partial<MoldFilters>) => void;
   resetFilters: () => void;
@@ -46,6 +47,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   listLoading: true,
   detailLoading: false,
   error: null,
+  detailToken: 0,
 
   setFilter: (patch) =>
     set((s) => {
@@ -81,16 +83,23 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     }
   },
 
+  // 요청 토큰: 사용자가 금형을 빠르게 연달아 고르면 loadDetail 이 동시에 여러 번
+  // 돈다. 먼저 보낸 요청이 나중에 응답하면 최신 선택을 덮어써, URL 은 B 인데
+  // 화면은 A 를 보여주는 상태가 영구히 남는다. 토큰이 최신일 때만 반영한다.
   loadDetail: async (moldNo) => {
-    set({ detailLoading: true });
+    const token = get().detailToken + 1;
+    set({ detailToken: token, detailLoading: true });
     try {
-      set({ detail: await getMold(moldNo), error: null });
+      const detail = await getMold(moldNo);
+      if (get().detailToken !== token) return; // 더 최신 요청이 있다 — 버린다
+      set({ detail, error: null });
     } catch (err) {
+      if (get().detailToken !== token) return;
       // 상세 조회 실패 시 옛 금형의 상세가 남아 있으면 다른 금형의 데이터를
       // 보고 있다고 오해하게 된다. 반드시 비운다.
       set({ detail: null, error: message(err) });
     } finally {
-      set({ detailLoading: false });
+      if (get().detailToken === token) set({ detailLoading: false });
     }
   },
 
