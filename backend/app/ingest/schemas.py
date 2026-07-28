@@ -154,3 +154,7 @@ class RunSummary(BaseModel):
     skipped_rows: int = 0  # 금형번호가 없어 버린 행
     files: list[str] = []  # 이번 배치에서 읽은 파일
     error: str | None = None
+    # 디스크에는 있는데 이번 회차에 읽지 못한 파일. 대개 사람이 엑셀을 열어둔
+    # 경우다. 이 목록이 비어 있지 않으면 배치를 건너뛴다 — 배치는 DB 를 전체
+    # 교체하므로, 못 읽은 파일의 데이터가 화면에서 조용히 사라지기 때문이다.
+    unreadable_files: list[str] = []

@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS ingest_run (
     unknown_json TEXT NOT NULL DEFAULT '[]',
     skipped_rows INTEGER NOT NULL DEFAULT 0,
     files_json   TEXT NOT NULL DEFAULT '[]',
-    error        TEXT
+    error        TEXT,
+    unreadable_json TEXT NOT NULL DEFAULT '[]'
 );
 
 -- 아래 네 테이블은 대시보드 스키마와 대응하며, 배치마다 전체 교체된다.

@@ -148,7 +148,8 @@ def test_cached_layout_avoids_calling_agent(env, monkeypatch):
     with open(os.path.join(env.resolved_ingest_root, "MES", "mes.xlsx"), "wb") as f:
         f.write(b"mes-v2")
 
-    run_ingest(env, model=object(), open_wb=opener)
+    second = run_ingest(env, model=object(), open_wb=opener)
+    assert second.status == "ok", "두 번째 배치가 실제로 돌아야 캐시 경로를 증명한다"
     assert calls["n"] == 2, "앵커가 같으면 에이전트를 다시 부르지 않아야 한다"
 
 
@@ -165,3 +166,36 @@ def test_run_summary_is_persisted(env, monkeypatch):
 
     assert latest is not None
     assert latest.mold_count == 1
+
+
+def test_unreadable_file_skips_batch_and_is_reported(env, monkeypatch):
+    """사람이 엑셀을 열어둬 못 읽은 파일이 있으면 배치를 건너뛴다.
+    배치는 DB 를 전체 교체하므로, 그냥 진행하면 그 파일의 데이터가 화면에서
+    조용히 사라진다. 진짜 삭제와 구분하려고 디스크 존재 여부를 확인한다."""
+    monkeypatch.setattr(
+        "app.ingest.pipeline.discover_layout",
+        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+    )
+    opener = _fake_open({"mes": MES_GRID, "iqc": IQC_GRID})
+
+    first = run_ingest(env, model=object(), open_wb=opener)
+    assert first.status == "ok"
+
+    # 이제 IQC 파일을 스캔 결과에서만 빠지게 한다 — 파일 자체는 디스크에 남는다.
+    import app.ingest.pipeline as pipeline_module
+    real_scan = pipeline_module.scan
+    monkeypatch.setattr(
+        pipeline_module, "scan",
+        lambda root, dirs: [f for f in real_scan(root, dirs) if f.kind != "iqc"],
+    )
+
+    second = run_ingest(env, model=object(), open_wb=opener)
+
+    assert second.status == "skipped"
+    assert any("IQC" in p for p in second.unreadable_files)
+
+    # DB 가 그대로여야 한다 — 첫 배치의 IQC 항목이 살아 있어야 한다.
+    conn = db.connect(env.resolved_molds_db_path)
+    n = conn.execute("SELECT COUNT(*) c FROM mold_stage").fetchone()["c"]
+    conn.close()
+    assert n == 1, "배치를 건너뛰었으므로 이전 IQC 데이터가 남아 있어야 한다"

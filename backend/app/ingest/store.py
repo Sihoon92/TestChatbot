@@ -35,7 +35,13 @@ def _items_json(record: MoldRecord) -> str:
     )
 
 
-def replace_all(conn: sqlite3.Connection, records: list[MoldRecord]) -> None:
+def replace_all(
+    conn: sqlite3.Connection, records: list[MoldRecord], *, commit: bool = True
+) -> None:
+    """`commit=False` 면 커밋을 생략하고 호출자에게 트랜잭션을 넘긴다 — 파이프라인이
+    이 교체와 `record_files`/이력 삭제를 한 트랜잭션으로 묶어 마지막에 한 번만
+    커밋하려 할 때 쓴다. 실패 시 되돌리는 책임은 `commit` 값과 무관하게 항상
+    여기(`except` 블록의 `rollback()`)에 있다."""
     now = datetime.now(timezone.utc).isoformat()
     try:
         # 명시적 트랜잭션. sqlite3 는 DDL/DML 자동커밋 규칙이 미묘해서
@@ -73,7 +79,8 @@ def replace_all(conn: sqlite3.Connection, records: list[MoldRecord]) -> None:
             """,
             [(r.mold_no, _items_json(r), r.iqc_source_file, now) for r in staged],
         )
-        conn.commit()
+        if commit:
+            conn.commit()
     except Exception:
         conn.rollback()
         raise

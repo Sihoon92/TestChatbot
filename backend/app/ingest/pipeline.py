@@ -7,6 +7,7 @@
 없거나 실패하면 배치를 중단하고 이전 DB 상태를 그대로 둔다 — 부분 갱신은
 옛 금형과 새 부속정보가 섞인, 어느 쪽도 믿을 수 없는 상태를 만든다.
 """
+import os
 from datetime import datetime, timezone
 
 from app.config import Settings
@@ -66,12 +67,30 @@ def run_ingest(
     try:
         found = scan(settings.resolved_ingest_root, settings.stage_dir_map)
         known = registry.known_hashes(conn)
+        found_paths = {f.path for f in found}
+
+        # 스캐너가 건너뛴(읽지 못한) 파일과 진짜 삭제된 파일을 구분한다. 파일이
+        # 여전히 디스크에 있다면 삭제된 게 아니라 이번 회차에 못 읽은 것이다.
+        # 이 경우 그냥 진행하면 배치가 DB 를 전체 교체하므로 그 파일의 데이터가
+        # 화면에서 조용히 사라진다 — 그래서 배치 자체를 건너뛰고 이력도 건드리지
+        # 않는다(다음 회차에 다시 시도한다).
+        unreadable = sorted(
+            p for p in known if p not in found_paths and os.path.exists(p)
+        )
+        if unreadable:
+            summary = RunSummary(
+                status="skipped", started_at=started, finished_at=_now(),
+                unreadable_files=unreadable,
+                files=[f.path for f in found],
+            )
+            registry.record_run(conn, summary)
+            return summary
 
         # 어느 파일이든 바뀌면 배치 전체를 다시 돈다. 증분 로직은 "부분 갱신
         # 때문에 옛 데이터가 남는" 버그를 만드는데, 수천 행 규모에서 그 위험을
         # 살 만한 이득이 없다.
         changed = [f for f in found if known.get(f.path) != f.content_hash]
-        removed = set(known) - {f.path for f in found}
+        removed = set(known) - found_paths
         if not changed and not removed:
             summary = RunSummary(
                 status="skipped", started_at=started, finished_at=_now(),
@@ -98,8 +117,12 @@ def run_ingest(
             iqc_rows.extend(_read_file(conn, model, f, open_wb, config))
 
         result = assemble(mes_rows, iqc_rows)
-        replace_all(conn, result.records)
-        registry.record_files(conn, found)
+        # mold 전체 교체 + 파일 이력 갱신 + 삭제 이력 제거를 한 트랜잭션으로
+        # 묶는다. 각자 따로 커밋하면 예를 들어 replace_all 이 커밋된 뒤
+        # record_files 가 실패했을 때 mold 는 새 상태, ingested_file 은 옛
+        # 상태로 갈라져 다음 회차에 전부 재처리된다.
+        replace_all(conn, result.records, commit=False)
+        registry.record_files(conn, found, commit=False)
         # 사라진 파일의 이력은 지운다 — 남겨두면 "바뀐 게 없다" 판정이
         # 영원히 틀린다(removed 가 매번 참이 된다).
         for path in removed:
@@ -119,8 +142,15 @@ def run_ingest(
         return summary
 
     except Exception as exc:  # noqa: BLE001
-        # 한 배치의 실패가 DB 를 망가뜨리지 않는다(store 가 롤백했다).
-        # 원인을 요약에 남겨 화면에서 보이게 한다.
+        # 미완료 트랜잭션을 먼저 되돌린다. 이걸 빼면 아래 record_run 의
+        # commit() 이 실패 도중의 부분 변경(예: replace_all 커밋 후
+        # record_files 실패)까지 함께 확정해, 화면은 error 인데 DB 는 반쯤
+        # 갱신된 상태로 남는다. store 의 "실패하면 롤백되어 이전 상태가
+        # 유지된다"는 전제는 이 바깥 트랜잭션에도 그대로 적용돼야 한다.
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
         summary = RunSummary(
             status="error", started_at=started, finished_at=_now(),
             error=f"{type(exc).__name__}: {exc}",

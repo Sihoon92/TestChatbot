@@ -20,7 +20,12 @@ def known_hashes(conn: sqlite3.Connection) -> dict[str, str]:
     return {r["path"]: r["content_hash"] for r in rows}
 
 
-def record_files(conn: sqlite3.Connection, files: list[FoundFile]) -> None:
+def record_files(
+    conn: sqlite3.Connection, files: list[FoundFile], *, commit: bool = True
+) -> None:
+    """`commit=False` 면 커밋을 생략한다 — 호출자가 다른 쓰기와 한 트랜잭션으로
+    묶어 마지막에 한 번만 커밋하려 할 때 쓴다(파이프라인이 replace_all 과
+    함께 묶는다)."""
     conn.executemany(
         """
         INSERT INTO ingested_file (path, kind, content_hash, seen_at)
@@ -32,7 +37,8 @@ def record_files(conn: sqlite3.Connection, files: list[FoundFile]) -> None:
         """,
         [(f.path, f.kind, f.content_hash, _now()) for f in files],
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def save_layout(
@@ -68,8 +74,9 @@ def record_run(conn: sqlite3.Connection, summary: RunSummary) -> None:
         """
         INSERT INTO ingest_run
             (status, started_at, finished_at, mold_count, iqc_matched,
-             orphan_json, unknown_json, skipped_rows, files_json, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             orphan_json, unknown_json, skipped_rows, files_json, error,
+             unreadable_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             summary.status,
@@ -82,6 +89,7 @@ def record_run(conn: sqlite3.Connection, summary: RunSummary) -> None:
             summary.skipped_rows,
             json.dumps(summary.files, ensure_ascii=False),
             summary.error,
+            json.dumps(summary.unreadable_files, ensure_ascii=False),
         ),
     )
     conn.commit()
@@ -104,4 +112,5 @@ def latest_run(conn: sqlite3.Connection) -> RunSummary | None:
         skipped_rows=row["skipped_rows"],
         files=json.loads(row["files_json"]),
         error=row["error"],
+        unreadable_files=json.loads(row["unreadable_json"]),
     )
