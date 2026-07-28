@@ -81,14 +81,19 @@ class Settings(BaseSettings):
     def stage_dir_map(self) -> dict[str, str]:
         """'MES:mes,IQC:iqc' → {'MES': 'mes', 'IQC': 'iqc'}.
 
-        잘못된 항목(콜론 없음, 빈 이름)은 조용히 버리지 않고 무시하되,
+        잘못된 항목은 조용히 무시:
+        - 콜론 없음: "쓰레기" → 제외
+        - 빈 이름/종류: ":mes" 또는 "MES:" → 제외
+        - 콜론 2개 이상: "MES:mes:extra" → kind 에 ':' 가 남으면 제외 (유효 종류는 6종의 닫힌 어휘)
+
         전체가 비면 빈 dict 를 돌려준다 — 호출자가 '설정이 비었다'로 처리한다.
         """
         out: dict[str, str] = {}
         for part in self.ingest_stage_dirs.split(","):
             name, sep, kind = part.partition(":")
             name, kind = name.strip(), kind.strip()
-            if sep and name and kind:
+            # 유효한 항목만 매핑: 콜론 있고, 이름과 종류가 비지 않았고, 종류에 콜론 없음
+            if sep and name and kind and ":" not in kind:
                 out[name] = kind
         return out
 
@@ -100,11 +105,7 @@ class Settings(BaseSettings):
         이렇게 하면 어디서 uvicorn 을 띄우든 항상 backend/logs/llm_calls.log 로
         일관되게 기록돼, "로그 파일이 어디 갔는지" 헷갈리지 않는다.
         """
-        p = Path(self.debug_log_path)
-        if not p.is_absolute():
-            backend_root = Path(__file__).resolve().parents[1]  # backend/
-            p = backend_root / p
-        return str(p)
+        return self._resolve(self.debug_log_path)
 
     @property
     def active_model(self) -> str:
