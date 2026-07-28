@@ -150,3 +150,45 @@ def test_raises_for_stage_without_field_guide():
 
     with pytest.raises(ValueError, match="FIELD_GUIDE"):
         discover_layout(model, FakeWorkbook(), "pqc", "Sheet1")
+
+
+def test_submit_tool_schema_explains_row_conventions():
+    """에이전트는 Python 주석이 아니라 도구의 JSON 스키마만 본다.
+
+    data_start_row/data_end_row 의 관례가 스키마에 없으면 에이전트가 헤더
+    행 번호를 data_end_row 에 채우고, 파싱이 조용히 0행이 된다(파서가 이제
+    막지만, 애초에 틀리게 만들 이유가 없다)."""
+    from app.ingest.discover import build_discover_agent
+
+    _agent, tools = build_discover_agent(
+        FakeToolCallingModel(responses=[]), FakeWorkbook(), "iqc", {}
+    )
+    submit = next(t for t in tools if t.name == "submit_layout")
+    table = submit.args_schema.model_json_schema()["$defs"]["TableBlock"]
+
+    assert "헤더 다음" in table["properties"]["data_start_row"]["description"]
+    assert "헤더 행 번호를 넣지 마라" in table["properties"]["data_end_row"]["description"]
+    assert "비어 있으면 안 된다" in table["properties"]["columns"]["description"]
+    assert "summary" in table["properties"]["role"]["description"]
+
+
+def test_prompt_states_the_data_row_convention():
+    """스키마 설명과 프롬프트가 같은 관례를 말해야 한다 — 한쪽만 있으면
+    다른 쪽을 고칠 때 조용히 어긋난다."""
+    received: list[str] = []
+
+    class RecordingModel(FakeToolCallingModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            received.append("\n".join(str(m.content) for m in messages))
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    model = RecordingModel(responses=[
+        AIMessage(content="", tool_calls=[
+            {"name": "submit_layout", "args": LAYOUT_ARGS, "id": "c1"}
+        ]),
+        AIMessage(content="완료", tool_calls=[]),
+    ])
+
+    discover_layout(model, FakeWorkbook(), "iqc", "Sheet1")
+
+    assert "data_start_row 는 헤더 **다음** 행이다" in received[0]

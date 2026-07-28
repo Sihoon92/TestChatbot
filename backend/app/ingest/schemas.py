@@ -12,7 +12,7 @@
 """
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 SourceKind = Literal["mes", "iqc", "pqc", "design", "install", "ai_recheck"]
 
@@ -38,19 +38,33 @@ IQC_VALUE_FIELDS = ["punch", "die", "diff", "gap"]
 
 
 class ColumnMap(BaseModel):
-    """표의 한 열이 어느 필드에 해당하는지."""
+    """표의 한 열이 어느 필드에 해당하는지.
 
-    field: str  # 고정 어휘(mold_no 등) 또는 헤더 텍스트 그대로
-    column: str  # "C"
+    description 이 붙어 있는 이유: 이 계열 모델은 submit_layout 도구의 인자
+    스키마가 되고, 에이전트는 Python 주석이 아니라 JSON 스키마만 본다.
+    설명이 없으면 필드명과 타입만 보고 관례를 추측한다.
+    """
+
+    field: str = Field(
+        description="고정 어휘(mold_no 등) 또는 헤더 텍스트 그대로"
+    )
+    column: str = Field(description='열 문자. 예: "C"')
 
 
 class KeyValueItem(BaseModel):
     """표가 아닌 블록. 라벨 옆/아래에 값이 있는 형태(상단 기본정보 등)."""
 
-    field: str
-    value_cell: str  # "D5"
-    # 어느 라벨을 보고 그렇게 판단했는지. 값이 이상할 때 근거를 되짚는 용도.
-    label_cell: str | None = None
+    field: str = Field(
+        description="고정 어휘(mold_no 등) 또는 라벨 텍스트 그대로"
+    )
+    value_cell: str = Field(description='값이 있는 셀 주소. 예: "D5"')
+    label_cell: str | None = Field(
+        default=None,
+        description=(
+            "어느 라벨을 보고 그렇게 판단했는지. 값이 이상할 때 근거를 "
+            "되짚는 용도이므로 가능하면 채워라"
+        ),
+    )
 
 
 class TableBlock(BaseModel):
@@ -60,14 +74,36 @@ class TableBlock(BaseModel):
     detail 표가 함께 있다. 구분하지 않으면 '소계'를 금형번호로 읽는다.
     """
 
-    name: str
-    role: Literal["detail", "summary"]
-    category: str | None = None  # "측정 이력" / "금형 측정 대장"
-    # 멀티헤더(병합 셀 2단)를 표현하려면 여러 행이 필요하다.
-    header_rows: list[int]
-    data_start_row: int
-    data_end_row: int | None = None  # None = 빈 행 만날 때까지
-    columns: list[ColumnMap] = []
+    name: str = Field(description="이 표를 사람이 알아볼 이름")
+    role: Literal["detail", "summary"] = Field(
+        description=(
+            "detail=실제 데이터 행이 있는 표, summary=소계/합계 등 집계표. "
+            "summary 는 파싱하지 않는다"
+        )
+    )
+    category: str | None = Field(
+        default=None,
+        description='표가 속한 카테고리 제목(있으면). 예: "금형 측정 대장"',
+    )
+    header_rows: list[int] = Field(
+        description=(
+            "헤더가 있는 행 번호들(1-based). 2단 병합 헤더면 두 행을 모두 넣는다"
+        )
+    )
+    data_start_row: int = Field(
+        description="데이터가 시작하는 첫 행 번호(1-based, 헤더 다음)"
+    )
+    data_end_row: int | None = Field(
+        default=None,
+        description=(
+            "데이터 마지막 행 번호. 표 아래에 다른 블록이 없으면 null 로 두면 "
+            "빈 행에서 자동으로 멈춘다. 헤더 행 번호를 넣지 마라"
+        ),
+    )
+    columns: list[ColumnMap] = Field(
+        default=[],
+        description="이 표의 컬럼 매핑. detail 표는 비어 있으면 안 된다",
+    )
 
 
 class AnchorCheck(BaseModel):
@@ -78,17 +114,33 @@ class AnchorCheck(BaseModel):
     헤더 위치를 모르는 상태에서 해시할 수 없고, 표가 여러 개면 헤더도 여럿이다.
     """
 
-    cell: str  # "B4"
-    text: str  # "금형번호"
+    cell: str = Field(description='확인할 셀 주소. 예: "B4"')
+    text: str = Field(
+        description=(
+            "그 셀에 있어야 하는 텍스트. 행이 추가돼도 안 바뀌는 "
+            "**헤더 텍스트**를 골라라 — 데이터 값은 안 된다"
+        )
+    )
 
 
 class SheetLayout(BaseModel):
-    sheet_name: str
-    key_values: list[KeyValueItem] = []
-    tables: list[TableBlock] = []
-    # 비우면 캐시 판정이 불가능하므로 필수다.
-    anchors: list[AnchorCheck]
-    notes: str | None = None  # 에이전트가 애매하다고 본 점 (로그용)
+    sheet_name: str = Field(description="시트 이름. 질문에 주어진 그대로 적는다")
+    key_values: list[KeyValueItem] = Field(
+        default=[],
+        description="표가 아니라 라벨 옆/아래에 값이 있는 블록(상단 기본정보 등)",
+    )
+    tables: list[TableBlock] = Field(
+        default=[], description="이 시트의 표들. 한 시트에 여러 개일 수 있다"
+    )
+    anchors: list[AnchorCheck] = Field(
+        description=(
+            "같은 양식인지 판정할 근거 셀 3개 이상. 비우면 캐시 판정이 "
+            "불가능하므로 필수다"
+        )
+    )
+    notes: str | None = Field(
+        default=None, description="애매하다고 본 점을 적어라(로그로만 쓰인다)"
+    )
 
 
 class Row(BaseModel):
