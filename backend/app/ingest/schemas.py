@@ -110,6 +110,18 @@ class FoundFile(BaseModel):
     content_hash: str
 
 
+class ScanResult(BaseModel):
+    """스캔 결과. 찾은 파일과, 디스크에 있지만 읽지 못한 파일을 함께 돌려준다.
+
+    파이프라인이 "삭제된 파일"과 "이번에 못 읽은 파일"을 구분해야 하는데,
+    경로 존재 여부로 추론하면 처음 등장하는 파일(이력에 없는)을 놓치고,
+    설정에서 폴더 매핑을 뺀 경우를 잠금으로 오인한다.
+    """
+
+    files: list[FoundFile] = []
+    unreadable: list[str] = []
+
+
 class StageItemRecord(BaseModel):
     """대시보드 StageItem 이 될 항목 + 출처."""
 

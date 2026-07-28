@@ -231,10 +231,25 @@ def test_run_summary_is_persisted(env, monkeypatch):
     assert latest.mold_count == 1
 
 
+def _lock(monkeypatch, needle: str):
+    """스캐너가 `needle` 이 든 경로를 못 읽은 것처럼 만든다(엑셀 열어둔 상황)."""
+    from app.ingest import scanner as scanner_module
+
+    real = scanner_module.file_hash
+
+    def _boom(path):
+        if needle in path:
+            raise PermissionError("사용 중")
+        return real(path)
+
+    monkeypatch.setattr(scanner_module, "file_hash", _boom)
+
+
 def test_unreadable_file_skips_batch_and_is_reported(env, monkeypatch):
     """사람이 엑셀을 열어둬 못 읽은 파일이 있으면 배치를 건너뛴다.
     배치는 DB 를 전체 교체하므로, 그냥 진행하면 그 파일의 데이터가 화면에서
-    조용히 사라진다. 진짜 삭제와 구분하려고 디스크 존재 여부를 확인한다."""
+    조용히 사라진다. 스캐너가 건너뛴 경로를 직접 돌려주므로 진짜 삭제와
+    섞이지 않는다."""
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
         _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
@@ -244,14 +259,7 @@ def test_unreadable_file_skips_batch_and_is_reported(env, monkeypatch):
     first = run_ingest(env, model=object(), open_wb=opener)
     assert first.status == "ok"
 
-    # 이제 IQC 파일을 스캔 결과에서만 빠지게 한다 — 파일 자체는 디스크에 남는다.
-    import app.ingest.pipeline as pipeline_module
-    real_scan = pipeline_module.scan
-    monkeypatch.setattr(
-        pipeline_module, "scan",
-        lambda root, dirs: [f for f in real_scan(root, dirs) if f.kind != "iqc"],
-    )
-
+    _lock(monkeypatch, "IQC")
     second = run_ingest(env, model=object(), open_wb=opener)
 
     assert second.status == "skipped"
@@ -262,3 +270,103 @@ def test_unreadable_file_skips_batch_and_is_reported(env, monkeypatch):
     n = conn.execute("SELECT COUNT(*) c FROM mold_stage").fetchone()["c"]
     conn.close()
     assert n == 1, "배치를 건너뛰었으므로 이전 IQC 데이터가 남아 있어야 한다"
+
+
+def test_first_seen_locked_file_is_reported(env, monkeypatch):
+    """처음 등장하는 파일이 잠겨 있어도 감지돼야 한다.
+
+    이력(known)에 없다는 이유로 못 보면 status='ok', iqc_matched=0 인데
+    화면에는 아무 흔적이 없다 — 사용자는 IQC 를 올렸다고 믿는다."""
+    monkeypatch.setattr(
+        "app.ingest.pipeline.discover_layout",
+        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+    )
+    _lock(monkeypatch, "IQC")
+
+    summary = run_ingest(env, model=object(),
+                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+
+    assert summary.status == "skipped"
+    assert any("IQC" in p for p in summary.unreadable_files)
+
+
+def test_unmapped_dir_history_is_cleaned_not_treated_as_locked(env, monkeypatch):
+    """.env 에서 폴더 매핑을 빼면 그 파일 이력은 정리돼야 한다.
+
+    경로 존재 여부로 판정하던 시절에는 파일이 디스크에 남아 있어 매 회차
+    unreadable 로 잡혀 영구히 skipped 였다. 이력 정리는 성공 경로에만 있어
+    자력 탈출이 불가능했고, 화면 문구("파일을 닫고 다시 실행하세요")도 틀렸다."""
+    monkeypatch.setattr(
+        "app.ingest.pipeline.discover_layout",
+        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+    )
+    opener = _fake_open({"mes": MES_GRID, "iqc": IQC_GRID})
+
+    assert run_ingest(env, model=object(), open_wb=opener).status == "ok"
+
+    # IQC 폴더를 매핑에서 뺀다. 파일은 디스크에 그대로 남아 있다.
+    narrowed = env.model_copy(update={"ingest_stage_dirs": "MES:mes"})
+    second = run_ingest(narrowed, model=object(), open_wb=opener)
+
+    assert second.status == "ok", "잠금으로 오인해 건너뛰면 안 된다"
+    assert second.unreadable_files == []
+
+    conn = db.connect(env.resolved_molds_db_path)
+    paths = [r["path"] for r in conn.execute("SELECT path FROM ingested_file")]
+    conn.close()
+    assert not any("IQC" in p for p in paths), "매핑에서 빠진 파일 이력은 정리된다"
+
+
+def test_unprocessed_kind_is_not_recorded_as_read(env, monkeypatch):
+    """1단계가 읽지 않는 폴더(PQC 등)의 파일을 '읽었다'고 기록하면 안 된다.
+
+    이력에 남으면 화면은 성공인데 데이터는 안 들어오고 경고도 없다."""
+    import os
+    pqc_dir = os.path.join(env.resolved_ingest_root, "PQC")
+    os.makedirs(pqc_dir, exist_ok=True)
+    with open(os.path.join(pqc_dir, "pqc.xlsx"), "wb") as f:
+        f.write(b"pqc")
+
+    with_pqc = env.model_copy(
+        update={"ingest_stage_dirs": "MES:mes,IQC:iqc,PQC:pqc"}
+    )
+    monkeypatch.setattr(
+        "app.ingest.pipeline.discover_layout",
+        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+    )
+
+    summary = run_ingest(with_pqc, model=object(),
+                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+
+    assert summary.status == "ok"
+    assert not any("PQC" in p for p in summary.files)
+
+    conn = db.connect(env.resolved_molds_db_path)
+    paths = [r["path"] for r in conn.execute("SELECT path FROM ingested_file")]
+    conn.close()
+    assert not any("PQC" in p for p in paths)
+
+
+def test_unreadable_file_in_unprocessed_dir_does_not_block_batch(env, monkeypatch):
+    """읽지 않는 폴더의 잠긴 파일 때문에 배치가 멈추면 안 된다 —
+    그 데이터는 애초에 이번 단계가 쓰지 않는다."""
+    import os
+    pqc_dir = os.path.join(env.resolved_ingest_root, "PQC")
+    os.makedirs(pqc_dir, exist_ok=True)
+    with open(os.path.join(pqc_dir, "pqc.xlsx"), "wb") as f:
+        f.write(b"pqc")
+
+    with_pqc = env.model_copy(
+        update={"ingest_stage_dirs": "MES:mes,IQC:iqc,PQC:pqc"}
+    )
+    monkeypatch.setattr(
+        "app.ingest.pipeline.discover_layout",
+        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+    )
+    _lock(monkeypatch, "PQC")
+
+    summary = run_ingest(with_pqc, model=object(),
+                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+
+    assert summary.status == "ok"
+    assert summary.unreadable_files == []

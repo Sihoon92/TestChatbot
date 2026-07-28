@@ -7,8 +7,8 @@
 없거나 실패하면 배치를 중단하고 이전 DB 상태를 그대로 둔다 — 부분 갱신은
 옛 금형과 새 부속정보가 섞인, 어느 쪽도 믿을 수 없는 상태를 만든다.
 """
-import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.config import Settings
 from app.excel.workbook import open_workbook
@@ -22,8 +22,24 @@ from app.ingest.schemas import FoundFile, Row, RunSummary
 from app.ingest.store import replace_all
 
 
+# 1단계는 MES + IQC 만 읽는다. 나머지 폴더의 파일을 found 에 남기면 이력에는
+# "읽었다"고 기록되면서 데이터는 안 들어와, 화면이 성공으로 보인다. 단계를
+# 늘릴 때 여기와 FIELD_GUIDE 를 함께 늘린다.
+_PROCESSED_KINDS = ("mes", "iqc")
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _processed_dirs(stage_dirs: dict[str, str]) -> set[str]:
+    """이번 단계가 처리하는 종류로 매핑된 폴더 이름들.
+
+    unreadable 은 경로 문자열이라 kind 가 없다(해시를 못 떠서 FoundFile 을
+    만들 수 없다). 스캐너가 root/폴더명/파일 로만 훑으므로 부모 폴더 이름이
+    곧 매핑 키다 — 그것으로 종류를 되짚는다.
+    """
+    return {d for d, kind in stage_dirs.items() if kind in _PROCESSED_KINDS}
 
 
 def _read_file(conn, model, found: FoundFile, open_wb, config) -> list[Row]:
@@ -84,18 +100,26 @@ def run_ingest(
     conn = db.connect(db_path)
 
     try:
-        found = scan(settings.resolved_ingest_root, settings.stage_dir_map)
+        stage_dirs = settings.stage_dir_map
+        scan_result = scan(settings.resolved_ingest_root, stage_dirs)
+        # 이번 단계가 읽지 않는 종류는 아예 없는 셈 친다. 이력에 남기면
+        # "읽었다"고 기록되면서 데이터는 안 들어와 화면이 성공으로 보인다.
+        # 이렇게 걸러내면 설정에서 폴더 매핑을 뺀 파일도 found/unreadable
+        # 어디에도 없어 자연히 removed 로 정리된다.
+        found = [f for f in scan_result.files if f.kind in _PROCESSED_KINDS]
+        processed_dirs = _processed_dirs(stage_dirs)
+        unreadable = [
+            p for p in scan_result.unreadable
+            if Path(p).parent.name in processed_dirs
+        ]
+
         known = registry.known_hashes(conn)
         found_paths = {f.path for f in found}
 
-        # 스캐너가 건너뛴(읽지 못한) 파일과 진짜 삭제된 파일을 구분한다. 파일이
-        # 여전히 디스크에 있다면 삭제된 게 아니라 이번 회차에 못 읽은 것이다.
-        # 이 경우 그냥 진행하면 배치가 DB 를 전체 교체하므로 그 파일의 데이터가
-        # 화면에서 조용히 사라진다 — 그래서 배치 자체를 건너뛰고 이력도 건드리지
-        # 않는다(다음 회차에 다시 시도한다).
-        unreadable = sorted(
-            p for p in known if p not in found_paths and os.path.exists(p)
-        )
+        # 스캐너가 직접 돌려준 목록이라 "이번에 못 읽은 파일"과 "삭제된 파일"이
+        # 섞이지 않는다. 못 읽은 파일이 하나라도 있으면 배치 자체를 건너뛰고
+        # 이력도 건드리지 않는다 — 배치는 DB 를 전체 교체하므로, 그냥 진행하면
+        # 그 파일의 데이터가 화면에서 조용히 사라진다(다음 회차에 다시 시도한다).
         if unreadable:
             summary = RunSummary(
                 status="skipped", started_at=started, finished_at=_now(),

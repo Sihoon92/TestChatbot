@@ -1,4 +1,6 @@
 """폴더 훑기. Excel 없이 tmp_path 로 전부 검증한다."""
+from pathlib import Path
+
 import pytest
 
 from app.ingest import scanner as scanner_module
@@ -18,9 +20,9 @@ def test_scan_finds_excel_files_and_labels_kind(tmp_path):
     _make(tmp_path, "MES/2026-07.xlsx")
     _make(tmp_path, "IQC/입고검사.xlsx")
 
-    found = scan(str(tmp_path), STAGE_DIRS)
+    result = scan(str(tmp_path), STAGE_DIRS)
 
-    kinds = sorted(f.kind for f in found)
+    kinds = sorted(f.kind for f in result.files)
     assert kinds == ["iqc", "mes"]
 
 
@@ -30,7 +32,7 @@ def test_scan_ignores_excel_lock_files(tmp_path):
     _make(tmp_path, "MES/2026-07.xlsx")
     _make(tmp_path, "MES/~$2026-07.xlsx")
 
-    found = scan(str(tmp_path), STAGE_DIRS)
+    found = scan(str(tmp_path), STAGE_DIRS).files
 
     assert len(found) == 1
     assert "~$" not in found[0].path
@@ -40,7 +42,7 @@ def test_scan_ignores_non_excel_and_unmapped_dirs(tmp_path):
     _make(tmp_path, "MES/메모.txt")
     _make(tmp_path, "임시/2026-07.xlsx")
 
-    assert scan(str(tmp_path), STAGE_DIRS) == []
+    assert scan(str(tmp_path), STAGE_DIRS).files == []
 
 
 def test_scan_accepts_xls_and_xlsm(tmp_path):
@@ -48,12 +50,12 @@ def test_scan_accepts_xls_and_xlsm(tmp_path):
     _make(tmp_path, "MES/old.xls")
     _make(tmp_path, "MES/macro.xlsm")
 
-    assert len(scan(str(tmp_path), STAGE_DIRS)) == 2
+    assert len(scan(str(tmp_path), STAGE_DIRS).files) == 2
 
 
 def test_scan_missing_root_returns_empty(tmp_path):
     """폴더가 아직 없는 것은 정상이다 — 첫 실행에는 아무도 안 올렸다."""
-    assert scan(str(tmp_path / "없음"), STAGE_DIRS) == []
+    assert scan(str(tmp_path / "없음"), STAGE_DIRS).files == []
 
 
 def test_scan_is_sorted_for_deterministic_batches(tmp_path):
@@ -61,7 +63,7 @@ def test_scan_is_sorted_for_deterministic_batches(tmp_path):
     _make(tmp_path, "MES/b.xlsx")
     _make(tmp_path, "MES/a.xlsx")
 
-    paths = [f.path for f in scan(str(tmp_path), STAGE_DIRS)]
+    paths = [f.path for f in scan(str(tmp_path), STAGE_DIRS).files]
     assert paths == sorted(paths)
 
 
@@ -87,7 +89,10 @@ def test_hash_ignores_mtime(tmp_path):
 
 def test_scan_skips_unreadable_file_without_losing_others(tmp_path, monkeypatch):
     """사람이 엑셀을 열어둔 상황이 이 시스템에서 가장 흔하다. 그 파일 하나
-    때문에 다른 폴더의 정상 파일까지 유실되면 안 된다."""
+    때문에 다른 폴더의 정상 파일까지 유실되면 안 된다.
+
+    건너뛴 경로는 unreadable 로 직접 돌려준다 — 호출자가 경로 존재 여부로
+    추론하면 처음 등장하는(이력에 없는) 잠긴 파일을 영영 놓친다."""
     _make(tmp_path, "MES/locked.xlsx")
     _make(tmp_path, "IQC/ok.xlsx")
 
@@ -100,9 +105,25 @@ def test_scan_skips_unreadable_file_without_losing_others(tmp_path, monkeypatch)
 
     monkeypatch.setattr(scanner_module, "file_hash", _boom)
 
-    found = scan(str(tmp_path), STAGE_DIRS)
+    result = scan(str(tmp_path), STAGE_DIRS)
 
-    assert [f.kind for f in found] == ["iqc"]
+    assert [f.kind for f in result.files] == ["iqc"]
+    assert [Path(p).name for p in result.unreadable] == ["locked.xlsx"]
+
+
+def test_scan_unreadable_is_sorted(tmp_path, monkeypatch):
+    """같은 폴더 상태면 항상 같은 순서여야 재현이 된다 — files 와 같은 기준."""
+    _make(tmp_path, "MES/b.xlsx")
+    _make(tmp_path, "MES/a.xlsx")
+
+    monkeypatch.setattr(
+        scanner_module, "file_hash",
+        lambda path: (_ for _ in ()).throw(PermissionError("사용 중")),
+    )
+
+    unreadable = scan(str(tmp_path), STAGE_DIRS).unreadable
+    assert unreadable == sorted(unreadable)
+    assert len(unreadable) == 2
 
 
 def test_scan_rejects_invalid_source_kind(tmp_path):
@@ -115,11 +136,11 @@ def test_scan_rejects_invalid_source_kind(tmp_path):
 def test_scan_accepts_uppercase_extension(tmp_path):
     """대문자 확장자도 엑셀이다. .suffix.lower() 가 실수로 빠져도 잡히게 한다."""
     _make(tmp_path, "MES/OLD.XLSX")
-    assert len(scan(str(tmp_path), STAGE_DIRS)) == 1
+    assert len(scan(str(tmp_path), STAGE_DIRS).files) == 1
 
 
 def test_scan_ignores_files_without_extension(tmp_path):
     """확장자 없는 파일과 dot-file 은 엑셀이 아니다."""
     _make(tmp_path, "MES/README")
     _make(tmp_path, "MES/.gitkeep")
-    assert scan(str(tmp_path), STAGE_DIRS) == []
+    assert scan(str(tmp_path), STAGE_DIRS).files == []
