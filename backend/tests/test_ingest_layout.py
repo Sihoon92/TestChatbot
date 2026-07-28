@@ -47,6 +47,13 @@ def test_anchors_match_ignores_whitespace_and_case():
     assert anchors_match(GRID, "A1", _layout([
         AnchorCheck(cell="B1", text=" 입고시간  ")
     ])), "앞뒤 공백만 다른 것은 같은 헤더다"
+    # 위 두 단언은 모두 한글이라 casefold 가 빠져도 통과한다 — 대소문자
+    # 무시는 영문 앵커로만 검증된다. 실물 시트에 punch/die 같은 영문
+    # 헤더가 있고, 대소문자가 흔들리면 캐시가 영원히 미스가 난다.
+    en_grid = [["Punch", "Die"]]
+    assert anchors_match(en_grid, "A1", _layout([
+        AnchorCheck(cell="A1", text="PUNCH")
+    ])), "대소문자만 다른 것은 같은 헤더다"
 
 
 def test_anchors_mismatch_when_one_differs():

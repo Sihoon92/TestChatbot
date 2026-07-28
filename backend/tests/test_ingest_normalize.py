@@ -19,6 +19,14 @@ def test_cell_to_text_integer_float_has_no_decimal_point():
     assert cell_to_text(1.5) == "1.5"
 
 
+def test_cell_to_text_keeps_zero_as_zero():
+    """0 은 '값 없음'이 아니다 — 이 프로젝트의 1번 원칙(0 vs null)이 여기서
+    무너지면 파이프라인 전체가 0 과 미상을 뒤섞는다. blank 판정을 truthy 로
+    바꾸는 순간 0 이 None 이 되므로 명시적으로 못 박는다."""
+    assert cell_to_text(0) == "0"
+    assert cell_to_text(0.0) == "0"
+
+
 def test_cell_to_text_blank_is_none():
     """빈 문자열과 공백만 있는 셀은 '값 없음'이다. 빈 문자열로 두면
     '값이 없음'과 '빈 문자열'이 섞인다."""
@@ -87,3 +95,14 @@ def test_to_float_and_to_int():
     assert to_int(8412.0) == 8412
     assert to_int("체크") is None
     assert to_int(None) is None
+
+
+def test_numbers_reject_booleans():
+    """bool 은 int 의 하위 타입이다. bool 분기가 숫자 분기보다 뒤로 밀리면
+    체크박스 셀(True)이 1 로 집계돼 타수·생산량이 조용히 부풀어 오른다."""
+    assert to_float(True) is None
+    assert to_float(False) is None
+    assert to_int(True) is None
+    assert to_int(False) is None
+    # cell_to_text 도 같은 이유로 bool 을 먼저 처리한다.
+    assert cell_to_text(True) == "TRUE"
