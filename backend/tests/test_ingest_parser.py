@@ -2,6 +2,8 @@
 
 여기가 틀리면 대시보드의 모든 숫자가 틀린다. 실물에서 겪을 상황(멀티헤더,
 summary 표, 소계 행, 빈 행, 오프셋)을 리터럴로 미리 겪어둔다."""
+import pytest
+
 from app.ingest.parser import parse_rows
 from app.ingest.schemas import (
     AnchorCheck,
@@ -225,6 +227,22 @@ def test_row_beyond_grid_is_not_produced():
         )],
     )
     assert len(parse_rows(grid, "A1", layout, "iqc.xlsx")) == 1
+
+
+def test_detail_table_without_columns_fails_loudly():
+    """컬럼 매핑이 없는 detail 표는 조용히 0행이 되면 안 된다.
+    TableBlock.columns 는 기본값이 [] 라 에이전트가 빠뜨려도 스키마 검증을
+    통과하므로, 파서가 여기서 막지 않으면 '표는 있는데 행이 0개' 라는
+    추적 불가능한 상태가 된다."""
+    grid = [["No", "금형번호"], [1, "RX28312"]]
+    layout = SheetLayout(
+        sheet_name="Sheet1", anchors=ANCHOR,
+        tables=[TableBlock(
+            name="상세", role="detail", header_rows=[1], data_start_row=2,
+        )],
+    )
+    with pytest.raises(ValueError, match="컬럼 매핑이 없다"):
+        parse_rows(grid, "A1", layout, "iqc.xlsx")
 
 
 def test_layout_without_tables_yields_single_key_value_row():

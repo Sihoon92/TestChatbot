@@ -42,6 +42,17 @@ def _table_rows(
     layout: SheetLayout,
     source_file: str,
 ) -> list[Row]:
+    # detail 표에 컬럼 매핑이 없으면 뽑을 것이 없다. 조용히 0행을 돌려주면
+    # "표는 있는데 행이 없다" 는 상태가 되어 원인을 추적할 수 없다 —
+    # TableBlock.columns 는 기본값이 [] 라 에이전트가 빠뜨려도 스키마 검증을
+    # 통과하므로, 여기서 명시적으로 실패해야 파이프라인이 그 파일을 error 로
+    # 표시하고 사유를 남길 수 있다.
+    if not table.columns:
+        raise ValueError(
+            f"detail 표 '{table.name}' 에 컬럼 매핑이 없다 "
+            f"(시트 '{layout.sheet_name}', {source_file})"
+        )
+
     rows: list[Row] = []
     # 격자 밖까지 훑지 않는다 — data_end_row 가 크게 잡혀도 없는 행을
     # 만들어내면 안 된다.
