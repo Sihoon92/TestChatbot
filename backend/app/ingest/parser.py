@@ -7,7 +7,7 @@ LLM 도 Excel 도 DB 도 모른다. 격자 리터럴과 레이아웃만 있으�
 조인으로 귀속되는데, 그 차이가 여기 섞이면 읽을 수 없어진다. 여기서는
 "레이아웃이 지목한 셀들을 필드명으로 담은 행" 까지만 만든다.
 """
-from app.ingest.layout import cell_at
+from app.ingest.layout import cell_at, last_row_no
 from app.ingest.normalize import cell_to_text
 from app.ingest.schemas import Row, SheetLayout, TableBlock
 
@@ -24,14 +24,6 @@ def _key_value_defaults(
         kv.field: _cell_text(grid, top_left, kv.value_cell)
         for kv in layout.key_values
     }
-
-
-def _last_row_no(grid: list[list], top_left: str) -> int:
-    """격자가 담고 있는 마지막 절대 행 번호."""
-    from app.excel.grid import parse_a1
-
-    base_row, _ = parse_a1(top_left)
-    return base_row + len(grid) - 1
 
 
 def _table_rows(
@@ -66,7 +58,7 @@ def _table_rows(
     rows: list[Row] = []
     # 격자 밖까지 훑지 않는다 — data_end_row 가 크게 잡혀도 없는 행을
     # 만들어내면 안 된다.
-    hard_end = _last_row_no(grid, top_left)
+    hard_end = last_row_no(grid, top_left)
     # 아래 빈 행 판정과 같은 기준(is None)을 쓴다. truthy 검사로 두면
     # data_end_row=0 일 때 여기서는 "미지정", 아래에서는 "지정됨"이 되어
     # 두 곳이 모순된다.
