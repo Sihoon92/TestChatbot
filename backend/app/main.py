@@ -74,10 +74,11 @@ def create_app() -> FastAPI:
     async def root():
         return {"status": "ok"}
 
-    from app.api import chat, health, molds, sessions
+    from app.api import chat, health, ingest, molds, sessions
     app.include_router(health.router, prefix="/api")
     app.include_router(sessions.router, prefix="/api")
     app.include_router(molds.router, prefix="/api")
+    app.include_router(ingest.router, prefix="/api")
     app.include_router(chat.router, prefix="/api")
 
     return app
