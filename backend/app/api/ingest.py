@@ -9,6 +9,7 @@ open_workbook 이 COM 을 자기 전용 스레드에 고정하므로 어느 스�
 안전하다.
 """
 import asyncio
+from datetime import datetime, timezone
 
 from fastapi import APIRouter
 
@@ -25,10 +26,23 @@ router = APIRouter()
 @router.post("/ingest/run", response_model=RunSummary)
 async def trigger_ingest() -> RunSummary:
     settings = get_settings()
-    model = get_chat_model(settings)
-    # 에이전트가 도는 전 과정(도구 호출 순서·판단)을 파일 로그로 남긴다.
-    # 프롬프트를 다듬을 때 이게 유일한 근거다.
-    config = debug_run_config("ingest", settings)
+    started = datetime.now(timezone.utc).isoformat()
+    try:
+        model = get_chat_model(settings)
+        # 에이전트가 도는 전 과정(도구 호출 순서·판단)을 파일 로그로 남긴다.
+        # 프롬프트를 다듬을 때 이게 유일한 근거다.
+        config = debug_run_config("ingest", settings)
+    except Exception as exc:  # noqa: BLE001
+        # LLM 설정이 덜 채워진 경우(.env 의 INTERNAL_LLM_* 누락 등)가 대표적이다.
+        # 여기서 예외를 그대로 올리면 500 + "Internal Server Error" 가 되어
+        # 화면이 사유를 보여주지 못한다 — run_ingest 안의 실패는 이미
+        # RunSummary(status="error") 로 변환되는데, 그 앞단만 예외였다.
+        return RunSummary(
+            status="error",
+            started_at=started,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=f"{type(exc).__name__}: {exc}",
+        )
     return await asyncio.to_thread(run_ingest, settings, model, config=config)
 
 

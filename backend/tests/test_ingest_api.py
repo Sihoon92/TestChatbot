@@ -56,3 +56,20 @@ def test_run_reports_error_as_200_summary_not_500(monkeypatch, client):
     assert res.status_code == 200
     assert res.json()["status"] == "error"
     assert "MES" in res.json()["error"]
+
+
+def test_llm_setup_failure_is_reported_as_summary_not_500(client, monkeypatch):
+    """LLM 설정이 덜 채워진 경우도 200 + status="error" 여야 한다.
+    500 으로 던지면 화면이 사유를 못 보여주고 '알 수 없는 오류'만 남는다 —
+    run_ingest 안의 실패는 이미 RunSummary 로 변환되는데 그 앞단만 예외였다."""
+    def _boom(settings):
+        raise RuntimeError("사내 LLM 설정이 비어 있습니다: INTERNAL_LLM_BASE_URL")
+
+    monkeypatch.setattr("app.api.ingest.get_chat_model", _boom)
+
+    res = client.post("/api/ingest/run")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "error"
+    assert "INTERNAL_LLM_BASE_URL" in body["error"]
