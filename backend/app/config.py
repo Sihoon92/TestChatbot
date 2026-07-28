@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_api_key: str = ""
     ollama_model: str = "gemma3n:e4b"
+    # Ollama 런타임 기본 컨텍스트는 4096 이고, 모델이 131k 를 지원해도 그 값으로
+    # 서빙된다. 넘치면 **에러 없이** 앞부분이 잘리는데, 거기 도구 정의가 있으면
+    # 모델이 어떤 도구도 못 부른다 — 빈 응답이 돌아오고 호출자는 이유를 모른다.
+    # 수집 에이전트는 도구 6종 스키마만으로도 4천 자를 넘겨 실제로 이 방식으로
+    # 조용히 실패했다. 문서가 크거나 도구가 늘면 더 올린다.
+    ollama_num_ctx: int = 16384
     # Internal OpenAI-compatible API (used when llm_backend == "internal")
     internal_llm_base_url: str = ""
     internal_llm_api_key: str = ""
