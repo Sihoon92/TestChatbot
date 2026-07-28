@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_api_key: str = ""
     ollama_model: str = "gemma3n:e4b"
+    # Ollama 런타임 기본 컨텍스트는 4096 이고, 모델이 131k 를 지원해도 그 값으로
+    # 서빙된다. 넘치면 **에러 없이** 앞부분이 잘리는데, 거기 도구 정의가 있으면
+    # 모델이 어떤 도구도 못 부른다 — 빈 응답이 돌아오고 호출자는 이유를 모른다.
+    # 수집 에이전트는 도구 6종 스키마만으로도 4천 자를 넘겨 실제로 이 방식으로
+    # 조용히 실패했다. 문서가 크거나 도구가 늘면 더 올린다.
+    ollama_num_ctx: int = 16384
     # Internal OpenAI-compatible API (used when llm_backend == "internal")
     internal_llm_base_url: str = ""
     internal_llm_api_key: str = ""
@@ -41,9 +47,61 @@ class Settings(BaseSettings):
     # 출력한다. 로그가 "왜 안 남는지" 파악할 때만 켠다. 기본 off.
     debug_log_verbose: bool = False
 
+    # ── 금형 데이터 수집 ────────────────────────────────────────────────
+    # 부서가 엑셀을 올리는 루트. 하위에 폴더별로 나뉜다(ingest_stage_dirs).
+    ingest_root: str = "./data/uploads"
+    # "폴더명:소스종류" 쌍을 쉼표로. 폴더 이름이 바뀌거나 공유드라이브로
+    # 옮겨도 코드를 고치지 않기 위해 설정으로 뺀다.
+    ingest_stage_dirs: str = "MES:mes,IQC:iqc,PQC:pqc,설계:design,설치:install,AI복검:ai_recheck"
+    # 채팅용 app.db 와 반드시 별도 파일. 같은 파일을 쓰면 LangGraph 체크포인터와
+    # SQLite 쓰기 락을 두고 경합해 'database is locked' 가 난다.
+    molds_db_path: str = "./molds.db"
+    master_xlsx_path: str = "./data/관리자/금형현황.xlsx"
+    # 0 = 자동 폴링 끔(수동 트리거만). 1단계는 0 으로 둔다.
+    ingest_poll_seconds: int = 0
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def _resolve(self, raw: str) -> str:
+        """상대경로를 backend 루트 기준으로 푼다(resolved_debug_log_path 와 동일 규칙)."""
+        p = Path(raw)
+        if not p.is_absolute():
+            p = _BACKEND_ROOT / p
+        return str(p)
+
+    @property
+    def resolved_ingest_root(self) -> str:
+        return self._resolve(self.ingest_root)
+
+    @property
+    def resolved_molds_db_path(self) -> str:
+        return self._resolve(self.molds_db_path)
+
+    @property
+    def resolved_master_xlsx_path(self) -> str:
+        return self._resolve(self.master_xlsx_path)
+
+    @property
+    def stage_dir_map(self) -> dict[str, str]:
+        """'MES:mes,IQC:iqc' → {'MES': 'mes', 'IQC': 'iqc'}.
+
+        잘못된 항목은 조용히 무시:
+        - 콜론 없음: "쓰레기" → 제외
+        - 빈 이름/종류: ":mes" 또는 "MES:" → 제외
+        - 콜론 2개 이상: "MES:mes:extra" → kind 에 ':' 가 남으면 제외 (유효 종류는 6종의 닫힌 어휘)
+
+        전체가 비면 빈 dict 를 돌려준다 — 호출자가 '설정이 비었다'로 처리한다.
+        """
+        out: dict[str, str] = {}
+        for part in self.ingest_stage_dirs.split(","):
+            name, sep, kind = part.partition(":")
+            name, kind = name.strip(), kind.strip()
+            # 유효한 항목만 매핑: 콜론 있고, 이름과 종류가 비지 않았고, 종류에 콜론 없음
+            if sep and name and kind and ":" not in kind:
+                out[name] = kind
+        return out
 
     @property
     def resolved_debug_log_path(self) -> str:
@@ -53,11 +111,7 @@ class Settings(BaseSettings):
         이렇게 하면 어디서 uvicorn 을 띄우든 항상 backend/logs/llm_calls.log 로
         일관되게 기록돼, "로그 파일이 어디 갔는지" 헷갈리지 않는다.
         """
-        p = Path(self.debug_log_path)
-        if not p.is_absolute():
-            backend_root = Path(__file__).resolve().parents[1]  # backend/
-            p = backend_root / p
-        return str(p)
+        return self._resolve(self.debug_log_path)
 
     @property
     def active_model(self) -> str:

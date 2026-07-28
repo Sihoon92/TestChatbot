@@ -27,6 +27,10 @@ def _ollama_model(settings: Settings) -> BaseChatModel:
     return ChatOllama(
         model=settings.ollama_model,
         base_url=settings.ollama_base_url,
+        # 명시하지 않으면 Ollama 런타임 기본값(4096)으로 서빙되고, 넘친 요청은
+        # 에러 없이 잘린다. 잘린 곳에 도구 정의가 있으면 모델은 도구를 전혀
+        # 부르지 못한 채 빈 응답을 돌려준다 — Settings.ollama_num_ctx 주석 참고.
+        num_ctx=settings.ollama_num_ctx,
         client_kwargs=client_kwargs or None,
     )
 

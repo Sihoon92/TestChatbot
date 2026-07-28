@@ -1,4 +1,4 @@
-"""엑셀 탐색·분석 도구 5종(LangChain @tool).
+"""엑셀 탐색·분석 도구 6종(LangChain @tool).
 
 ReAct 에이전트가 호출한다. workbook(값 읽기)과 grid(순수 계산)를 조합만 한다.
 반환은 항상 사람이/LLM 이 읽기 좋은 짧은 문자열(컨텍스트 보호를 위해 잘라서 준다).
@@ -10,6 +10,7 @@ from langchain_core.tools import tool
 from app.excel.grid import (
     aggregate_values,
     format_grid,
+    outline_grid,
     numeric_count,
     profile_values,
     search_values,
@@ -27,6 +28,14 @@ def make_excel_tools(wb) -> list:
     def list_sheets() -> str:
         """워크북의 시트 이름 목록을 돌려준다. 분석은 항상 이 도구로 시작하라."""
         return "시트 목록: " + ", ".join(wb.sheet_names())
+
+    @tool
+    def sheet_outline(sheet: str) -> str:
+        """시트 전체의 행별 윤곽 — 각 행에 값이 몇 칸 있고 앞쪽 값이 무엇인지.
+        표가 몇 행에서 시작하고 끝나는지, 헤더가 몇 행인지 한눈에 보여준다.
+        **무엇을 읽을지 정하기 전에 이 도구를 먼저 호출하라.**"""
+        rows, top_left = wb.used_values(sheet)
+        return outline_grid(rows, top_left)
 
     @tool
     def read_range(sheet: str, address: str) -> str:
@@ -99,4 +108,6 @@ def make_excel_tools(wb) -> list:
         n = numeric_count(values)
         return f"{sheet}!{address} {op} = {result} (숫자셀 {n}개)"
 
-    return [list_sheets, read_range, find_value, column_profile, aggregate]
+    # sheet_outline 을 앞에 둔다 — 이 도구를 먼저 부르는 것이 권장 절차이고,
+    # 목록 순서가 모델의 선택에 영향을 준다.
+    return [list_sheets, sheet_outline, read_range, find_value, column_profile, aggregate]

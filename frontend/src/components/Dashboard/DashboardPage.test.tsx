@@ -9,6 +9,16 @@ vi.mock("../../api/molds", () => ({
   getFilterOptions: vi.fn(),
 }));
 
+// IngestPanel(수집 패널)이 mount 시 getIngestStatus() 를 호출한다. 모킹하지
+// 않으면 jsdom 에서 실제 fetch 가 나가 실패하고, 그 상태 갱신이 act() 밖에서
+// 일어나 경고가 뜬다 — 이 파일의 관심사는 IngestPanel 자체가 아니므로 이력
+// 없음(null)으로 고정해 둔다.
+vi.mock("../../api/ingest", () => ({
+  runIngest: vi.fn(),
+  getIngestStatus: vi.fn(),
+}));
+
+import { getIngestStatus } from "../../api/ingest";
 import { getFilterOptions, getMold, listMolds } from "../../api/molds";
 import { DEFAULT_FILTERS, useDashboardStore } from "../../store/dashboardStore";
 import type { MoldDetail, MoldSummary } from "../../types/mold";
@@ -65,6 +75,7 @@ describe("DashboardPage", () => {
       statuses: ["in_use", "standby", "repair", "retired"],
       installations: [{ line: "3", machine: "2" }],
     });
+    vi.mocked(getIngestStatus).mockResolvedValue(null);
     useDashboardStore.setState({
       filters: { ...DEFAULT_FILTERS }, molds: [], detail: null,
       listError: null, detailError: null, _optionsError: null, _moldsError: null,

@@ -60,8 +60,10 @@ class DesignSpec(BaseModel):
 
 
 class CumulativeHistory(BaseModel):
-    total_installs: int
-    total_production: int
+    # None = 미상. 0(신품)과 구분해야 한다 — 화면은 None 을 `—` 로 그린다.
+    # MES 가 이 값을 주는지 아직 확인되지 않아 nullable 로 둔다.
+    total_installs: int | None = None
+    total_production: int | None = None
     first_installed_at: str | None = None
 
 
@@ -69,7 +71,7 @@ class CurrentState(BaseModel):
     status: MoldStatus
     line: str | None = None
     machine: str | None = None
-    shot_count: int
+    shot_count: int | None = None
     installed_at: str | None = None
 
 
@@ -95,9 +97,9 @@ class MoldSummary(BaseModel):
     status: MoldStatus
     line: str | None = None  # status != "in_use" 면 None
     machine: str | None = None
-    shot_count: int
+    shot_count: int | None = None
     latest_defect_rate: float | None = None  # 가장 큰 install_seq 의 defect_rate
-    total_production: int
+    total_production: int | None = None
     stage_status: dict[StageKey, StageStatus]  # 5단계 전부(탭 배지용)
 
 

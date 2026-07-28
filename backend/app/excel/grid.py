@@ -39,8 +39,30 @@ def a1_offset(top_left: str, row_off: int, col_off: int) -> str:
     return f"{col_to_letter(col + col_off)}{row + row_off}"
 
 
+# 빈 셀 자리표시자. 빈 문자열로 두면 렌더 결과에 탭이 연달아 붙는데
+# ("4\t\tNo"), LLM 은 연속 구분자 사이의 빈 자리를 세지 못해 그 열을 건너뛰고
+# 이후 모든 열 문자가 한 칸씩 밀린다. 실제로 A 열이 비어 있는 시트에서
+# gemma4:26b 가 필드 11개를 이름으로는 전부 맞히고도 열 문자는 11개 전부 한 칸씩
+# 왼쪽으로 지목했다(mold_no 를 I 가 아니라 H 로). 4B 모델도 같은 패턴이었으니
+# 모델 크기가 아니라 렌더링이 원인이다.
+#
+# 값으로 오해되지 않으면서 한 글자인 기호를 쓴다 — 숫자·문자·하이픈은 실제
+# 셀 값일 수 있고, 여러 글자면 폭이 들쭉날쭉해진다.
+EMPTY_CELL = "·"
+
+
 def format_grid(values: list[list], top_left: str) -> str:
-    """2D 값 목록을 '열문자 헤더 + 행번호' 가 붙은 탭 구분 표 문자열로."""
+    """2D 값 목록을 '열문자 헤더 + 행번호' 가 붙은 탭 구분 표 문자열로.
+
+    이 함수의 존재 이유는 **열 문자와 값의 정렬**이다. 에이전트는 여기서 읽은
+    열 문자를 그대로 레이아웃에 담고, 파서가 그 주소로 값을 꺼낸다. 정렬이
+    한 칸이라도 어긋나면 전혀 다른 열의 값이 대시보드에 올라간다.
+
+    그래서 두 가지를 보장한다.
+    - 빈 셀을 EMPTY_CELL 로 채워 연속 구분자가 생기지 않게 한다.
+    - 짧은 행을 가장 긴 행에 맞춰 패딩한다. 안 그러면 그 행의 뒤쪽 열이 통째로
+      사라져 헤더의 열 문자와 값의 인덱스가 어긋난다.
+    """
     base_row, base_col = parse_a1(top_left)
     if not values:
         return "(빈 범위)"
@@ -48,8 +70,105 @@ def format_grid(values: list[list], top_left: str) -> str:
     header = "\t" + "\t".join(col_to_letter(base_col + c) for c in range(ncols))
     lines = [header]
     for r, row in enumerate(values):
-        cells = "\t".join("" if v is None else str(v) for v in row)
-        lines.append(f"{base_row + r}\t{cells}")
+        cells = [EMPTY_CELL if v is None else str(v) for v in row]
+        cells.extend([EMPTY_CELL] * (ncols - len(cells)))
+        lines.append(f"{base_row + r}\t" + "\t".join(cells))
+    return "\n".join(lines)
+
+
+def outline_grid(
+    values: list[list],
+    top_left: str,
+    *,
+    max_cells: int = 4,
+    max_len: int = 24,
+) -> str:
+    """시트의 행별 윤곽 — 각 행에 값이 몇 칸 있고 앞쪽 값이 무엇인지.
+
+    read_range 는 컨텍스트를 지키려고 30행까지만 보여준다. 그런데 실물 IQC
+    시트는 40행이고 정작 필요한 대장 상세표가 33행부터라, 한 번 읽어서는 그
+    표가 아예 안 보였다 — 에이전트가 "나머지는 나눠 읽어라"는 안내를 받고도
+    두 번째 읽기를 하지 않아 표 하나가 통째로 누락됐다.
+
+    값을 전부 싣는 대신 **모양만** 보여주면 시트 전체가 한 화면에 들어온다.
+    표의 경계는 "채워진 칸의 조합이 달라지는 지점"에 드러나므로, 같은 조합이
+    이어지는 행은 한 줄로 접는다 — 94행짜리 MES 시트가 네 줄이 된다.
+
+    칸 수 다음에 **열 범위**를 붙인다. 개수만 알려주면 표가 어느 열에서
+    끝나는지 알 방법이 없어, 에이전트가 read_range 범위의 오른쪽 끝을 찍는다 —
+    실물에서 20열짜리 표를 J 로 찍어 K 열 이후를 존재조차 모른 채 지나갔고,
+    PUNCH/DIE/차이/간극이 통째로 빠졌다. 행 방향의 같은 사각지대를 이 함수가
+    없애줬듯, 열 방향에도 끝을 알려줘야 추측이 사라진다.
+
+    출력 예:
+          2   1칸  B~B  B=MES 생산 이벤트 조회 결과 (2026-07)
+          3   0칸       (빈 행)
+          4  13칸  B~N  B=No · C=날짜 · D=공정 · E=기종
+       5-95  13칸  B~N  B=1.0 · C=2026-07-01 00:00:00 · D=음극 성형 · E=H104
+    """
+    base_row, base_col = parse_a1(top_left)
+    if not values:
+        return "(빈 범위)"
+
+    def _kind(v: Any) -> str:
+        # bool 은 int 의 하위 타입이라 숫자보다 먼저, datetime 은 date 의
+        # 하위 타입이라 date 보다 먼저 본다.
+        if isinstance(v, bool):
+            return "b"
+        if isinstance(v, _NUMERIC):
+            return "n"
+        if isinstance(v, (datetime, date)):
+            return "d"
+        return "s"
+
+    def _shape(row: list) -> tuple[tuple[str, str], ...]:
+        """어느 칸이 어떤 타입으로 채워졌는지. 이게 같으면 같은 모양이다.
+
+        열 위치만 보면 헤더 행과 그 아래 데이터 행이 같은 모양이 되어 한 줄로
+        접히고, 정작 필요한 "헤더가 몇 행인가"가 사라진다. 헤더는 보통 전부
+        문자열이고 데이터에는 숫자·날짜가 섞이므로, 타입까지 넣으면 그 경계가
+        저절로 드러난다.
+        """
+        return tuple(
+            (col_to_letter(base_col + c), _kind(v))
+            for c, v in enumerate(row)
+            if v is not None
+        )
+
+    def _sample(row: list) -> str:
+        filled = [
+            (col_to_letter(base_col + c), v) for c, v in enumerate(row) if v is not None
+        ]
+        if not filled:
+            return "(빈 행)"
+        parts = []
+        for letter, value in filled[:max_cells]:
+            text = str(value)
+            if len(text) > max_len:
+                text = text[:max_len] + "…"
+            parts.append(f"{letter}={text}")
+        return " · ".join(parts)
+
+    def _span(row: list) -> str:
+        """채워진 첫 열~마지막 열. 표의 오른쪽 끝이 어디인지 알려준다."""
+        shape = _shape(row)
+        if not shape:
+            return ""
+        return f"{shape[0][0]}~{shape[-1][0]}"
+
+    lines: list[str] = []
+    start = 0
+    for i in range(1, len(values) + 1):
+        # 모양이 바뀌는 지점(또는 끝)에서 지금까지의 묶음을 한 줄로 낸다.
+        if i < len(values) and _shape(values[i]) == _shape(values[start]):
+            continue
+        first, last = base_row + start, base_row + i - 1
+        label = str(first) if first == last else f"{first}-{last}"
+        lines.append(
+            f"{label:>7}  {len(_shape(values[start])):>2}칸  "
+            f"{_span(values[start]):<5}{_sample(values[start])}"
+        )
+        start = i
     return "\n".join(lines)
 
 

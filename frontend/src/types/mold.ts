@@ -37,8 +37,9 @@ export interface DesignSpec {
 }
 
 export interface CumulativeHistory {
-  total_installs: number;
-  total_production: number;
+  // null = 미상. 0(신품)과 구분한다 — 화면은 null 을 `—` 로 그린다.
+  total_installs: number | null;
+  total_production: number | null;
   first_installed_at: string | null;
 }
 
@@ -46,7 +47,7 @@ export interface CurrentState {
   status: MoldStatus;
   line: string | null;
   machine: string | null;
-  shot_count: number;
+  shot_count: number | null;
   installed_at: string | null;
 }
 
@@ -71,9 +72,9 @@ export interface MoldSummary {
   status: MoldStatus;
   line: string | null;
   machine: string | null;
-  shot_count: number;
+  shot_count: number | null;
   latest_defect_rate: number | null;
-  total_production: number;
+  total_production: number | null;
   stage_status: Record<StageKey, StageStatus>;
 }
 

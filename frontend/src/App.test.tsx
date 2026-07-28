@@ -12,6 +12,12 @@ vi.mock("./api/molds", () => ({
   getFilterOptions: vi.fn(async () => ({ statuses: [], installations: [] })),
 }));
 
+// 대시보드의 IngestPanel 도 마운트 시 이력을 가져온다. 같은 이유로 모킹한다.
+vi.mock("./api/ingest", () => ({
+  runIngest: vi.fn(),
+  getIngestStatus: vi.fn(async () => null),
+}));
+
 // 채팅 화면도 마운트 시 세션 목록을 가져온다. 같은 이유로 모킹한다.
 vi.mock("./api/client", () => ({
   listSessions: vi.fn(async () => []),
