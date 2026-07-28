@@ -128,10 +128,21 @@ def discover_layout(
     콜백을 붙이지 않는 이유는 라이브러리 함수가 전역 설정에 묶이면 테스트와
     재사용이 어려워지기 때문이다.
     """
+    guide = FIELD_GUIDE.get(kind)
+    if guide is None:
+        # 어휘 안내 없이 그냥 돌리면 에이전트가 필드명을 지어내고, assemble 이
+        # 그 이름을 모르니 데이터가 파싱은 되고 쓰이지는 않는 상태가 된다 —
+        # LayoutNotSubmittedError 가 막으려는 것과 같은 성격의 조용한 실패다.
+        # 새 단계를 켤 때는 FIELD_GUIDE 항목을 함께 추가해야 한다.
+        raise ValueError(
+            f"'{kind}' 단계의 필드 어휘가 FIELD_GUIDE 에 없다. "
+            f"현재 지원: {sorted(FIELD_GUIDE)}"
+        )
+
     holder: dict = {}
     agent, _tools = build_discover_agent(model, wb, kind, holder)
 
-    prompt = _BASE_PROMPT + "\n" + FIELD_GUIDE.get(kind, "")
+    prompt = _BASE_PROMPT + "\n" + guide
     question = (
         f"시트 '{sheet_name}' 의 구조를 파악해 submit_layout 으로 제출하라. "
         f"sheet_name 은 정확히 '{sheet_name}' 로 적어라."

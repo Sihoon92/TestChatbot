@@ -135,3 +135,18 @@ def test_prompt_carries_stage_specific_field_vocabulary():
 
     assert "defect_rate" in received[0]
     assert "punch" not in received[0]
+
+
+def test_raises_for_stage_without_field_guide():
+    """FIELD_GUIDE 에 없는 단계는 조용히 넘어가면 안 된다. 어휘 안내 없이
+    돌리면 에이전트가 필드명을 지어내고, assemble 이 그 이름을 모르니
+    데이터가 파싱은 되고 쓰이지는 않는 상태가 된다."""
+    model = FakeToolCallingModel(responses=[
+        AIMessage(content="", tool_calls=[
+            {"name": "submit_layout", "args": LAYOUT_ARGS, "id": "c1"}
+        ]),
+        AIMessage(content="완료", tool_calls=[]),
+    ])
+
+    with pytest.raises(ValueError, match="FIELD_GUIDE"):
+        discover_layout(model, FakeWorkbook(), "pqc", "Sheet1")
