@@ -95,3 +95,44 @@ def test_latest_run_returns_most_recent(conn):
 
 def test_latest_run_none_when_never_run(conn):
     assert registry.latest_run(conn) is None
+
+
+def test_init_db_adds_columns_to_an_older_database(tmp_path):
+    """CREATE TABLE IF NOT EXISTS 는 이미 있는 테이블에 컬럼을 붙여주지 않는다.
+
+    예전 molds.db 를 쓰던 환경에서 record_run 이 'no such column' 으로 터지면
+    배치가 통째로 실패하고, 화면에는 원인을 알 수 없는 error 만 남는다."""
+    path = str(tmp_path / "molds.db")
+    old = db.connect(path)
+    old.execute(
+        """
+        CREATE TABLE ingest_run (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            status       TEXT NOT NULL,
+            started_at   TEXT NOT NULL,
+            finished_at  TEXT,
+            mold_count   INTEGER NOT NULL DEFAULT 0,
+            iqc_matched  INTEGER NOT NULL DEFAULT 0,
+            orphan_json  TEXT NOT NULL DEFAULT '[]',
+            unknown_json TEXT NOT NULL DEFAULT '[]',
+            skipped_rows INTEGER NOT NULL DEFAULT 0,
+            files_json   TEXT NOT NULL DEFAULT '[]',
+            error        TEXT
+        )
+        """
+    )
+    old.commit()
+    old.close()
+
+    db.init_db(path)
+
+    c = db.connect(path)
+    registry.record_run(c, RunSummary(
+        status="ok", started_at="s", finished_at="f",
+        failed_files=["iqc.xlsx: ValueError: 컬럼 매핑이 없다"],
+    ))
+    latest = registry.latest_run(c)
+    c.close()
+
+    assert latest is not None
+    assert latest.failed_files == ["iqc.xlsx: ValueError: 컬럼 매핑이 없다"]

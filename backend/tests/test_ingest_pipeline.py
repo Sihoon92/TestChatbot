@@ -216,6 +216,55 @@ def test_bad_cached_layout_is_reinterpreted_once(env, monkeypatch):
     assert latest.tables[0].columns, "성공한 레이아웃이 최신으로 저장돼야 한다"
 
 
+def test_broken_iqc_file_does_not_kill_the_batch(env, monkeypatch):
+    """IQC 한 장이 깨져도 금형 목록은 갱신돼야 한다.
+
+    부속 정보 하나가 없다고 금형 목록을 버릴 이유가 없다. MES 는 멀쩡히
+    읽혔는데 replace_all 이 아예 안 돌면 화면이 통째로 옛 상태로 남는다."""
+    def _boom_on_iqc(model, wb, kind, sheet_name, *, config=None):
+        if kind == "iqc":
+            raise RuntimeError("에이전트가 레이아웃을 제출하지 않았다")
+        return MES_LAYOUT
+
+    monkeypatch.setattr("app.ingest.pipeline.discover_layout", _boom_on_iqc)
+
+    summary = run_ingest(env, model=object(),
+                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+
+    assert summary.status == "ok"
+    assert summary.mold_count == 1, "MES 는 읽혔으므로 금형 목록은 갱신된다"
+    assert summary.iqc_matched == 0
+    # 조용히 빠지면 안 된다 — 어느 파일이 왜 빠졌는지 화면까지 가야 한다.
+    assert len(summary.failed_files) == 1
+    assert "IQC" in summary.failed_files[0]
+    assert "RuntimeError" in summary.failed_files[0]
+
+    conn = db.connect(env.resolved_molds_db_path)
+    assert conn.execute("SELECT COUNT(*) c FROM mold").fetchone()["c"] == 1
+    # 이력에도 남아야 한다 — 새로고침하면 status 조회로 다시 읽힌다.
+    assert registry.latest_run(conn).failed_files == summary.failed_files
+    conn.close()
+
+
+def test_broken_mes_file_still_aborts_the_batch(env, monkeypatch):
+    """MES 는 격리하지 않는다. 마스터가 없으면 금형 목록 자체를 만들 수 없어
+    부분 갱신이 옛 금형과 새 부속정보가 섞인 상태를 만든다."""
+    def _boom_on_mes(model, wb, kind, sheet_name, *, config=None):
+        if kind == "mes":
+            raise RuntimeError("레이아웃 미제출")
+        return IQC_LAYOUT
+
+    monkeypatch.setattr("app.ingest.pipeline.discover_layout", _boom_on_mes)
+
+    summary = run_ingest(env, model=object(),
+                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+
+    assert summary.status == "error"
+    conn = db.connect(env.resolved_molds_db_path)
+    assert conn.execute("SELECT COUNT(*) c FROM mold").fetchone()["c"] == 0
+    conn.close()
+
+
 def test_run_summary_is_persisted(env, monkeypatch):
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",

@@ -152,12 +152,22 @@ def run_ingest(
             registry.record_run(conn, summary)
             return summary
 
+        # MES 실패는 배치를 중단시킨다(마스터가 없으면 금형 목록을 만들 수
+        # 없다). IQC 는 파일 단위로 격리한다 — 한 장이 깨졌다고 금형 목록까지
+        # 버리면 MES 는 멀쩡히 읽혔는데 화면이 통째로 옛 상태로 남는다.
         mes_rows: list[Row] = []
         iqc_rows: list[Row] = []
+        failed: list[str] = []
         for f in mes_files:
             mes_rows.extend(_read_file(conn, model, f, open_wb, config))
         for f in [x for x in found if x.kind == "iqc"]:
-            iqc_rows.extend(_read_file(conn, model, f, open_wb, config))
+            try:
+                iqc_rows.extend(_read_file(conn, model, f, open_wb, config))
+            except Exception as exc:  # noqa: BLE001
+                # 부속 정보 하나가 없다고 금형 목록을 버리지 않는다. 다만
+                # 조용히 넘기지도 않는다 — 그 파일의 IQC 항목이 화면에서
+                # 사라지는데 사유가 없으면 아무도 원인을 못 찾는다.
+                failed.append(f"{f.path}: {type(exc).__name__}: {exc}")
 
         result = assemble(mes_rows, iqc_rows)
         # mold 전체 교체 + 파일 이력 갱신 + 삭제 이력 제거를 한 트랜잭션으로
@@ -180,6 +190,7 @@ def run_ingest(
             unknown_statuses=result.unknown_statuses,
             skipped_rows=result.skipped_rows,
             files=[f.path for f in found],
+            failed_files=failed,
         )
         registry.record_run(conn, summary)
         return summary

@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS ingest_run (
     skipped_rows INTEGER NOT NULL DEFAULT 0,
     files_json   TEXT NOT NULL DEFAULT '[]',
     error        TEXT,
-    unreadable_json TEXT NOT NULL DEFAULT '[]'
+    unreadable_json TEXT NOT NULL DEFAULT '[]',
+    failed_json  TEXT NOT NULL DEFAULT '[]'
 );
 
 -- 아래 네 테이블은 대시보드 스키마와 대응하며, 배치마다 전체 교체된다.
@@ -102,6 +103,26 @@ CREATE TABLE IF NOT EXISTS production_run (
 """
 
 
+# CREATE TABLE IF NOT EXISTS 는 이미 있는 테이블에 새 컬럼을 붙여주지 않는다.
+# 그래서 스키마에 컬럼을 추가할 때는 여기에도 같이 적는다 — 안 그러면 예전
+# molds.db 를 쓰던 환경에서 record_run 이 "no such column" 으로 터져 배치가
+# 통째로 실패한다(그 실패는 화면에 error 로만 뜨고 원인을 알 수 없다).
+_ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    "ingest_run": {
+        "unreadable_json": "TEXT NOT NULL DEFAULT '[]'",
+        "failed_json": "TEXT NOT NULL DEFAULT '[]'",
+    },
+}
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> None:
+    for table, columns in _ADDED_COLUMNS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns.items():
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+
 def connect(path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -116,6 +137,7 @@ def init_db(path: str) -> None:
     conn = connect(path)
     try:
         conn.executescript(SCHEMA)
+        _add_missing_columns(conn)
         conn.commit()
     finally:
         conn.close()
