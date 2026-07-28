@@ -130,9 +130,12 @@ def test_init_db_adds_columns_to_an_older_database(tmp_path):
     registry.record_run(c, RunSummary(
         status="ok", started_at="s", finished_at="f",
         failed_files=["iqc.xlsx: ValueError: 컬럼 매핑이 없다"],
+        unknown_statuses=["가동"], unknown_status_rows=42,
     ))
     latest = registry.latest_run(c)
     c.close()
 
     assert latest is not None
     assert latest.failed_files == ["iqc.xlsx: ValueError: 컬럼 매핑이 없다"]
+    # 손실 규모는 새로고침 후에도 보여야 한다 — 화면은 status 조회로 다시 읽는다.
+    assert latest.unknown_status_rows == 42

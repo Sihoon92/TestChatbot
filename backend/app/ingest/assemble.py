@@ -29,13 +29,19 @@ class AssembleResult(BaseModel):
     records: list[MoldRecord] = []
     orphan_mold_nos: list[str] = []
     unknown_statuses: list[str] = []
+    # 상태를 인식하지 못해 제외한 MES 행 수. unknown_statuses 는 원문만
+    # 모으므로 어휘 하나가 몇 건을 삼켰는지는 알 수 없는데, 실물 어휘가
+    # STATUS_MAP 밖에 있으면 화면이 통째로 빈다 — 손실 규모가 보여야
+    # 사용자가 "아, STATUS_MAP 에 '가동'을 넣어야겠다"를 알 수 있다.
+    # skipped_rows 에도 함께 집계된다(부분집합이다).
+    unknown_status_rows: int = 0
     skipped_rows: int = 0
     iqc_matched: int = 0
 
 
 def _mold_records_from_mes(
     mes_rows: list[Row],
-) -> tuple[dict[str, MoldRecord], list[str], int]:
+) -> tuple[dict[str, MoldRecord], list[str], int, int]:
     """MES 행 → {금형번호: MoldRecord}.
 
     MES 한 행은 생산 이벤트 1건이라 같은 금형이 여러 번 나온다. 뒤에 나온
@@ -43,6 +49,7 @@ def _mold_records_from_mes(
     """
     records: dict[str, MoldRecord] = {}
     unknown: list[str] = []
+    unknown_rows = 0
     skipped = 0
 
     for row in mes_rows:
@@ -58,6 +65,9 @@ def _mold_records_from_mes(
             text = str(raw_status).strip() if raw_status is not None else "(빈 값)"
             if text not in unknown:
                 unknown.append(text)
+            # 원문 목록은 중복을 제거하지만 건수는 행마다 센다 — 어휘 하나가
+            # 몇 건을 삼켰는지가 곧 손실 규모다.
+            unknown_rows += 1
             skipped += 1
             continue
 
@@ -79,7 +89,7 @@ def _mold_records_from_mes(
             latest_defect_rate=to_float(row.values.get("defect_rate")),
             source_file=row.source_file,
         )
-    return records, unknown, skipped
+    return records, unknown, unknown_rows, skipped
 
 
 def _iqc_items(row: Row) -> list[StageItemRecord]:
@@ -117,7 +127,7 @@ def _iqc_items(row: Row) -> list[StageItemRecord]:
 
 
 def assemble(mes_rows: list[Row], iqc_rows: list[Row]) -> AssembleResult:
-    records, unknown, skipped = _mold_records_from_mes(mes_rows)
+    records, unknown, unknown_rows, skipped = _mold_records_from_mes(mes_rows)
     orphans: list[str] = []
     matched: set[str] = set()
 
@@ -144,6 +154,7 @@ def assemble(mes_rows: list[Row], iqc_rows: list[Row]) -> AssembleResult:
         records=list(records.values()),
         orphan_mold_nos=orphans,
         unknown_statuses=unknown,
+        unknown_status_rows=unknown_rows,
         skipped_rows=skipped,
         iqc_matched=len(matched),
     )

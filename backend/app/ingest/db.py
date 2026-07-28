@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS ingest_run (
     files_json   TEXT NOT NULL DEFAULT '[]',
     error        TEXT,
     unreadable_json TEXT NOT NULL DEFAULT '[]',
-    failed_json  TEXT NOT NULL DEFAULT '[]'
+    failed_json  TEXT NOT NULL DEFAULT '[]',
+    unknown_status_rows INTEGER NOT NULL DEFAULT 0
 );
 
 -- 아래 네 테이블은 대시보드 스키마와 대응하며, 배치마다 전체 교체된다.
@@ -111,6 +112,7 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
     "ingest_run": {
         "unreadable_json": "TEXT NOT NULL DEFAULT '[]'",
         "failed_json": "TEXT NOT NULL DEFAULT '[]'",
+        "unknown_status_rows": "INTEGER NOT NULL DEFAULT 0",
     },
 }
 

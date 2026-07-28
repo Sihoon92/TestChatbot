@@ -75,8 +75,8 @@ def record_run(conn: sqlite3.Connection, summary: RunSummary) -> None:
         INSERT INTO ingest_run
             (status, started_at, finished_at, mold_count, iqc_matched,
              orphan_json, unknown_json, skipped_rows, files_json, error,
-             unreadable_json, failed_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             unreadable_json, failed_json, unknown_status_rows)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             summary.status,
@@ -91,6 +91,7 @@ def record_run(conn: sqlite3.Connection, summary: RunSummary) -> None:
             summary.error,
             json.dumps(summary.unreadable_files, ensure_ascii=False),
             json.dumps(summary.failed_files, ensure_ascii=False),
+            summary.unknown_status_rows,
         ),
     )
     conn.commit()
@@ -110,6 +111,7 @@ def latest_run(conn: sqlite3.Connection) -> RunSummary | None:
         iqc_matched=row["iqc_matched"],
         orphan_mold_nos=json.loads(row["orphan_json"]),
         unknown_statuses=json.loads(row["unknown_json"]),
+        unknown_status_rows=row["unknown_status_rows"],
         skipped_rows=row["skipped_rows"],
         files=json.loads(row["files_json"]),
         error=row["error"],

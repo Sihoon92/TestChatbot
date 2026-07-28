@@ -120,3 +120,59 @@ def test_line_and_machine_cleared_when_not_in_use():
     result = assemble([_mes("RX28312", status="대기중", line="3", machine="2")], [])
     assert result.records[0].line is None
     assert result.records[0].machine is None
+
+
+def test_unknown_status_row_count_is_reported():
+    """어휘 하나가 몇 건을 삼켰는지가 곧 손실 규모다.
+
+    unknown_statuses 는 원문만 모아 중복을 지우므로, 실물 어휘가 STATUS_MAP
+    밖이면 화면은 텅 비는데 목록 한 줄만 남는다. 사용자가 원인을 찾으려면
+    '이 상태의 행 N건이 제외됐다'가 보여야 한다."""
+    result = assemble(
+        [_mes("RX1", status="가동"), _mes("RX2", status="가동"),
+         _mes("RX3", status="휴지"), _mes("RX4")],
+        [],
+    )
+    assert [r.mold_no for r in result.records] == ["RX4"]
+    assert result.unknown_status_rows == 3
+    # 원문 목록은 중복을 지우지만 건수는 행마다 센다.
+    assert result.unknown_statuses == ["가동", "휴지"]
+
+
+def test_unknown_status_is_listed_once_across_many_rows():
+    """같은 미인식 상태가 여러 행에 나와도 원문 목록에는 한 번만 들어간다."""
+    result = assemble([_mes("RX1", status="가동"), _mes("RX2", status="가동")], [])
+    assert result.unknown_statuses == ["가동"]
+
+
+def test_orphan_mold_no_is_listed_once_across_many_rows():
+    """같은 고아 금형번호가 여러 IQC 행에 나와도 한 번만 들어간다 —
+    IQC 시트는 금형 하나당 여러 측정 행을 갖는 것이 정상이다."""
+    result = assemble(
+        [_mes("RX28312")],
+        [_iqc("RX99999", punch="1.0"), _iqc("RX99999", punch="1.1")],
+    )
+    assert result.orphan_mold_nos == ["RX99999"]
+
+
+def test_iqc_row_without_mold_no_counts_as_skipped():
+    """금형번호가 없는 IQC 행도 조용히 사라지면 안 된다."""
+    result = assemble([_mes("RX28312")], [_iqc(None, punch="1.0")])
+    assert result.skipped_rows == 1
+    assert result.orphan_mold_nos == []
+
+
+def test_mes_join_fields_are_collected_but_not_used_yet():
+    """MES_FIELDS 의 date/process/time 은 에이전트에게 요구하지만 assemble 은
+    읽지 않는다 — 2단계에서 PQC 를 (날짜·공정·호기·시간)으로 조인할 때 쓸
+    키다. 지금 MoldRecord 에 흘러들면 안 된다는 사실을 고정해 둔다.
+
+    이 테스트가 깨지면 둘 중 하나다: 2단계 조인을 구현하면서 여기까지 손댔거나
+    (그렇다면 이 테스트를 의도적으로 고쳐야 한다), 실수로 자유 컬럼처럼
+    레코드에 실었거나."""
+    without = assemble([_mes("RX28312")], []).records[0]
+    with_join_keys = assemble(
+        [_mes("RX28312", date="2026-07-01", process="양극 성형", time="14:30")],
+        [],
+    ).records[0]
+    assert with_join_keys == without

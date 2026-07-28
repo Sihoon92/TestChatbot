@@ -188,6 +188,7 @@ def run_ingest(
             iqc_matched=result.iqc_matched,
             orphan_mold_nos=result.orphan_mold_nos,
             unknown_statuses=result.unknown_statuses,
+            unknown_status_rows=result.unknown_status_rows,
             skipped_rows=result.skipped_rows,
             files=[f.path for f in found],
             failed_files=failed,

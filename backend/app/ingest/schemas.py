@@ -163,7 +163,11 @@ class RunSummary(BaseModel):
     iqc_matched: int = 0  # IQC 항목이 하나라도 붙은 금형 수
     orphan_mold_nos: list[str] = []  # IQC 에 있는데 MES 에 없는 금형
     unknown_statuses: list[str] = []  # 인식하지 못한 MES 상태 원문
-    skipped_rows: int = 0  # 금형번호가 없어 버린 행
+    # 그 상태 때문에 제외된 MES 행 수. 원문 목록만으로는 어휘 하나가 몇 건을
+    # 삼켰는지 알 수 없는데, 실물 어휘가 STATUS_MAP 밖이면 화면이 통째로
+    # 빈다 — 손실 규모가 보여야 사람이 STATUS_MAP 을 고칠 판단을 한다.
+    unknown_status_rows: int = 0
+    skipped_rows: int = 0  # 금형번호가 없어 버린 행(unknown_status_rows 포함)
     files: list[str] = []  # 이번 배치에서 읽은 파일
     error: str | None = None
     # 디스크에는 있는데 이번 회차에 열지도 못한 파일(스캐너가 해시조차 못 뜬
