@@ -43,6 +43,21 @@ def test_list_molds_filters(seeded):
     assert [m.mold_no for m in query.list_molds(q=" rx28312 ")] == ["RX28312"]
 
 
+def test_list_molds_combines_filters(seeded):
+    """조건을 동시에 걸 때 파라미터 순서가 어긋나지 않는지 확인한다.
+    list_molds 는 SQL 문자열과 params 리스트를 각각 순서대로 이어붙이므로,
+    나중에 조건을 추가·재배치할 때 둘이 어긋나면 엉뚱한 열로 걸러진다."""
+    assert [m.mold_no for m in query.list_molds(status="in_use", line="3", machine="2")] == ["RX28312"]
+    assert [m.mold_no for m in query.list_molds(status="in_use", q="283")] == ["RX28312"]
+
+
+def test_list_molds_impossible_combination_is_empty(seeded):
+    """존재하지 않는 조합은 예외가 아니라 0건이다.
+    RX28312 는 사용중/3-2 이고 RX41194 는 대기중이라 호기가 없다."""
+    assert query.list_molds(status="standby", line="3") == []
+    assert query.list_molds(status="in_use", machine="99") == []
+
+
 def test_get_mold_builds_detail_with_iqc_items(seeded):
     detail = query.get_mold("RX28312")
     assert detail is not None
