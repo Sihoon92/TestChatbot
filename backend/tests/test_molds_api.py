@@ -1,9 +1,10 @@
 """라우터 배선 검증.
 
-이 라우터는 의도적으로 `Depends(get_app_state)` 를 쓰지 않는다 — 샘플 데이터가
-코드 안에 있어 settings/DB 가 필요 없고, 덕분에 lifespan 을 띄우지 않는
-TestClient 로 가볍게 검증할 수 있다.
+이 테스트의 관심사는 라우터 계약(경로 선언 순서, 404 처리, 직렬화)이지
+데이터 출처(샘플/DB)가 아니다. 그래서 `query` 함수를 샘플 데이터로 스텁해
+DB/settings 없이 `TestClient` 로 가볍게 검증한다.
 """
+import pytest
 from fastapi.testclient import TestClient
 
 # app.main 을 먼저 로드해야 한다(라우터 모듈이 app.main 을 import 하지 않더라도,
@@ -11,6 +12,51 @@ from fastapi.testclient import TestClient
 import app.main  # noqa: E402
 
 client = TestClient(app.main.app)
+
+
+@pytest.fixture(autouse=True)
+def _stub_query(monkeypatch):
+    """라우터 계약만 검증한다. 데이터 출처(샘플/DB)는 이 테스트의 관심사가 아니다."""
+    from app.molds import sample_data
+    from app.molds.schemas import ALL_STATUSES, FilterOptions, Installation
+
+    def _fake_list_molds(*, status=None, line=None, machine=None, q=None):
+        result = [m.summary for m in sample_data.SAMPLE_MOLDS]
+        if status is not None:
+            result = [s for s in result if s.status == status]
+        if line is not None:
+            result = [s for s in result if s.line == line]
+        if machine is not None:
+            result = [s for s in result if s.machine == machine]
+        if q is not None:
+            needle = q.strip().lower()
+            if needle:
+                result = [s for s in result if needle in s.mold_no.lower()]
+        return result
+
+    monkeypatch.setattr("app.api.molds.list_molds", _fake_list_molds)
+    monkeypatch.setattr(
+        "app.api.molds.get_mold",
+        lambda no: next(
+            (m for m in sample_data.SAMPLE_MOLDS if m.summary.mold_no == no), None
+        ),
+    )
+
+    def _fake_filter_options() -> FilterOptions:
+        seen: list[tuple[str, str]] = []
+        for mold in sample_data.SAMPLE_MOLDS:
+            line, machine = mold.summary.line, mold.summary.machine
+            if line is None or machine is None:
+                continue
+            if (line, machine) not in seen:
+                seen.append((line, machine))
+        seen.sort()
+        return FilterOptions(
+            statuses=list(ALL_STATUSES),
+            installations=[Installation(line=ln, machine=mc) for ln, mc in seen],
+        )
+
+    monkeypatch.setattr("app.api.molds.filter_options", _fake_filter_options)
 
 
 def test_list_returns_all_molds():
