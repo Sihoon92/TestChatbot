@@ -70,3 +70,15 @@ def test_detail_null_fields_survive_serialization():
     assert body["design"]["angle_deg"] is None
     assert body["summary"]["line"] is None
     assert body["current"]["installed_at"] is None
+
+
+def test_detail_null_quantity_fields_survive_serialization():
+    """이번 태스크에서 nullable 로 바꾼 다섯 수량 필드가 실제로 API 응답에서
+    null 로 직렬화되는지 확인한다. `v or 0` 류 기본값 로직이 나중에 끼어들면
+    이 테스트가 잡아야 한다. RX39002 는 수량이 전부 None 인 샘플이다."""
+    body = client.get("/api/molds/RX39002").json()
+    assert body["summary"]["shot_count"] is None
+    assert body["summary"]["total_production"] is None
+    assert body["history"]["total_installs"] is None
+    assert body["history"]["total_production"] is None
+    assert body["current"]["shot_count"] is None

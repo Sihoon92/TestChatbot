@@ -40,6 +40,27 @@ describe("SummaryCards", () => {
     expect(within(card).getByText("사용 타수").nextSibling).toHaveTextContent("0");
   });
 
+  it("dashes an unknown shot count (null), distinct from a real zero", () => {
+    const moldWithUnknownShotCount = {
+      ...DETAIL,
+      current: { ...DETAIL.current, shot_count: null },
+    };
+    render(<SummaryCards detail={moldWithUnknownShotCount} />);
+    const card = screen.getByRole("region", { name: "현 상태" });
+    expect(within(card).getByText("사용 타수").nextSibling).toHaveTextContent("—");
+  });
+
+  it("dashes unknown cumulative history fields (null), distinct from a real zero", () => {
+    const moldWithUnknownHistory = {
+      ...DETAIL,
+      history: { ...DETAIL.history, total_installs: null, total_production: null },
+    };
+    render(<SummaryCards detail={moldWithUnknownHistory} />);
+    const card = screen.getByRole("region", { name: "누적 이력" });
+    expect(within(card).getByText("총 설치 횟수").nextSibling).toHaveTextContent("—");
+    expect(within(card).getByText("총 생산 수량").nextSibling).toHaveTextContent("—");
+  });
+
   it("dashes the installation for a standby mold", () => {
     render(<SummaryCards detail={DETAIL} />);
     const card = screen.getByRole("region", { name: "현 상태" });
