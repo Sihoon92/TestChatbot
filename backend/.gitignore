@@ -7,3 +7,5 @@ app.db
 app.db-*
 logs/
 data/
+molds.db
+molds.db-*
