@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getIngestStatus, runIngest, type RunSummary } from "../../api/ingest";
+import { useDashboardStore } from "../../store/dashboardStore";
 
 // 손실 건수를 접어두지 않는다. API 에만 있으면 아무도 안 보고, 그러면
 // "조용히 빠지는 데이터가 없어야 한다"는 원칙이 화면에서 끊긴다.
@@ -11,16 +12,36 @@ function Losses({ s }: { s: RunSummary }) {
     );
   }
   if (s.unknown_statuses.length > 0) {
-    items.push(`인식하지 못한 상태: ${s.unknown_statuses.join(", ")}`);
+    // 원문만 보여주면 "그래서 몇 건이 사라졌는데?"에 답이 없다. 실물 어휘가
+    // STATUS_MAP 밖이면 목록이 통째로 비는데, 건수가 보여야 사용자가
+    // "아, STATUS_MAP 에 '가동'을 넣어야겠다"까지 갈 수 있다.
+    const scale =
+      s.unknown_status_rows > 0
+        ? ` (이 상태의 행 ${s.unknown_status_rows}건이 제외됨)`
+        : "";
+    items.push(`인식하지 못한 상태: ${s.unknown_statuses.join(", ")}${scale}`);
   }
   if (s.skipped_rows > 0) items.push(`건너뛴 행 ${s.skipped_rows}건`);
-  if (items.length === 0) return null;
+  if (items.length === 0 && s.failed_files.length === 0) return null;
 
   return (
     <ul className="mt-1 space-y-0.5 text-xs text-accent-dark">
       {items.map((t) => (
         <li key={t}>⚠ {t}</li>
       ))}
+      {/* 파싱에 실패한 IQC 파일. 배치는 성공(status="ok")이라 여기서 안
+          보여주면 그 파일의 항목이 사유 없이 사라진다. 사유까지 그대로
+          싣는 이유는 "어느 파일을 어떻게 고쳐야 하는가"가 곧 사유라서다. */}
+      {s.failed_files.length > 0 && (
+        <li>
+          ⚠ 읽지 못한 파일 {s.failed_files.length}건
+          <ul className="mt-0.5 space-y-0.5 pl-4">
+            {s.failed_files.map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        </li>
+      )}
     </ul>
   );
 }
@@ -64,6 +85,8 @@ export default function IngestPanel() {
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadMolds = useDashboardStore((s) => s.loadMolds);
+  const loadOptions = useDashboardStore((s) => s.loadOptions);
 
   useEffect(() => {
     void getIngestStatus()
@@ -80,6 +103,13 @@ export default function IngestPanel() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setRunning(false);
+      // 수집은 DB 를 통째로 갈아치운다. 목록을 다시 읽지 않으면 패널에는
+      // "금형 120건"이 뜨는데 왼쪽 목록은 비어 있는 상태가 남는다
+      // (DashboardPage 의 loadMolds 는 filters 변화에만 반응한다).
+      // status 가 ok 일 때만이 아니라 항상 부른다 — skipped/error 여도
+      // DB 의 현재 상태를 다시 확인하는 게 맞다.
+      void loadMolds();
+      void loadOptions();
     }
   }
 

@@ -9,6 +9,16 @@ vi.mock("../../api/ingest", async () => ({
   getIngestStatus: vi.fn(),
 }));
 
+// 수집이 끝나면 패널이 목록을 다시 읽는다. 스토어를 모킹하지 않으면 진짜
+// molds API 를 부르려 해서 테스트가 네트워크에 의존하게 된다.
+const store = vi.hoisted(() => ({
+  loadMolds: vi.fn(),
+  loadOptions: vi.fn(),
+}));
+vi.mock("../../store/dashboardStore", () => ({
+  useDashboardStore: (select: (s: typeof store) => unknown) => select(store),
+}));
+
 const api = await import("../../api/ingest");
 
 const OK: RunSummary = {
@@ -19,10 +29,12 @@ const OK: RunSummary = {
   iqc_matched: 3,
   orphan_mold_nos: [],
   unknown_statuses: [],
+  unknown_status_rows: 0,
   skipped_rows: 0,
   files: ["MES/mes.xlsx"],
   error: null,
   unreadable_files: [],
+  failed_files: [],
 };
 
 beforeEach(() => {
@@ -64,6 +76,60 @@ describe("IngestPanel", () => {
     expect(screen.getByText(/인식하지 못한 상태/)).toBeInTheDocument();
     expect(screen.getByText(/가동/)).toBeInTheDocument();
     expect(screen.getByText(/건너뛴 행 2건/)).toBeInTheDocument();
+  });
+
+  it("인식하지 못한 상태로 몇 건이 빠졌는지 보여준다", async () => {
+    // 원문만 보여주면 "그래서 몇 건이 사라졌는데?"에 답이 없다. 실물 어휘가
+    // STATUS_MAP 밖이면 목록이 통째로 비는데, 화면에는 작은 한 줄만 남는다.
+    vi.mocked(api.runIngest).mockResolvedValue({
+      ...OK,
+      unknown_statuses: ["가동", "휴지"],
+      unknown_status_rows: 42,
+    });
+
+    render(<IngestPanel />);
+    await userEvent.click(await screen.findByRole("button", { name: /수집 실행/ }));
+
+    expect(
+      await screen.findByText(/인식하지 못한 상태: 가동, 휴지 \(이 상태의 행 42건이 제외됨\)/)
+    ).toBeInTheDocument();
+  });
+
+  it("파싱에 실패한 파일과 사유를 보여준다", async () => {
+    // 배치는 성공(status="ok")이므로 여기서 안 보여주면 그 파일의 IQC
+    // 항목이 사유 없이 사라진다.
+    vi.mocked(api.runIngest).mockResolvedValue({
+      ...OK,
+      failed_files: ["IQC/입고검사.xlsx: ValueError: 컬럼 매핑이 없다"],
+    });
+
+    render(<IngestPanel />);
+    await userEvent.click(await screen.findByRole("button", { name: /수집 실행/ }));
+
+    expect(await screen.findByText(/읽지 못한 파일 1건/)).toBeInTheDocument();
+    expect(
+      screen.getByText("IQC/입고검사.xlsx: ValueError: 컬럼 매핑이 없다")
+    ).toBeInTheDocument();
+  });
+
+  it("수집이 끝나면 금형 목록과 필터 선택지를 다시 읽는다", async () => {
+    // 수집은 DB 를 통째로 갈아치운다. 다시 읽지 않으면 패널에는 "금형 4건"이
+    // 뜨는데 왼쪽 목록은 비어 있는 상태가 남는다.
+    render(<IngestPanel />);
+    await userEvent.click(await screen.findByRole("button", { name: /수집 실행/ }));
+
+    await waitFor(() => expect(store.loadMolds).toHaveBeenCalled());
+    expect(store.loadOptions).toHaveBeenCalled();
+  });
+
+  it("건너뛰거나 실패해도 목록을 다시 읽는다", async () => {
+    // ok 일 때만 부르면, 직전 실패로 목록이 비어 있는 상태에서 벗어날 수 없다.
+    vi.mocked(api.runIngest).mockResolvedValue({ ...OK, status: "skipped" });
+
+    render(<IngestPanel />);
+    await userEvent.click(await screen.findByRole("button", { name: /수집 실행/ }));
+
+    await waitFor(() => expect(store.loadMolds).toHaveBeenCalled());
   });
 
   it("실패 사유를 그대로 보여준다", async () => {
