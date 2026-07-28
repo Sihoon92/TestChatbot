@@ -153,6 +153,69 @@ def test_cached_layout_avoids_calling_agent(env, monkeypatch):
     assert calls["n"] == 2, "앵커가 같으면 에이전트를 다시 부르지 않아야 한다"
 
 
+def _bad_layout():
+    """앵커는 맞는데 detail 표에 컬럼 매핑이 없어 parse_rows 가 터지는 레이아웃."""
+    return SheetLayout(
+        sheet_name="Sheet1",
+        anchors=[{"cell": "A1", "text": "금형번호"}],
+        tables=[{
+            "name": "상세", "role": "detail", "header_rows": [1],
+            "data_start_row": 2, "columns": [],
+        }],
+    )
+
+
+def test_layout_is_not_cached_when_parsing_fails(env, monkeypatch):
+    """파싱에 실패한 레이아웃은 캐시에 남지 않아야 한다. 저장이 파싱보다
+    앞에 있으면(save_layout 은 즉시 커밋한다) 나쁜 레이아웃이 박혀서
+    다음 회차에도 같은 앵커로 다시 뽑혀 영구 실패한다."""
+    monkeypatch.setattr(
+        "app.ingest.pipeline.discover_layout",
+        _fake_discover({"mes": _bad_layout(), "iqc": IQC_LAYOUT}),
+    )
+
+    summary = run_ingest(env, model=object(),
+                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+
+    assert summary.status == "error"
+    conn = db.connect(env.resolved_molds_db_path)
+    n = conn.execute(
+        "SELECT COUNT(*) c FROM sheet_mapping WHERE kind = 'mes'"
+    ).fetchone()["c"]
+    conn.close()
+    assert n == 0, "파싱에 실패한 레이아웃이 캐시에 저장되면 안 된다"
+
+
+def test_bad_cached_layout_is_reinterpreted_once(env, monkeypatch):
+    """이미 캐시에 박힌 나쁜 레이아웃에서 자력으로 빠져나온다.
+
+    앵커는 맞는데 파싱이 안 되는 상황(양식이 앵커 밖에서 바뀜)이다. 재해석이
+    없으면 그 파일은 영구히 실패하고 UI 로는 복구할 방법이 없다 —
+    molds.db 를 손으로 지우는 것 외에는."""
+    db.init_db(env.resolved_molds_db_path)
+    conn = db.connect(env.resolved_molds_db_path)
+    registry.save_layout(conn, "mes", _bad_layout(), "seed")
+    registry.save_layout(conn, "iqc", _bad_layout(), "seed")
+    conn.close()
+
+    monkeypatch.setattr(
+        "app.ingest.pipeline.discover_layout",
+        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+    )
+
+    summary = run_ingest(env, model=object(),
+                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+
+    assert summary.status == "ok"
+    assert summary.mold_count == 1
+
+    # 재해석 결과가 캐시에 남아, 다음 회차에는 앵커 대조만으로 통과해야 한다.
+    conn = db.connect(env.resolved_molds_db_path)
+    latest = registry.load_layouts(conn, "mes", "Sheet1")[0]
+    conn.close()
+    assert latest.tables[0].columns, "성공한 레이아웃이 최신으로 저장돼야 한다"
+
+
 def test_run_summary_is_persisted(env, monkeypatch):
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
