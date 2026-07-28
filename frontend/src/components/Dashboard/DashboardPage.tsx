@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useDashboardStore } from "../../store/dashboardStore";
+import IngestPanel from "./IngestPanel";
 import MoldDetailPanel from "./MoldDetailPanel";
 import MoldFilterBar from "./MoldFilterBar";
 import MoldList from "./MoldList";
@@ -74,6 +75,7 @@ export default function DashboardPage() {
 
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-72 shrink-0 flex-col border-r border-paper-dark">
+          <IngestPanel />
           <MoldFilterBar />
           <MoldList />
         </aside>
