@@ -94,11 +94,17 @@ def outline_grid(
     표의 경계는 "채워진 칸의 조합이 달라지는 지점"에 드러나므로, 같은 조합이
     이어지는 행은 한 줄로 접는다 — 94행짜리 MES 시트가 네 줄이 된다.
 
+    칸 수 다음에 **열 범위**를 붙인다. 개수만 알려주면 표가 어느 열에서
+    끝나는지 알 방법이 없어, 에이전트가 read_range 범위의 오른쪽 끝을 찍는다 —
+    실물에서 20열짜리 표를 J 로 찍어 K 열 이후를 존재조차 모른 채 지나갔고,
+    PUNCH/DIE/차이/간극이 통째로 빠졌다. 행 방향의 같은 사각지대를 이 함수가
+    없애줬듯, 열 방향에도 끝을 알려줘야 추측이 사라진다.
+
     출력 예:
-          2   1칸  B=MES 생산 이벤트 조회 결과 (2026-07)
-          3   0칸  (빈 행)
-          4  13칸  B=No · C=날짜 · D=공정 · E=기종
-       5-95  13칸  B=1.0 · C=2026-07-01 00:00:00 · D=음극 성형 · E=H104
+          2   1칸  B~B  B=MES 생산 이벤트 조회 결과 (2026-07)
+          3   0칸       (빈 행)
+          4  13칸  B~N  B=No · C=날짜 · D=공정 · E=기종
+       5-95  13칸  B~N  B=1.0 · C=2026-07-01 00:00:00 · D=음극 성형 · E=H104
     """
     base_row, base_col = parse_a1(top_left)
     if not values:
@@ -143,6 +149,13 @@ def outline_grid(
             parts.append(f"{letter}={text}")
         return " · ".join(parts)
 
+    def _span(row: list) -> str:
+        """채워진 첫 열~마지막 열. 표의 오른쪽 끝이 어디인지 알려준다."""
+        shape = _shape(row)
+        if not shape:
+            return ""
+        return f"{shape[0][0]}~{shape[-1][0]}"
+
     lines: list[str] = []
     start = 0
     for i in range(1, len(values) + 1):
@@ -152,7 +165,8 @@ def outline_grid(
         first, last = base_row + start, base_row + i - 1
         label = str(first) if first == last else f"{first}-{last}"
         lines.append(
-            f"{label:>7}  {len(_shape(values[start])):>2}칸  {_sample(values[start])}"
+            f"{label:>7}  {len(_shape(values[start])):>2}칸  "
+            f"{_span(values[start]):<5}{_sample(values[start])}"
         )
         start = i
     return "\n".join(lines)

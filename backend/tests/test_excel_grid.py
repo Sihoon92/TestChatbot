@@ -173,6 +173,34 @@ def test_outline_grid_truncates_long_values_and_limits_cells():
     assert "7칸" in line, "실제 채워진 칸 수는 그대로 알려줘야 한다"
 
 
+def test_outline_grid_shows_the_column_span_of_each_row():
+    """칸 **개수**만으로는 표가 어느 열에서 끝나는지 알 수 없다.
+
+    실물에서 에이전트가 20열짜리 표를 'A33:J41' 로 찍어 읽어 K 열 이후를
+    존재조차 모른 채 지나갔다 — PUNCH/DIE/차이/간극이 통째로 빠졌다.
+    끝 열을 알려주면 추측할 이유가 없어진다."""
+    rows = [[None, "No", "금형번호", None, "PUNCH", "간극"]]
+
+    line = outline_grid(rows, "A1").splitlines()[0]
+
+    assert "4칸" in line
+    assert "B~F" in line
+
+
+def test_outline_grid_span_follows_the_offset():
+    out = outline_grid([[None, "금형번호", "업체"]], "C3")
+
+    assert "D~E" in out
+
+
+def test_outline_grid_blank_rows_have_no_span():
+    """빈 행에 열 범위를 붙이면 없는 표의 경계처럼 보인다."""
+    line = outline_grid([[None, "a"], [None, None]], "A1").splitlines()[1]
+
+    assert "(빈 행)" in line
+    assert "~" not in line
+
+
 def test_outline_grid_empty_input():
     assert outline_grid([], "A1") == "(빈 범위)"
 
