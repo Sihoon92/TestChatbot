@@ -53,11 +53,28 @@ def _table_rows(
             f"(시트 '{layout.sheet_name}', {source_file})"
         )
 
+    # 헤더 행 번호를 data_end_row 에 넣는 실수가 여기서 잡힌다. 그대로 두면
+    # range() 가 비어 조용히 0행이 되고, "표는 있는데 행이 없다"는 추적
+    # 불가능한 상태가 된다 — 컬럼 매핑 누락과 같은 성격의 실패다.
+    if table.data_end_row is not None and table.data_end_row < table.data_start_row:
+        raise ValueError(
+            f"표 '{table.name}' 의 data_end_row({table.data_end_row}) 가 "
+            f"data_start_row({table.data_start_row}) 보다 작다 "
+            f"(시트 '{layout.sheet_name}', {source_file})"
+        )
+
     rows: list[Row] = []
     # 격자 밖까지 훑지 않는다 — data_end_row 가 크게 잡혀도 없는 행을
     # 만들어내면 안 된다.
     hard_end = _last_row_no(grid, top_left)
-    end = min(table.data_end_row, hard_end) if table.data_end_row else hard_end
+    # 아래 빈 행 판정과 같은 기준(is None)을 쓴다. truthy 검사로 두면
+    # data_end_row=0 일 때 여기서는 "미지정", 아래에서는 "지정됨"이 되어
+    # 두 곳이 모순된다.
+    end = (
+        min(table.data_end_row, hard_end)
+        if table.data_end_row is not None
+        else hard_end
+    )
 
     for row_no in range(table.data_start_row, end + 1):
         values = {

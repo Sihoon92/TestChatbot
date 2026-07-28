@@ -259,3 +259,60 @@ def test_layout_without_tables_yields_single_key_value_row():
     rows = parse_rows(grid, "A1", layout, "iqc.xlsx")
     assert len(rows) == 1
     assert rows[0].values == {"mold_no": "RX28312", "punch": "12.5"}
+
+
+def test_explicit_end_row_skips_blank_rows_and_keeps_going():
+    """명시적 data_end_row 가 있으면 중간 빈 행에서 멈추지 않고 건너뛴다.
+
+    실물 표에는 구분용 빈 행이 흔하다. 여기서 멈추면 그 아래 행이 조용히
+    사라지고, 화면에는 금형이 몇 개 없는 채로 아무 경고 없이 뜬다."""
+    grid = [
+        ["No", "금형번호"],
+        [1, "RX28312"],
+        [None, None],
+        [2, "RX28315"],
+    ]
+    layout = SheetLayout(
+        sheet_name="Sheet1", anchors=ANCHOR,
+        tables=[TableBlock(
+            name="상세", role="detail", header_rows=[1],
+            data_start_row=2, data_end_row=4,
+            columns=[ColumnMap(field="mold_no", column="B")],
+        )],
+    )
+    rows = parse_rows(grid, "A1", layout, "iqc.xlsx")
+    assert [r.values["mold_no"] for r in rows] == ["RX28312", "RX28315"]
+
+
+def test_end_row_before_start_row_fails_loudly():
+    """헤더 행 번호를 data_end_row 에 넣는 실수는 조용히 0행이 되면 안 된다.
+
+    에이전트가 가장 저지르기 쉬운 오해다(스키마에 설명을 넣어 1차로 막지만,
+    파서도 막아야 그 파일이 error 로 표시되고 사유가 남는다)."""
+    grid = [["No", "금형번호"], [1, "RX28312"]]
+    layout = SheetLayout(
+        sheet_name="Sheet1", anchors=ANCHOR,
+        tables=[TableBlock(
+            name="상세", role="detail", header_rows=[1],
+            data_start_row=2, data_end_row=1,
+            columns=[ColumnMap(field="mold_no", column="B")],
+        )],
+    )
+    with pytest.raises(ValueError, match="data_end_row"):
+        parse_rows(grid, "A1", layout, "iqc.xlsx")
+
+
+def test_end_row_zero_is_treated_as_specified_not_missing():
+    """data_end_row=0 은 '미지정'이 아니다. truthy 검사로 두면 위쪽은
+    '미지정'(격자 끝까지), 아래 빈 행 판정은 '지정됨'으로 갈려 모순된다."""
+    grid = [["No", "금형번호"], [1, "RX28312"]]
+    layout = SheetLayout(
+        sheet_name="Sheet1", anchors=ANCHOR,
+        tables=[TableBlock(
+            name="상세", role="detail", header_rows=[1],
+            data_start_row=2, data_end_row=0,
+            columns=[ColumnMap(field="mold_no", column="B")],
+        )],
+    )
+    with pytest.raises(ValueError, match="data_end_row"):
+        parse_rows(grid, "A1", layout, "iqc.xlsx")
