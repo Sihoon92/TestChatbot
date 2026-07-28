@@ -76,6 +76,88 @@ def format_grid(values: list[list], top_left: str) -> str:
     return "\n".join(lines)
 
 
+def outline_grid(
+    values: list[list],
+    top_left: str,
+    *,
+    max_cells: int = 4,
+    max_len: int = 24,
+) -> str:
+    """시트의 행별 윤곽 — 각 행에 값이 몇 칸 있고 앞쪽 값이 무엇인지.
+
+    read_range 는 컨텍스트를 지키려고 30행까지만 보여준다. 그런데 실물 IQC
+    시트는 40행이고 정작 필요한 대장 상세표가 33행부터라, 한 번 읽어서는 그
+    표가 아예 안 보였다 — 에이전트가 "나머지는 나눠 읽어라"는 안내를 받고도
+    두 번째 읽기를 하지 않아 표 하나가 통째로 누락됐다.
+
+    값을 전부 싣는 대신 **모양만** 보여주면 시트 전체가 한 화면에 들어온다.
+    표의 경계는 "채워진 칸의 조합이 달라지는 지점"에 드러나므로, 같은 조합이
+    이어지는 행은 한 줄로 접는다 — 94행짜리 MES 시트가 네 줄이 된다.
+
+    출력 예:
+          2   1칸  B=MES 생산 이벤트 조회 결과 (2026-07)
+          3   0칸  (빈 행)
+          4  13칸  B=No · C=날짜 · D=공정 · E=기종
+       5-95  13칸  B=1.0 · C=2026-07-01 00:00:00 · D=음극 성형 · E=H104
+    """
+    base_row, base_col = parse_a1(top_left)
+    if not values:
+        return "(빈 범위)"
+
+    def _kind(v: Any) -> str:
+        # bool 은 int 의 하위 타입이라 숫자보다 먼저, datetime 은 date 의
+        # 하위 타입이라 date 보다 먼저 본다.
+        if isinstance(v, bool):
+            return "b"
+        if isinstance(v, _NUMERIC):
+            return "n"
+        if isinstance(v, (datetime, date)):
+            return "d"
+        return "s"
+
+    def _shape(row: list) -> tuple[tuple[str, str], ...]:
+        """어느 칸이 어떤 타입으로 채워졌는지. 이게 같으면 같은 모양이다.
+
+        열 위치만 보면 헤더 행과 그 아래 데이터 행이 같은 모양이 되어 한 줄로
+        접히고, 정작 필요한 "헤더가 몇 행인가"가 사라진다. 헤더는 보통 전부
+        문자열이고 데이터에는 숫자·날짜가 섞이므로, 타입까지 넣으면 그 경계가
+        저절로 드러난다.
+        """
+        return tuple(
+            (col_to_letter(base_col + c), _kind(v))
+            for c, v in enumerate(row)
+            if v is not None
+        )
+
+    def _sample(row: list) -> str:
+        filled = [
+            (col_to_letter(base_col + c), v) for c, v in enumerate(row) if v is not None
+        ]
+        if not filled:
+            return "(빈 행)"
+        parts = []
+        for letter, value in filled[:max_cells]:
+            text = str(value)
+            if len(text) > max_len:
+                text = text[:max_len] + "…"
+            parts.append(f"{letter}={text}")
+        return " · ".join(parts)
+
+    lines: list[str] = []
+    start = 0
+    for i in range(1, len(values) + 1):
+        # 모양이 바뀌는 지점(또는 끝)에서 지금까지의 묶음을 한 줄로 낸다.
+        if i < len(values) and _shape(values[i]) == _shape(values[start]):
+            continue
+        first, last = base_row + start, base_row + i - 1
+        label = str(first) if first == last else f"{first}-{last}"
+        lines.append(
+            f"{label:>7}  {len(_shape(values[start])):>2}칸  {_sample(values[start])}"
+        )
+        start = i
+    return "\n".join(lines)
+
+
 def search_values(
     rows: list[list], query: str, top_left: str, limit: int = 200
 ) -> list[dict]:

@@ -8,6 +8,7 @@ from app.excel.grid import (
     aggregate_values,
     col_to_letter,
     format_grid,
+    outline_grid,
     parse_a1,
     profile_values,
     search_values,
@@ -89,6 +90,91 @@ def test_format_grid_respects_offset_with_empty_cells():
     values = grid.splitlines()[1].split("\t")
     assert values[0] == "3"
     assert dict(zip(letters, values))["D"] == "금형번호"
+
+
+# ── 시트 윤곽 ──────────────────────────────────────────────────────
+# read_range 는 30행까지만 보여준다. 실물 IQC 시트는 40행이고 정작 필요한
+# 대장 상세표가 33행부터라, 한 번 읽어서는 그 표가 아예 안 보였다. 에이전트가
+# "나머지는 나눠 읽어라"는 안내를 받고도 두 번째 읽기를 하지 않아 표 하나가
+# 통째로 누락됐다.
+#
+# outline_grid 는 각 행의 "채워진 칸"만 요약해 시트 전체를 한 화면에 보여준다.
+# 값 전체를 싣지 않으므로 40행이든 94행이든 컨텍스트를 거의 안 먹는다.
+
+
+def test_outline_grid_shows_row_numbers_and_first_values():
+    out = outline_grid([[None, "구분", "항목"], [None, "유형1", 3]], "A1")
+    lines = out.splitlines()
+    assert lines[0].split()[0] == "1" and "B=구분" in lines[0] and "C=항목" in lines[0]
+    assert lines[1].split()[0] == "2" and "B=유형1" in lines[1]
+
+
+def test_outline_grid_separates_header_from_data_by_cell_type():
+    """헤더 행이 데이터 행과 같은 열을 채워도 접히면 안 된다.
+
+    열 위치만 보면 둘이 같은 모양이라 한 줄로 접히고, 정작 필요한 "헤더가
+    몇 행인가"가 사라진다. 헤더는 보통 전부 문자열이고 데이터에는 숫자·날짜가
+    섞이므로 타입까지 보면 경계가 저절로 드러난다.
+    """
+    rows = [
+        [None, "No", "금형번호"],        # 헤더 — 전부 문자열
+        [None, 1, "RX28312"],            # 데이터 — 숫자 섞임
+        [None, 2, "RX28315"],
+    ]
+    lines = outline_grid(rows, "A1").splitlines()
+    assert len(lines) == 2, "헤더 1줄 + 데이터 1줄(접힘)"
+    assert "B=No" in lines[0]
+    assert "2-3" in lines[1]
+
+
+def test_outline_grid_collapses_consecutive_rows_of_same_shape():
+    """같은 칸이 채워진 행이 이어지면 한 줄로 접는다.
+
+    데이터 행 수백 개가 같은 모양으로 반복되는데 그걸 다 찍으면 윤곽이
+    묻힌다. 접으면 '어디서 표가 시작하고 끝나는가' 만 남는다.
+    """
+    rows = [[None, "No", "금형번호"]] + [[None, i, f"RX{i}"] for i in range(1, 51)]
+    out = outline_grid(rows, "A1")
+    lines = out.splitlines()
+    assert len(lines) == 2, f"헤더 1줄 + 데이터 50행 1줄이어야 하는데 {len(lines)}줄"
+    assert "2-51" in lines[1], "접힌 행 범위가 보여야 한다"
+
+
+def test_outline_grid_does_not_collapse_different_shapes():
+    """모양이 달라지는 지점이 곧 표의 경계다 — 접으면 안 된다."""
+    rows = [
+        [None, "제목"],              # 1칸
+        [None, None],                # 빈 행
+        [None, "No", "금형번호"],     # 2칸  ← 새 표 헤더
+    ]
+    out = outline_grid(rows, "A1")
+    assert len(out.splitlines()) == 3
+
+
+def test_outline_grid_marks_blank_rows():
+    out = outline_grid([[None, "a"], [None, None], [None, "b"]], "A1")
+    assert "(빈 행)" in out.splitlines()[1]
+
+
+def test_outline_grid_respects_offset():
+    """used_range 가 A1 이 아닌 곳에서 시작해도 행번호·열문자가 맞아야 한다."""
+    out = outline_grid([[None, "금형번호"]], "C3")
+    assert out.splitlines()[0].startswith("      3")
+    assert "D=금형번호" in out
+
+
+def test_outline_grid_truncates_long_values_and_limits_cells():
+    """윤곽은 구조를 보는 용도라 값을 다 보여줄 필요가 없다."""
+    rows = [["짧게" * 30, "b", "c", "d", "e", "f", "g"]]
+    out = outline_grid(rows, "A1", max_cells=3, max_len=10)
+    line = out.splitlines()[0]
+    assert "…" in line, "긴 값은 잘려야 한다"
+    assert line.count("=") == 3, "표시할 셀 개수를 제한해야 한다"
+    assert "7칸" in line, "실제 채워진 칸 수는 그대로 알려줘야 한다"
+
+
+def test_outline_grid_empty_input():
+    assert outline_grid([], "A1") == "(빈 범위)"
 
 
 def test_search_values_returns_cell_addresses():
