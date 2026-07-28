@@ -39,8 +39,30 @@ def a1_offset(top_left: str, row_off: int, col_off: int) -> str:
     return f"{col_to_letter(col + col_off)}{row + row_off}"
 
 
+# 빈 셀 자리표시자. 빈 문자열로 두면 렌더 결과에 탭이 연달아 붙는데
+# ("4\t\tNo"), LLM 은 연속 구분자 사이의 빈 자리를 세지 못해 그 열을 건너뛰고
+# 이후 모든 열 문자가 한 칸씩 밀린다. 실제로 A 열이 비어 있는 시트에서
+# gemma4:26b 가 필드 11개를 이름으로는 전부 맞히고도 열 문자는 11개 전부 한 칸씩
+# 왼쪽으로 지목했다(mold_no 를 I 가 아니라 H 로). 4B 모델도 같은 패턴이었으니
+# 모델 크기가 아니라 렌더링이 원인이다.
+#
+# 값으로 오해되지 않으면서 한 글자인 기호를 쓴다 — 숫자·문자·하이픈은 실제
+# 셀 값일 수 있고, 여러 글자면 폭이 들쭉날쭉해진다.
+EMPTY_CELL = "·"
+
+
 def format_grid(values: list[list], top_left: str) -> str:
-    """2D 값 목록을 '열문자 헤더 + 행번호' 가 붙은 탭 구분 표 문자열로."""
+    """2D 값 목록을 '열문자 헤더 + 행번호' 가 붙은 탭 구분 표 문자열로.
+
+    이 함수의 존재 이유는 **열 문자와 값의 정렬**이다. 에이전트는 여기서 읽은
+    열 문자를 그대로 레이아웃에 담고, 파서가 그 주소로 값을 꺼낸다. 정렬이
+    한 칸이라도 어긋나면 전혀 다른 열의 값이 대시보드에 올라간다.
+
+    그래서 두 가지를 보장한다.
+    - 빈 셀을 EMPTY_CELL 로 채워 연속 구분자가 생기지 않게 한다.
+    - 짧은 행을 가장 긴 행에 맞춰 패딩한다. 안 그러면 그 행의 뒤쪽 열이 통째로
+      사라져 헤더의 열 문자와 값의 인덱스가 어긋난다.
+    """
     base_row, base_col = parse_a1(top_left)
     if not values:
         return "(빈 범위)"
@@ -48,8 +70,9 @@ def format_grid(values: list[list], top_left: str) -> str:
     header = "\t" + "\t".join(col_to_letter(base_col + c) for c in range(ncols))
     lines = [header]
     for r, row in enumerate(values):
-        cells = "\t".join("" if v is None else str(v) for v in row)
-        lines.append(f"{base_row + r}\t{cells}")
+        cells = [EMPTY_CELL if v is None else str(v) for v in row]
+        cells.extend([EMPTY_CELL] * (ncols - len(cells)))
+        lines.append(f"{base_row + r}\t" + "\t".join(cells))
     return "\n".join(lines)
 
 
