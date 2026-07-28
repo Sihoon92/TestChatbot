@@ -13,26 +13,26 @@ def test_no_filter_returns_all():
 
 def test_filter_by_status():
     result = list_molds(status="in_use")
-    assert {m.mold_no for m in result} == {"M-1024", "M-1031"}
+    assert {m.mold_no for m in result} == {"RX28312", "RX28315"}
 
 
 def test_filter_by_line_and_machine():
     result = list_molds(status="in_use", line="3", machine="2")
-    assert [m.mold_no for m in result] == ["M-1024"]
+    assert [m.mold_no for m in result] == ["RX28312"]
 
 
 def test_filter_by_line_only():
     result = list_molds(line="3")
-    assert {m.mold_no for m in result} == {"M-1024", "M-1031"}
+    assert {m.mold_no for m in result} == {"RX28312", "RX28315"}
 
 
 def test_search_is_partial_match():
-    result = list_molds(q="10")
-    assert {m.mold_no for m in result} == {"M-1024", "M-1031"}
+    result = list_molds(q="283")
+    assert {m.mold_no for m in result} == {"RX28312", "RX28315"}
 
 
 def test_search_ignores_case_and_surrounding_space():
-    assert [m.mold_no for m in list_molds(q="  m-1024 ")] == ["M-1024"]
+    assert [m.mold_no for m in list_molds(q="  rx28312 ")] == ["RX28312"]
 
 
 def test_search_no_match_returns_empty():
@@ -45,9 +45,9 @@ def test_impossible_combination_returns_empty():
 
 
 def test_get_mold_returns_detail():
-    mold = get_mold("M-1024")
+    mold = get_mold("RX28312")
     assert mold is not None
-    assert mold.summary.mold_no == "M-1024"
+    assert mold.summary.mold_no == "RX28312"
     assert len(mold.productions) == 3
 
 

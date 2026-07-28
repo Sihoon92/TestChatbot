@@ -22,7 +22,7 @@ SAMPLE_MOLDS: list[MoldDetail] = [
     # ── 정상 금형: 전 단계 ok, 생산 이력 3건
     MoldDetail(
         summary=MoldSummary(
-            mold_no="M-1024",
+            mold_no="RX28312",
             status="in_use",
             line="3",
             machine="2",
@@ -74,10 +74,10 @@ SAMPLE_MOLDS: list[MoldDetail] = [
                 stage="iqc", status="ok", updated_at="2026-07-03",
                 items=[
                     StageItem(label="경도", value="HRC 58", judgment="ok",
-                              source=SourceRef(file="IQC/2026-07-03_M-1024.xlsx",
+                              source=SourceRef(file="IQC/2026-07-03_RX28312.xlsx",
                                                sheet="검사", cell="C12")),
                     StageItem(label="표면조도", value="Ra 0.4", judgment="ok",
-                              source=SourceRef(file="IQC/2026-07-03_M-1024.xlsx",
+                              source=SourceRef(file="IQC/2026-07-03_RX28312.xlsx",
                                                sheet="검사", cell="C13")),
                 ],
             ),
@@ -85,7 +85,7 @@ SAMPLE_MOLDS: list[MoldDetail] = [
                 stage="pqc", status="ok", updated_at="2026-07-19",
                 items=[
                     StageItem(label="치수 검사", value="12건 / NG 0건", judgment="ok",
-                              source=SourceRef(file="PQC/2026-07-19_M-1024.xlsx",
+                              source=SourceRef(file="PQC/2026-07-19_RX28312.xlsx",
                                                sheet="공정", cell="B5")),
                 ],
             ),
@@ -93,7 +93,7 @@ SAMPLE_MOLDS: list[MoldDetail] = [
                 stage="ai_recheck", status="ok", updated_at="2026-07-21",
                 items=[
                     StageItem(label="복검 판정", value="합격", judgment="ok",
-                              source=SourceRef(file="AI복검/2026-07-21_M-1024.xlsx",
+                              source=SourceRef(file="AI복검/2026-07-21_RX28312.xlsx",
                                                sheet="결과", cell="D2")),
                 ],
             ),
@@ -102,7 +102,7 @@ SAMPLE_MOLDS: list[MoldDetail] = [
     # ── AI복검 문서가 아직 없는 금형(missing 배지 확인용)
     MoldDetail(
         summary=MoldSummary(
-            mold_no="M-1031",
+            mold_no="RX28315",
             status="in_use",
             line="3",
             machine="5",
@@ -139,13 +139,13 @@ SAMPLE_MOLDS: list[MoldDetail] = [
             StagePanel(
                 stage="iqc", status="ok", updated_at="2025-09-01",
                 items=[StageItem(label="경도", value="HRC 56", judgment="ok",
-                                 source=SourceRef(file="IQC/2025-09-01_M-1031.xlsx",
+                                 source=SourceRef(file="IQC/2025-09-01_RX28315.xlsx",
                                                   sheet="검사", cell="C12"))],
             ),
             StagePanel(
                 stage="pqc", status="ok", updated_at="2026-07-21",
                 items=[StageItem(label="치수 검사", value="12건 / NG 1건", judgment="ng",
-                                 source=SourceRef(file="PQC/2026-07-21_M-1031.xlsx",
+                                 source=SourceRef(file="PQC/2026-07-21_RX28315.xlsx",
                                                   sheet="공정", cell="B5"))],
             ),
             StagePanel(stage="ai_recheck", status="missing", items=[]),
@@ -154,7 +154,7 @@ SAMPLE_MOLDS: list[MoldDetail] = [
     # ── 대기중 + PQC 추출 실패 + 설계값 일부 null (error 배지 · `—` 렌더 확인용)
     MoldDetail(
         summary=MoldSummary(
-            mold_no="M-0998",
+            mold_no="RX41194",
             status="standby",
             line=None,
             machine=None,
@@ -197,12 +197,12 @@ SAMPLE_MOLDS: list[MoldDetail] = [
             StagePanel(
                 stage="iqc", status="ok", updated_at="2021-02-14",
                 items=[StageItem(label="경도", value="HRC 60", judgment="ok",
-                                 source=SourceRef(file="IQC/2021-02-14_M-0998.xlsx",
+                                 source=SourceRef(file="IQC/2021-02-14_RX41194.xlsx",
                                                   sheet="검사", cell="C12"))],
             ),
             StagePanel(
                 stage="pqc", status="error",
-                error="시트 '공정'을 찾지 못했습니다 (PQC/2026-06-30_M-0998.xlsx)",
+                error="시트 '공정'을 찾지 못했습니다 (PQC/2026-06-30_RX41194.xlsx)",
                 items=[],
             ),
             StagePanel(stage="ai_recheck", status="missing", items=[]),
@@ -211,13 +211,13 @@ SAMPLE_MOLDS: list[MoldDetail] = [
     # ── 수리중 + 생산 이력 0건 (빈 표 확인용)
     MoldDetail(
         summary=MoldSummary(
-            mold_no="M-0871",
+            mold_no="RX39002",
             status="repair",
             line=None,
             machine=None,
-            shot_count=0,
+            shot_count=None,          # 미상 — 0(신품)이 아니다
             latest_defect_rate=None,
-            total_production=0,
+            total_production=None,
             stage_status={
                 "design": "ok", "iqc": "missing", "pqc": "missing",
                 "install": "missing", "ai_recheck": "missing",
@@ -228,11 +228,11 @@ SAMPLE_MOLDS: list[MoldDetail] = [
             overall_mm=195.0, plate_height_mm=110.0, plate_width_mm=75.0,
         ),
         history=CumulativeHistory(
-            total_installs=0, total_production=0, first_installed_at=None,
+            total_installs=None, total_production=None, first_installed_at=None,
         ),
         current=CurrentState(
             status="repair", line=None, machine=None,
-            shot_count=0, installed_at=None,
+            shot_count=None, installed_at=None,
         ),
         productions=[],
         stages=[

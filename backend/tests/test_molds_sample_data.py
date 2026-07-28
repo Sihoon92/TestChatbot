@@ -71,3 +71,19 @@ def test_stage_status_covers_all_five_stages():
         assert set(mold.summary.stage_status) == {
             "design", "iqc", "pqc", "install", "ai_recheck"
         }
+
+
+def test_sample_includes_mold_with_unknown_quantities():
+    """수량 미상 금형이 샘플에 있어야 화면의 `—` 렌더를 손으로 확인할 수 있다.
+    0(신품)과 None(미상)은 다른 상태이고, 화면이 이를 구분해야 한다."""
+    unknown = [
+        m for m in SAMPLE_MOLDS
+        if m.summary.shot_count is None and m.history.total_installs is None
+    ]
+    assert unknown, "수량이 전부 None 인 금형 샘플이 필요하다"
+
+
+def test_sample_mold_numbers_use_real_format():
+    """실물 금형번호는 'RX28312' 형태다. 'M-1024' 는 초기 추측이었다."""
+    for m in SAMPLE_MOLDS:
+        assert m.summary.mold_no.startswith("RX"), m.summary.mold_no

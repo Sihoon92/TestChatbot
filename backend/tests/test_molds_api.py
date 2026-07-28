@@ -22,17 +22,17 @@ def test_list_returns_all_molds():
 def test_list_applies_status_filter():
     res = client.get("/api/molds", params={"status": "in_use"})
     assert res.status_code == 200
-    assert {m["mold_no"] for m in res.json()} == {"M-1024", "M-1031"}
+    assert {m["mold_no"] for m in res.json()} == {"RX28312", "RX28315"}
 
 
 def test_list_applies_installation_filter():
     res = client.get("/api/molds", params={"status": "in_use", "line": "3", "machine": "2"})
-    assert [m["mold_no"] for m in res.json()] == ["M-1024"]
+    assert [m["mold_no"] for m in res.json()] == ["RX28312"]
 
 
 def test_list_applies_search():
-    res = client.get("/api/molds", params={"q": "0998"})
-    assert [m["mold_no"] for m in res.json()] == ["M-0998"]
+    res = client.get("/api/molds", params={"q": "411"})
+    assert [m["mold_no"] for m in res.json()] == ["RX41194"]
 
 
 def test_list_rejects_unknown_status():
@@ -42,10 +42,10 @@ def test_list_rejects_unknown_status():
 
 
 def test_detail_returns_full_payload():
-    res = client.get("/api/molds/M-1024")
+    res = client.get("/api/molds/RX28312")
     assert res.status_code == 200
     body = res.json()
-    assert body["summary"]["mold_no"] == "M-1024"
+    assert body["summary"]["mold_no"] == "RX28312"
     assert len(body["productions"]) == 3
     assert {s["stage"] for s in body["stages"]} == {"iqc", "pqc", "ai_recheck"}
 
@@ -66,7 +66,7 @@ def test_filters_endpoint_is_not_shadowed_by_detail_route():
 
 def test_detail_null_fields_survive_serialization():
     """null 이 0/빈문자열로 바뀌면 화면이 '미상'과 '0'을 구분할 수 없게 된다."""
-    body = client.get("/api/molds/M-0998").json()
+    body = client.get("/api/molds/RX41194").json()
     assert body["design"]["angle_deg"] is None
     assert body["summary"]["line"] is None
     assert body["current"]["installed_at"] is None
