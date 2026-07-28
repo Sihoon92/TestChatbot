@@ -1,4 +1,7 @@
 """폴더 훑기. Excel 없이 tmp_path 로 전부 검증한다."""
+import pytest
+
+from app.ingest import scanner as scanner_module
 from app.ingest.scanner import file_hash, scan
 
 STAGE_DIRS = {"MES": "mes", "IQC": "iqc"}
@@ -80,3 +83,43 @@ def test_hash_ignores_mtime(tmp_path):
     time.sleep(0.01)
     os.utime(p, None)
     assert file_hash(str(p)) == first
+
+
+def test_scan_skips_unreadable_file_without_losing_others(tmp_path, monkeypatch):
+    """사람이 엑셀을 열어둔 상황이 이 시스템에서 가장 흔하다. 그 파일 하나
+    때문에 다른 폴더의 정상 파일까지 유실되면 안 된다."""
+    _make(tmp_path, "MES/locked.xlsx")
+    _make(tmp_path, "IQC/ok.xlsx")
+
+    real = scanner_module.file_hash
+
+    def _boom(path):
+        if "locked" in path:
+            raise PermissionError("사용 중")
+        return real(path)
+
+    monkeypatch.setattr(scanner_module, "file_hash", _boom)
+
+    found = scan(str(tmp_path), STAGE_DIRS)
+
+    assert [f.kind for f in found] == ["iqc"]
+
+
+def test_scan_rejects_invalid_source_kind(tmp_path):
+    """.env 오타로 유효하지 않은 종류가 오면 조용히 넘어가지 않는다.
+    폴더가 비어 있어도 잡혀야 한다 — 설정 오류는 데이터와 무관하다."""
+    with pytest.raises(ValueError, match="유효하지 않은 소스 종류"):
+        scan(str(tmp_path), {"MES": "mess"})
+
+
+def test_scan_accepts_uppercase_extension(tmp_path):
+    """대문자 확장자도 엑셀이다. .suffix.lower() 가 실수로 빠져도 잡히게 한다."""
+    _make(tmp_path, "MES/OLD.XLSX")
+    assert len(scan(str(tmp_path), STAGE_DIRS)) == 1
+
+
+def test_scan_ignores_files_without_extension(tmp_path):
+    """확장자 없는 파일과 dot-file 은 엑셀이 아니다."""
+    _make(tmp_path, "MES/README")
+    _make(tmp_path, "MES/.gitkeep")
+    assert scan(str(tmp_path), STAGE_DIRS) == []
