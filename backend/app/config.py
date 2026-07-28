@@ -41,9 +41,56 @@ class Settings(BaseSettings):
     # 출력한다. 로그가 "왜 안 남는지" 파악할 때만 켠다. 기본 off.
     debug_log_verbose: bool = False
 
+    # ── 금형 데이터 수집 ────────────────────────────────────────────────
+    # 부서가 엑셀을 올리는 루트. 하위에 폴더별로 나뉜다(ingest_stage_dirs).
+    ingest_root: str = "./data/uploads"
+    # "폴더명:소스종류" 쌍을 쉼표로. 폴더 이름이 바뀌거나 공유드라이브로
+    # 옮겨도 코드를 고치지 않기 위해 설정으로 뺀다.
+    ingest_stage_dirs: str = "MES:mes,IQC:iqc,PQC:pqc,설계:design,설치:install,AI복검:ai_recheck"
+    # 채팅용 app.db 와 반드시 별도 파일. 같은 파일을 쓰면 LangGraph 체크포인터와
+    # SQLite 쓰기 락을 두고 경합해 'database is locked' 가 난다.
+    molds_db_path: str = "./molds.db"
+    master_xlsx_path: str = "./data/관리자/금형현황.xlsx"
+    # 0 = 자동 폴링 끔(수동 트리거만). 1단계는 0 으로 둔다.
+    ingest_poll_seconds: int = 0
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def _resolve(self, raw: str) -> str:
+        """상대경로를 backend 루트 기준으로 푼다(resolved_debug_log_path 와 동일 규칙)."""
+        p = Path(raw)
+        if not p.is_absolute():
+            p = _BACKEND_ROOT / p
+        return str(p)
+
+    @property
+    def resolved_ingest_root(self) -> str:
+        return self._resolve(self.ingest_root)
+
+    @property
+    def resolved_molds_db_path(self) -> str:
+        return self._resolve(self.molds_db_path)
+
+    @property
+    def resolved_master_xlsx_path(self) -> str:
+        return self._resolve(self.master_xlsx_path)
+
+    @property
+    def stage_dir_map(self) -> dict[str, str]:
+        """'MES:mes,IQC:iqc' → {'MES': 'mes', 'IQC': 'iqc'}.
+
+        잘못된 항목(콜론 없음, 빈 이름)은 조용히 버리지 않고 무시하되,
+        전체가 비면 빈 dict 를 돌려준다 — 호출자가 '설정이 비었다'로 처리한다.
+        """
+        out: dict[str, str] = {}
+        for part in self.ingest_stage_dirs.split(","):
+            name, sep, kind = part.partition(":")
+            name, kind = name.strip(), kind.strip()
+            if sep and name and kind:
+                out[name] = kind
+        return out
 
     @property
     def resolved_debug_log_path(self) -> str:

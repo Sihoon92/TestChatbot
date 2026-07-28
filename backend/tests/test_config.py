@@ -32,3 +32,24 @@ def test_active_model_ollama():
 def test_active_model_internal():
     s = Settings(llm_backend="internal", internal_llm_model="gpt-4o-mini")
     assert s.active_model == "gpt-4o-mini"
+
+
+def test_ingest_paths_resolve_against_backend_root(tmp_path):
+    """상대경로는 cwd 가 아니라 backend/ 기준으로 풀려야 한다.
+    실행 위치에 따라 다른 폴더를 보면 '왜 파일을 못 찾는지' 디버깅이 폭발한다."""
+    from pathlib import Path
+    from app.config import Settings
+
+    s = Settings(ingest_root="./data/uploads", molds_db_path="./molds.db")
+    backend_root = Path(__file__).resolve().parents[1]
+
+    assert Path(s.resolved_ingest_root) == backend_root / "data" / "uploads"
+    assert Path(s.resolved_molds_db_path) == backend_root / "molds.db"
+
+
+def test_ingest_paths_keep_absolute_as_is(tmp_path):
+    from app.config import Settings
+
+    s = Settings(ingest_root=str(tmp_path), molds_db_path=str(tmp_path / "x.db"))
+    assert s.resolved_ingest_root == str(tmp_path)
+    assert s.resolved_molds_db_path == str(tmp_path / "x.db")
