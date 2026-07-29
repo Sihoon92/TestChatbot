@@ -99,6 +99,20 @@ JIGS = [
 
 BY_NAME = {j.jig_name: j for j in JIGS}
 
+# 관리대장에는 시트가 있는데 기준정보에는 없는 설비. 실물에서 가장 흔한 사고가
+# "기준정보가 낡아서 새 설비가 빠진" 경우인데, 그러면 그 금형이 번호를 얻지
+# 못해 목록에서 통째로 사라진다. 샘플이 이 경로를 안 타면 unknown_equipment
+# 카운터가 실제로 도는지 확인할 방법이 없다.
+UNREGISTERED = Jig(
+    "#RX77777", "미등록 Notching 금형", 21009999, "POU WND99_Unknown_01",
+    "톈진 Pouch #99(S)", "POUCH 조립", "조립", "Pouch Stack",
+)
+
+# 사용구간이 덮는데 파일이 없는 날. 불량율이 일부 날만 반영됐다는 사실이
+# 드러나는지(missing_mes_days) 보려면 하루가 비어 있어야 한다.
+# 07-03 은 RX39513(07-01~04)과 RX28312(07-02~03) 두 구간에 걸친다.
+MES_MISSING_DAY = date(2026, 7, 3)
+
 
 # 금형별 설비 사용구간. (투입, 종료) — 종료가 None 이면 아직 설비에 있다.
 # 경계 조건을 일부러 흩어 놓았다(주석의 '왜'가 곧 테스트 의도다).
@@ -127,6 +141,10 @@ RUNS: dict[str, list[tuple[datetime, datetime | None]]] = {
     # 4일.
     "음극 Stack 금형": [
         (datetime(2026, 7, 16, 7, 0), datetime(2026, 7, 20, 7, 0)),
+    ],
+    # 기준정보에 없는 설비 — 금형번호를 못 얻어 목록에서 빠져야 한다.
+    "미등록 Notching 금형": [
+        (datetime(2026, 7, 6, 8, 0), datetime(2026, 7, 7, 8, 0)),
     ],
 }
 
@@ -235,7 +253,7 @@ def make_jig_ledger(app, path: Path) -> dict:
     first = True
     total_rows = 0
 
-    for jig in JIGS:
+    for jig in [*JIGS, UNREGISTERED]:
         if first:
             sht = book.sheets[0]
             first = False
@@ -254,7 +272,7 @@ def make_jig_ledger(app, path: Path) -> dict:
         total_rows += len(rows)
 
     _save(book, path)
-    return {"sheets": len(JIGS), "rows": total_rows}
+    return {"sheets": len(JIGS) + 1, "rows": total_rows}
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -518,11 +536,14 @@ def main() -> int:
             print(f"{name:12} {path.relative_to(_BACKEND_ROOT)}  {result}")
 
         mes_dir = _UPLOADS / "MES"
-        for day in MES_DAYS:
-            path = mes_dir / f"{day:%Y-%m-%d}_불량현황.xlsx"
-            make_mes_daily(app, path, day)
+        for stale in mes_dir.glob("*.xlsx"):
+            stale.unlink()
+        written = [d for d in MES_DAYS if d != MES_MISSING_DAY]
+        for day in written:
+            make_mes_daily(app, mes_dir / f"{day:%Y-%m-%d}_불량현황.xlsx", day)
         print(f"{'MES':12} {mes_dir.relative_to(_BACKEND_ROOT)}  "
-              f"{len(MES_DAYS)}개 파일 ({MES_DAYS[0]} ~ {MES_DAYS[-1]})")
+              f"{len(written)}개 파일 ({written[0]} ~ {written[-1]}, "
+              f"{MES_MISSING_DAY} 일부러 빠뜨림)")
     finally:
         app.quit()
 
