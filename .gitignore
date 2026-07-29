@@ -1,0 +1,9 @@
+# 루트에서 실행하는 dev.py/setup.py 가 남기는 파이썬 바이트코드.
+# backend/.gitignore 는 backend/ 아래만 덮으므로 루트에도 따로 필요하다.
+__pycache__/
+*.py[cod]
+
+# git worktree 체크아웃 디렉토리. 내용은 해당 브랜치에 이미 들어 있어서
+# 여기 담으면 같은 코드가 저장소에 두 벌 들어간다.
+# (내용을 봐야 하면 브랜치를 보거나 `rg --no-ignore` 를 쓴다.)
+.claude/worktrees/

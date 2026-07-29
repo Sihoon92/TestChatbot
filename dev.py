@@ -11,9 +11,16 @@
 
 포트 바꾸기 (8000 점유 시): 환경변수 BACKEND_PORT 지정 — 백엔드와 프론트 프록시가
 같이 따라간다. 예) PowerShell:  $env:BACKEND_PORT="8001"; python dev.py internal
+
+접속 주소: 프론트(vite)는 0.0.0.0 에 바인딩되므로 localhost 와 이 PC 의 LAN IP
+둘 다 항상 동시에 열려 있다 — 아무 브라우저에서나 원하는 쪽 주소를 그냥 열면 된다.
+자동으로 열리는 탭만 --open 으로 고를 수 있다(둘 다 여전히 접속 가능한 건 동일):
+    python dev.py --open local    # 기본값. http://localhost:5173 을 연다
+    python dev.py --open lan      # 이 PC의 LAN IP(http://<ip>:5173)를 연다
 """
 
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -53,6 +60,24 @@ os.environ["BACKEND_PORT"] = BACKEND_PORT  # 자식(vite) 프로세스도 같은
 BACKEND_URL = f"http://127.0.0.1:{BACKEND_PORT}/"
 FRONTEND_URL = "http://localhost:5173/"
 
+
+def _lan_ip() -> str | None:
+    """이 PC 의 LAN IP. UDP 소켓은 실제로 연결/전송하지 않으므로 8.8.8.8 이
+    안 떠 있어도(오프라인이어도) 로컬 라우팅 테이블에서 나가는 인터페이스의
+    주소만 알아낸다 — 흔한 IP 자가진단 트릭이다."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
+_lan_ip_addr = _lan_ip()
+FRONTEND_URL_LAN = f"http://{_lan_ip_addr}:5173/" if _lan_ip_addr else None
+
 # Windows: 자식을 별도 프로세스 그룹으로 띄워 Ctrl+C가 자식에 직접 전달되지 않게 한다.
 _CREATE_GROUP = subprocess.CREATE_NEW_PROCESS_GROUP if IS_WIN else 0
 
@@ -77,6 +102,19 @@ def _parse_llm_backend(argv: list[str]) -> str | None:
         if a in valid:
             return a
     return None
+
+
+def _parse_open_target(argv: list[str]) -> str:
+    """자동으로 열 탭. 두 주소 다 항상 접속 가능하고, 이건 그중 뭘 자동으로
+    여는지만 고른다 — 기본은 local(가장 안전: LAN IP 를 못 구해도 항상 된다)."""
+    for i, a in enumerate(argv):
+        if a == "--open" and i + 1 < len(argv):
+            target = argv[i + 1]
+            if target not in {"local", "lan"}:
+                print(f"[!] --open 값은 local|lan 만 가능 (받은 값: {target!r}) - local 로 진행")
+                return "local"
+            return target
+    return "local"
 
 
 def start_backend(llm_backend: str | None = None) -> subprocess.Popen:
@@ -134,11 +172,12 @@ def stop_all() -> None:
 
 def main() -> None:
     llm_backend = _parse_llm_backend(sys.argv[1:])
+    open_target = _parse_open_target(sys.argv[1:])
     backend_label = llm_backend or "(.env: LLM_BACKEND, 기본 ollama)"
 
     print("개발 서버 시작 중... (핫리로드 ON)")
     print(f"  backend  -> http://localhost:{BACKEND_PORT}  (app/ 변경 시 자동 재시작)")
-    print("  frontend -> http://localhost:5173  (HMR)")
+    print("  frontend -> http://localhost:5173  (HMR, LAN IP 로도 접속 가능)")
     print(f"  LLM 백엔드 -> {backend_label}")
     print("  (전제: ollama -> Ollama 실행 중 / internal -> backend/.env 의 INTERNAL_LLM_* 설정)\n")
 
@@ -151,8 +190,25 @@ def main() -> None:
     if frontend_ok:
         if not backend_ok:
             print("[!] 백엔드가 아직 안 떴어 - UI는 열리지만 /api 호출은 실패할 수 있어.")
-        print("[->] 브라우저 여는 중...")
-        webbrowser.open(FRONTEND_URL)
+
+        # 둘 다 항상 동시에 열려 있다(vite host:true) — 아래는 그중 어느 쪽을
+        # 이 PC 에서 자동으로 열지 고르는 것뿐이다. 다른 기기에서 접속할 땐
+        # LAN 주소를 그대로 복사해서 쓰면 된다.
+        print(f"  이 PC 에서:  {FRONTEND_URL}")
+        if FRONTEND_URL_LAN:
+            print(f"  다른 기기에서:  {FRONTEND_URL_LAN}")
+        else:
+            print("  [!] LAN IP 를 못 구했어 - 네트워크 어댑터가 없거나 오프라인인 것 같다.")
+
+        target_url = FRONTEND_URL
+        if open_target == "lan":
+            if FRONTEND_URL_LAN:
+                target_url = FRONTEND_URL_LAN
+            else:
+                print("  [!] --open lan 이 요청됐지만 LAN IP 를 못 구해 localhost 를 연다.")
+
+        print(f"[->] 브라우저 여는 중... ({target_url})")
+        webbrowser.open(target_url)
     else:
         print("[!] 프론트엔드가 안 떠서 브라우저를 안 열었어. 로그를 확인해줘.")
 
