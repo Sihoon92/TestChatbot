@@ -81,14 +81,31 @@ class DefectRate(BaseModel):
 
 
 class ProductionRun(BaseModel):
+    """금형이 설비에 투입돼 있던 구간 하나 = production_run 한 행.
+
+    line/machine/started_at 이 nullable 인 이유: DB 가 셋 다 nullable 인데
+    모델만 필수로 두면, 기준정보에 Line명이 없는 금형 하나 때문에
+    ValidationError 가 나서 그 금형의 상세 조회 **전체**가 500 이 된다.
+    값 하나가 비는 것과 화면이 안 뜨는 것은 전혀 다른 사건이다.
+    """
+
     install_seq: int
-    line: str
-    machine: str
-    started_at: str
-    ended_at: str | None = None  # None = 진행 중
+    line: str | None = None
+    machine: str | None = None
+    started_at: str | None = None
+    ended_at: str | None = None  # None = 아직 설비에 있다(진행 중)
     grind_result: str | None = None  # 어휘가 미확정이라 문자열로 둔다
     defect_rate: float | None = None
+    # 합산의 근거. 불량율만 있으면 "이 1.253% 가 어디서 나왔나" 에 답할 수 없다.
+    produced: int | None = None
+    defect_count: int | None = None
+    # 그 구간이 덮는 날 중 MES 실적을 실제로 찾은 날 수(covered)와 전체 날
+    # 수(expected). 둘이 다르면 그 불량율은 **일부 날만 반영된 값**이다 —
+    # 숫자만 보여주고 이 사실을 감추면 화면이 조용히 거짓말을 한다.
+    days_covered: int | None = None
+    days_expected: int | None = None
     # 불량 항목은 제품·시기마다 달라질 수 있어 고정 컬럼으로 잡지 않는다.
+    # (PQC 단계용. 현재 수집 파이프라인은 채우지 않아 항상 빈 배열이다)
     defects: list[DefectRate] = []
 
 

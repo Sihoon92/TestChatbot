@@ -1,4 +1,8 @@
-"""배치 실행. Excel 없이 가짜 워크북과 가짜 모델로 조립을 검증한다."""
+"""배치 실행. Excel 없이 가짜 워크북과 가짜 모델로 조립을 검증한다.
+
+소스가 넷이고 **순서가 곧 의존성**이다: 기준정보가 있어야 관리대장의 설비명을
+금형번호로 옮길 수 있고, MES 조회 키(설비코드)도 거기서 나온다.
+"""
 from contextlib import contextmanager
 
 import pytest
@@ -8,9 +12,20 @@ from app.ingest import db, registry
 from app.ingest.pipeline import run_ingest
 from app.ingest.schemas import SheetLayout
 
+EQUIP = "POU WND10_Stack(1차)_01"
+
+JIG_MASTER_GRID = [
+    ["JIG ID", "설비명", "설비코드", "Line명"],
+    ["#RX28312", EQUIP, "21004780", "톈진 Pouch #10(S)"],
+]
+EES_GRID = [
+    ["JIG ID", "이벤트시간", "위치", "설비명"],
+    ["#RX28312", "2026-07-01T07:00:00", "설비", EQUIP],
+    ["#RX28312", "2026-07-02T07:00:00", "통합 Jig Room", EQUIP],
+]
 MES_GRID = [
-    ["금형번호", "상태", "호기"],
-    ["RX28312", "사용중", "2"],
+    ["날짜", "설비코드", "투입수량", "불량수량"],
+    ["2026.07.01-2026.07.01", "21004780", 10000, 300],
 ]
 IQC_GRID = [
     ["금형번호", "punch"],
@@ -35,10 +50,10 @@ class FakeWorkbook:
         return [r[0] for r in self._rows]
 
 
-def _layout(fields):
+def _layout(fields, anchor="금형번호"):
     return SheetLayout(
         sheet_name="Sheet1",
-        anchors=[{"cell": "A1", "text": "금형번호"}],
+        anchors=[{"cell": "A1", "text": anchor}],
         tables=[{
             "name": "상세", "role": "detail", "header_rows": [1],
             "data_start_row": 2,
@@ -47,29 +62,51 @@ def _layout(fields):
     )
 
 
-MES_LAYOUT = _layout([("mold_no", "A"), ("status", "B"), ("machine", "C")])
-IQC_LAYOUT = _layout([("mold_no", "A"), ("punch", "B")])
+LAYOUTS = {
+    "jig_master": _layout(
+        [("mold_no", "A"), ("equipment", "B"), ("equipment_code", "C"),
+         ("line", "D")], anchor="JIG ID"),
+    "ees": _layout(
+        [("mold_no", "A"), ("event_at", "B"), ("location", "C"),
+         ("equipment", "D")], anchor="JIG ID"),
+    "mes": _layout(
+        [("run_date", "A"), ("equipment_code", "B"), ("produced", "C"),
+         ("defects", "D")], anchor="날짜"),
+    "iqc": _layout([("mold_no", "A"), ("punch", "B")]),
+}
+GRIDS = {
+    "jig_master": JIG_MASTER_GRID, "ees": EES_GRID,
+    "mes": MES_GRID, "iqc": IQC_GRID,
+}
+_DIRS = {"JIG기준정보": "jig_master", "EES": "ees", "MES": "mes", "IQC": "iqc"}
+STAGE_DIRS = ",".join(f"{d}:{k}" for d, k in _DIRS.items())
 
 
 @pytest.fixture
 def env(tmp_path):
-    (tmp_path / "MES").mkdir()
-    (tmp_path / "IQC").mkdir()
-    (tmp_path / "MES" / "mes.xlsx").write_bytes(b"mes")
-    (tmp_path / "IQC" / "iqc.xlsx").write_bytes(b"iqc")
-    settings = Settings(
+    for folder in _DIRS:
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / f"{folder}.xlsx").write_bytes(folder.encode())
+    return Settings(
         ingest_root=str(tmp_path),
-        ingest_stage_dirs="MES:mes,IQC:iqc",
+        ingest_stage_dirs=STAGE_DIRS,
         molds_db_path=str(tmp_path / "molds.db"),
     )
-    return settings
 
 
-def _fake_open(grids):
+def _kind_of(path: str) -> str:
+    for folder, kind in _DIRS.items():
+        if folder in path:
+            return kind
+    raise AssertionError(f"어느 폴더인지 모르겠다: {path}")
+
+
+def _fake_open(grids=None):
+    grids = GRIDS if grids is None else grids
+
     @contextmanager
     def _open(path):
-        key = "mes" if "MES" in path else "iqc"
-        yield FakeWorkbook(grids[key])
+        yield FakeWorkbook(grids[_kind_of(path)])
     return _open
 
 
@@ -82,11 +119,11 @@ def _fake_discover(layouts):
 def test_happy_path_writes_molds(env, monkeypatch):
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
-        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+        _fake_discover(LAYOUTS),
     )
 
     summary = run_ingest(env, model=object(),
-                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+                         open_wb=_fake_open())
 
     assert summary.status == "ok"
     assert summary.mold_count == 1
@@ -95,16 +132,23 @@ def test_happy_path_writes_molds(env, monkeypatch):
     conn = db.connect(env.resolved_molds_db_path)
     row = conn.execute("SELECT * FROM mold").fetchone()
     assert row["mold_no"] == "RX28312"
-    assert row["machine"] == "2"
+    # 마지막 이벤트가 Jig Room 이라 대기 중이다 — 그러면 라인·설비를 비운다.
+    assert row["status"] == "standby"
+    assert row["machine"] is None and row["line"] is None
+    # 그래도 사용구간과 그 기간의 불량율은 남는다.
+    run = conn.execute("SELECT * FROM production_run").fetchone()
+    assert run["mold_no"] == "RX28312"
+    assert run["machine"] == EQUIP
+    assert run["defect_rate"] == 300 / 10000
     conn.close()
 
 
 def test_second_run_is_skipped_when_nothing_changed(env, monkeypatch):
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
-        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+        _fake_discover(LAYOUTS),
     )
-    opener = _fake_open({"mes": MES_GRID, "iqc": IQC_GRID})
+    opener = _fake_open()
 
     run_ingest(env, model=object(), open_wb=opener)
     second = run_ingest(env, model=object(), open_wb=opener)
@@ -112,20 +156,21 @@ def test_second_run_is_skipped_when_nothing_changed(env, monkeypatch):
     assert second.status == "skipped"
 
 
-def test_missing_mes_aborts_without_touching_db(env, monkeypatch):
-    """마스터가 없으면 금형 목록을 만들 수 없다. 부분 갱신은 옛 금형과 새
-    부속정보가 섞인 상태를 만든다."""
+def test_missing_jig_master_aborts_without_touching_db(env, monkeypatch):
+    """기준정보가 없으면 설비명을 금형번호로 옮길 수 없다. 금형 식별과 MES
+    조회가 동시에 끊기므로 부분 실패가 아니라 전면 실패다."""
     import os
-    os.remove(os.path.join(env.resolved_ingest_root, "MES", "mes.xlsx"))
+    os.remove(os.path.join(env.resolved_ingest_root, "JIG기준정보",
+                           "JIG기준정보.xlsx"))
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
-        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+        _fake_discover(LAYOUTS),
     )
 
-    summary = run_ingest(env, model=object(), open_wb=_fake_open({"iqc": IQC_GRID}))
+    summary = run_ingest(env, model=object(), open_wb=_fake_open())
 
     assert summary.status == "error"
-    assert "MES" in (summary.error or "")
+    assert "기준정보" in (summary.error or "")
 
 
 def test_cached_layout_avoids_calling_agent(env, monkeypatch):
@@ -135,22 +180,22 @@ def test_cached_layout_avoids_calling_agent(env, monkeypatch):
 
     def _counting(model, wb, kind, sheet_name, *, config=None):
         calls["n"] += 1
-        return {"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}[kind]
+        return LAYOUTS[kind]
 
     monkeypatch.setattr("app.ingest.pipeline.discover_layout", _counting)
-    opener = _fake_open({"mes": MES_GRID, "iqc": IQC_GRID})
+    opener = _fake_open()
 
     run_ingest(env, model=object(), open_wb=opener)
-    assert calls["n"] == 2
+    assert calls["n"] == len(LAYOUTS), "소스마다 한 번씩"
 
     # 파일 내용을 바꿔 배치를 다시 돌게 하되, 헤더(앵커)는 그대로 둔다.
     import os
-    with open(os.path.join(env.resolved_ingest_root, "MES", "mes.xlsx"), "wb") as f:
+    with open(os.path.join(env.resolved_ingest_root, "EES", "EES.xlsx"), "wb") as f:
         f.write(b"mes-v2")
 
     second = run_ingest(env, model=object(), open_wb=opener)
     assert second.status == "ok", "두 번째 배치가 실제로 돌아야 캐시 경로를 증명한다"
-    assert calls["n"] == 2, "앵커가 같으면 에이전트를 다시 부르지 않아야 한다"
+    assert calls["n"] == len(LAYOUTS), "앵커가 같으면 에이전트를 다시 부르지 않아야 한다"
 
 
 def _bad_layout():
@@ -171,16 +216,16 @@ def test_layout_is_not_cached_when_parsing_fails(env, monkeypatch):
     다음 회차에도 같은 앵커로 다시 뽑혀 영구 실패한다."""
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
-        _fake_discover({"mes": _bad_layout(), "iqc": IQC_LAYOUT}),
+        _fake_discover({**LAYOUTS, "ees": _bad_layout()}),
     )
 
     summary = run_ingest(env, model=object(),
-                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+                         open_wb=_fake_open())
 
     assert summary.status == "error"
     conn = db.connect(env.resolved_molds_db_path)
     n = conn.execute(
-        "SELECT COUNT(*) c FROM sheet_mapping WHERE kind = 'mes'"
+        "SELECT COUNT(*) c FROM sheet_mapping WHERE kind = 'ees'"
     ).fetchone()["c"]
     conn.close()
     assert n == 0, "파싱에 실패한 레이아웃이 캐시에 저장되면 안 된다"
@@ -194,24 +239,24 @@ def test_bad_cached_layout_is_reinterpreted_once(env, monkeypatch):
     molds.db 를 손으로 지우는 것 외에는."""
     db.init_db(env.resolved_molds_db_path)
     conn = db.connect(env.resolved_molds_db_path)
-    registry.save_layout(conn, "mes", _bad_layout(), "seed")
+    registry.save_layout(conn, "ees", _bad_layout(), "seed")
     registry.save_layout(conn, "iqc", _bad_layout(), "seed")
     conn.close()
 
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
-        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+        _fake_discover(LAYOUTS),
     )
 
     summary = run_ingest(env, model=object(),
-                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+                         open_wb=_fake_open())
 
     assert summary.status == "ok"
     assert summary.mold_count == 1
 
     # 재해석 결과가 캐시에 남아, 다음 회차에는 앵커 대조만으로 통과해야 한다.
     conn = db.connect(env.resolved_molds_db_path)
-    latest = registry.load_layouts(conn, "mes", "Sheet1")[0]
+    latest = registry.load_layouts(conn, "ees", "Sheet1")[0]
     conn.close()
     assert latest.tables[0].columns, "성공한 레이아웃이 최신으로 저장돼야 한다"
 
@@ -224,12 +269,12 @@ def test_broken_iqc_file_does_not_kill_the_batch(env, monkeypatch):
     def _boom_on_iqc(model, wb, kind, sheet_name, *, config=None):
         if kind == "iqc":
             raise RuntimeError("에이전트가 레이아웃을 제출하지 않았다")
-        return MES_LAYOUT
+        return LAYOUTS[kind]
 
     monkeypatch.setattr("app.ingest.pipeline.discover_layout", _boom_on_iqc)
 
     summary = run_ingest(env, model=object(),
-                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+                         open_wb=_fake_open())
 
     assert summary.status == "ok"
     assert summary.mold_count == 1, "MES 는 읽혔으므로 금형 목록은 갱신된다"
@@ -246,31 +291,34 @@ def test_broken_iqc_file_does_not_kill_the_batch(env, monkeypatch):
     conn.close()
 
 
-def test_broken_mes_file_still_aborts_the_batch(env, monkeypatch):
-    """MES 는 격리하지 않는다. 마스터가 없으면 금형 목록 자체를 만들 수 없어
-    부분 갱신이 옛 금형과 새 부속정보가 섞인 상태를 만든다."""
+def test_broken_mes_file_does_not_abort_the_batch(env, monkeypatch):
+    """MES 는 더 이상 마스터가 아니다. 하루치가 깨졌다고 금형 목록까지 버리면
+    관리대장은 멀쩡히 읽혔는데 화면이 통째로 옛 상태로 남는다.
+
+    다만 사유 없이 넘기지도 않는다 — 그 날의 불량율이 조용히 빠진다."""
     def _boom_on_mes(model, wb, kind, sheet_name, *, config=None):
         if kind == "mes":
             raise RuntimeError("레이아웃 미제출")
-        return IQC_LAYOUT
+        return LAYOUTS[kind]
 
     monkeypatch.setattr("app.ingest.pipeline.discover_layout", _boom_on_mes)
 
     summary = run_ingest(env, model=object(),
-                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+                         open_wb=_fake_open())
 
-    assert summary.status == "error"
-    conn = db.connect(env.resolved_molds_db_path)
-    assert conn.execute("SELECT COUNT(*) c FROM mold").fetchone()["c"] == 0
-    conn.close()
+    assert summary.status == "ok"
+    assert summary.mold_count == 1, "관리대장은 읽혔으므로 금형 목록은 갱신된다"
+    assert len(summary.failed_files) == 1, "사유는 남아야 한다"
+    # 불량율을 못 얻었다는 사실이 드러나야 한다.
+    assert summary.unmatched_runs == 1
 
 
 def test_run_summary_is_persisted(env, monkeypatch):
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
-        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+        _fake_discover(LAYOUTS),
     )
-    run_ingest(env, model=object(), open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+    run_ingest(env, model=object(), open_wb=_fake_open())
 
     conn = db.connect(env.resolved_molds_db_path)
     latest = registry.latest_run(conn)
@@ -301,9 +349,9 @@ def test_unreadable_file_skips_batch_and_is_reported(env, monkeypatch):
     섞이지 않는다."""
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
-        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+        _fake_discover(LAYOUTS),
     )
-    opener = _fake_open({"mes": MES_GRID, "iqc": IQC_GRID})
+    opener = _fake_open()
 
     first = run_ingest(env, model=object(), open_wb=opener)
     assert first.status == "ok"
@@ -328,12 +376,12 @@ def test_first_seen_locked_file_is_reported(env, monkeypatch):
     화면에는 아무 흔적이 없다 — 사용자는 IQC 를 올렸다고 믿는다."""
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
-        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+        _fake_discover(LAYOUTS),
     )
     _lock(monkeypatch, "IQC")
 
     summary = run_ingest(env, model=object(),
-                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+                         open_wb=_fake_open())
 
     assert summary.status == "skipped"
     assert any("IQC" in p for p in summary.unreadable_files)
@@ -347,14 +395,14 @@ def test_unmapped_dir_history_is_cleaned_not_treated_as_locked(env, monkeypatch)
     자력 탈출이 불가능했고, 화면 문구("파일을 닫고 다시 실행하세요")도 틀렸다."""
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
-        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+        _fake_discover(LAYOUTS),
     )
-    opener = _fake_open({"mes": MES_GRID, "iqc": IQC_GRID})
+    opener = _fake_open()
 
     assert run_ingest(env, model=object(), open_wb=opener).status == "ok"
 
     # IQC 폴더를 매핑에서 뺀다. 파일은 디스크에 그대로 남아 있다.
-    narrowed = env.model_copy(update={"ingest_stage_dirs": "MES:mes"})
+    narrowed = env.model_copy(update={"ingest_stage_dirs": STAGE_DIRS.replace(",IQC:iqc", "")})
     second = run_ingest(narrowed, model=object(), open_wb=opener)
 
     assert second.status == "ok", "잠금으로 오인해 건너뛰면 안 된다"
@@ -377,15 +425,15 @@ def test_unprocessed_kind_is_not_recorded_as_read(env, monkeypatch):
         f.write(b"pqc")
 
     with_pqc = env.model_copy(
-        update={"ingest_stage_dirs": "MES:mes,IQC:iqc,PQC:pqc"}
+        update={"ingest_stage_dirs": STAGE_DIRS + ",PQC:pqc"}
     )
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
-        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+        _fake_discover(LAYOUTS),
     )
 
     summary = run_ingest(with_pqc, model=object(),
-                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+                         open_wb=_fake_open())
 
     assert summary.status == "ok"
     assert not any("PQC" in p for p in summary.files)
@@ -406,16 +454,16 @@ def test_unreadable_file_in_unprocessed_dir_does_not_block_batch(env, monkeypatc
         f.write(b"pqc")
 
     with_pqc = env.model_copy(
-        update={"ingest_stage_dirs": "MES:mes,IQC:iqc,PQC:pqc"}
+        update={"ingest_stage_dirs": STAGE_DIRS + ",PQC:pqc"}
     )
     monkeypatch.setattr(
         "app.ingest.pipeline.discover_layout",
-        _fake_discover({"mes": MES_LAYOUT, "iqc": IQC_LAYOUT}),
+        _fake_discover(LAYOUTS),
     )
     _lock(monkeypatch, "PQC")
 
     summary = run_ingest(with_pqc, model=object(),
-                         open_wb=_fake_open({"mes": MES_GRID, "iqc": IQC_GRID}))
+                         open_wb=_fake_open())
 
     assert summary.status == "ok"
     assert summary.unreadable_files == []

@@ -75,8 +75,10 @@ def record_run(conn: sqlite3.Connection, summary: RunSummary) -> None:
         INSERT INTO ingest_run
             (status, started_at, finished_at, mold_count, iqc_matched,
              orphan_json, unknown_json, skipped_rows, files_json, error,
-             unreadable_json, failed_json, unknown_status_rows)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             unreadable_json, failed_json, unknown_status_rows,
+             unknown_jig_id_json, unknown_equipment_json, missing_mes_days_json,
+             unmatched_runs, open_runs)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             summary.status,
@@ -92,6 +94,11 @@ def record_run(conn: sqlite3.Connection, summary: RunSummary) -> None:
             json.dumps(summary.unreadable_files, ensure_ascii=False),
             json.dumps(summary.failed_files, ensure_ascii=False),
             summary.unknown_status_rows,
+            json.dumps(summary.unknown_jig_id, ensure_ascii=False),
+            json.dumps(summary.unknown_equipment, ensure_ascii=False),
+            json.dumps(summary.missing_mes_days, ensure_ascii=False),
+            summary.unmatched_runs,
+            summary.open_runs,
         ),
     )
     conn.commit()
@@ -117,4 +124,9 @@ def latest_run(conn: sqlite3.Connection) -> RunSummary | None:
         error=row["error"],
         unreadable_files=json.loads(row["unreadable_json"]),
         failed_files=json.loads(row["failed_json"]),
+        unknown_jig_id=json.loads(row["unknown_jig_id_json"]),
+        unknown_equipment=json.loads(row["unknown_equipment_json"]),
+        missing_mes_days=json.loads(row["missing_mes_days_json"]),
+        unmatched_runs=row["unmatched_runs"],
+        open_runs=row["open_runs"],
     )

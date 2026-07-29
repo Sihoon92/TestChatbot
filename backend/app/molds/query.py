@@ -10,6 +10,7 @@ import sqlite3
 
 from app.config import get_settings
 from app.ingest import db
+from app.ingest.join import covered_dates
 from app.molds.schemas import (
     ALL_STAGES,
     ALL_STATUSES,
@@ -21,6 +22,7 @@ from app.molds.schemas import (
     MoldDetail,
     MoldStatus,
     MoldSummary,
+    ProductionRun,
     SourceRef,
     StageItem,
     StagePanel,
@@ -56,6 +58,15 @@ def _stage_status_map(conn: sqlite3.Connection, mold_no: str) -> dict:
         "SELECT stage, status FROM mold_stage WHERE mold_no = ?", (mold_no,)
     ).fetchall()
     present = {r["stage"]: r["status"] for r in rows}
+
+    # install 단계는 mold_stage 에 행을 만들지 않는다 — 그 데이터는
+    # production_run 에 있다. 그것을 안 보면 표에 구간이 가득한데도 탭에는
+    # '·'(없음) 배지가 붙어, 화면이 스스로와 모순된다.
+    if "install" not in present and conn.execute(
+        "SELECT 1 FROM production_run WHERE mold_no = ? LIMIT 1", (mold_no,)
+    ).fetchone():
+        present["install"] = "ok"
+
     return {stage: present.get(stage, "missing") for stage in ALL_STAGES}
 
 
@@ -92,6 +103,44 @@ def list_molds(
         return [_summary(r, _stage_status_map(conn, r["mold_no"])) for r in rows]
     finally:
         conn.close()
+
+
+def _production_runs(conn: sqlite3.Connection, mold_no: str) -> list[ProductionRun]:
+    """설비 사용구간 = 화면의 '기간별 불량율' 표 한 행씩.
+
+    defects_json 에는 수집이 남긴 날짜별 원값([{date, produced, defects}])이
+    들어 있다. 합계와 '며칠치가 반영됐는지'를 여기서 만들어 준다 — 화면이
+    직접 JSON 을 헤집게 하면 같은 계산이 두 곳에 생긴다.
+    """
+    rows = conn.execute(
+        "SELECT * FROM production_run WHERE mold_no = ? ORDER BY install_seq",
+        (mold_no,),
+    ).fetchall()
+
+    runs: list[ProductionRun] = []
+    for r in rows:
+        daily = json.loads(r["defects_json"])
+        runs.append(
+            ProductionRun(
+                install_seq=r["install_seq"],
+                line=r["line"],
+                machine=r["machine"],
+                started_at=r["started_at"],
+                ended_at=r["ended_at"],
+                grind_result=r["grind_result"],
+                defect_rate=r["defect_rate"],
+                produced=sum(d["produced"] for d in daily) if daily else None,
+                defect_count=sum(d["defects"] for d in daily) if daily else None,
+                days_covered=len(daily),
+                # 24시간 올림 규칙을 여기 다시 구현하지 않는다 — 수집과 조회가
+                # 각자 계산하면 언젠가 조용히 어긋나고, 그때 화면의 '3/4일' 이
+                # 무엇을 뜻하는지 아무도 확신할 수 없게 된다.
+                days_expected=len(
+                    covered_dates(r["started_at"], r["ended_at"])
+                ) if r["started_at"] else 0,
+            )
+        )
+    return runs
 
 
 def _stage_panels(conn: sqlite3.Connection, mold_no: str) -> list[StagePanel]:
@@ -169,7 +218,7 @@ def get_mold(mold_no: str) -> MoldDetail | None:
                 shot_count=row["shot_count"],
                 installed_at=row["installed_at"],
             ),
-            productions=[],  # 2단계에서 production_run 을 채운다
+            productions=_production_runs(conn, mold_no),
             stages=_stage_panels(conn, mold_no),
         )
     finally:

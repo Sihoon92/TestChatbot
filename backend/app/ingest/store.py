@@ -1,8 +1,8 @@
 """금형 데이터를 DB 에 쓴다 — 배치마다 트랜잭션 안에서 전체 교체.
 
-upsert 가 아니라 전체 교체인 이유: MES 가 마스터이고 매번 전체를 다시 읽으므로,
-MES 에서 사라진 금형은 대시보드에서도 사라져야 한다. upsert 만 하면 유령 금형이
-영원히 남는다.
+upsert 가 아니라 전체 교체인 이유: JIG 관리대장이 마스터이고 매번 전체를 다시
+읽으므로, 관리대장에서 사라진 금형은 대시보드에서도 사라져야 한다. upsert 만
+하면 유령 금형이 영원히 남는다.
 
 실패하면 롤백되어 이전 상태가 그대로 유지된다. 반쯤 교체된 상태 — 옛 금형과
 새 부속정보가 섞인 DB — 는 어느 쪽도 믿을 수 없어 가장 나쁘다.
@@ -65,6 +65,30 @@ def replace_all(
                     r.source_file, now,
                 )
                 for r in records
+            ],
+        )
+
+        # 설비 사용구간. 금형 하나가 여러 번 설치될 수 있으므로 install_seq 로
+        # 순서를 매긴다. defects_json 에 날짜별 원값을 남기는 이유는 합산
+        # 불량율이 어느 날들에서 나왔는지 되짚을 수 있어야 하기 때문이다 —
+        # 값 하나만 남기면 "이 수치 어디서 나왔냐"에 답할 수 없다.
+        conn.executemany(
+            """
+            INSERT INTO production_run
+                (mold_no, install_seq, line, machine, started_at, ended_at,
+                 grind_result, defect_rate, defects_json, source_file, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    r.mold_no, seq, run.line, run.equipment,
+                    run.started_at, run.ended_at, run.defect_rate,
+                    json.dumps([d.model_dump() for d in run.daily],
+                               ensure_ascii=False),
+                    run.source_file, now,
+                )
+                for r in records
+                for seq, run in enumerate(r.runs, start=1)
             ],
         )
 

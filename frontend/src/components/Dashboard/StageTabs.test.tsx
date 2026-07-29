@@ -19,8 +19,10 @@ const DETAIL: MoldDetail = {
   productions: [
     {
       install_seq: 64, line: "1", machine: "4",
-      started_at: "2026-05-02", ended_at: "2026-06-30",
+      started_at: "2026-05-02T08:00:00", ended_at: "2026-06-30T08:00:00",
       grind_result: "OK", defect_rate: 0.005,
+      produced: 120000, defect_count: 600,
+      days_covered: 59, days_expected: 59,
       defects: [{ label: "버", rate: 0.005 }],
     },
   ],

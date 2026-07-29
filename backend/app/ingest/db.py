@@ -44,7 +44,11 @@ CREATE TABLE IF NOT EXISTS ingest_run (
     error        TEXT,
     unreadable_json TEXT NOT NULL DEFAULT '[]',
     failed_json  TEXT NOT NULL DEFAULT '[]',
-    unknown_status_rows INTEGER NOT NULL DEFAULT 0
+    unknown_status_rows INTEGER NOT NULL DEFAULT 0,
+    unknown_equipment_json TEXT NOT NULL DEFAULT '[]',
+    missing_mes_days_json  TEXT NOT NULL DEFAULT '[]',
+    unmatched_runs INTEGER NOT NULL DEFAULT 0,
+    open_runs      INTEGER NOT NULL DEFAULT 0
 );
 
 -- 아래 네 테이블은 대시보드 스키마와 대응하며, 배치마다 전체 교체된다.
@@ -113,6 +117,11 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "unreadable_json": "TEXT NOT NULL DEFAULT '[]'",
         "failed_json": "TEXT NOT NULL DEFAULT '[]'",
         "unknown_status_rows": "INTEGER NOT NULL DEFAULT 0",
+        "unknown_equipment_json": "TEXT NOT NULL DEFAULT '[]'",
+        "unknown_jig_id_json": "TEXT NOT NULL DEFAULT '[]'",
+        "missing_mes_days_json": "TEXT NOT NULL DEFAULT '[]'",
+        "unmatched_runs": "INTEGER NOT NULL DEFAULT 0",
+        "open_runs": "INTEGER NOT NULL DEFAULT 0",
     },
 }
 

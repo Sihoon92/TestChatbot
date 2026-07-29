@@ -18,7 +18,9 @@ from langgraph.prebuilt import create_react_agent
 from app.excel.tools import make_excel_tools
 from app.ingest.layout import find_layout_gaps
 from app.ingest.schemas import (
+    EES_FIELDS,
     IQC_VALUE_FIELDS,
+    JIG_MASTER_FIELDS,
     MES_FIELDS,
     SheetLayout,
     SourceKind,
@@ -115,15 +117,58 @@ _IQC_HEADER_HINTS = {
 }
 
 FIELD_GUIDE: dict[SourceKind, str] = {
+    "ees": (
+        "이 시트는 JIG 관리대장이다. 한 행이 사건 하나(그 금형이 어디로\n"
+        "옮겨졌는지)이고, **한 시트에 여러 금형의 사건이 섞여** 시간순으로\n"
+        "적혀 있다.\n"
+        "아래 필드에 해당하는 열을 찾아 field 이름을 **정확히 이 영문 이름으로**\n"
+        "지정하라(없으면 넣지 않는다):\n"
+        + "\n".join(f"  - {f}" for f in EES_FIELDS)
+        + "\n\n짝지어 보면 이렇다:\n"
+        "  'JIG ID'(#RX39513 처럼 생긴 값) → mold_no\n"
+        "  '이벤트시간'                    → event_at\n"
+        "  '위치'                          → location\n"
+        "  '설비명'(POU WND10_Stack(1차)_01 꼴) → equipment\n"
+        "\nmold_no(JIG ID) 와 location(위치) 는 **반드시 찾아야 한다.**\n"
+        "mold_no 를 놓치면 그 행이 어느 금형의 사건인지 알 수 없어 파일 전체가\n"
+        "버려진다. location 은 값이 '설비' 인 행이 곧 그 금형이 설비에 투입된\n"
+        "시점이고 그 다음 사건의 시각이 빠져나온 시점이라, 놓치면 금형이 언제\n"
+        "가동됐는지 알 방법이 사라진다. 없으면 notes 에 적어라.\n"
+        "\nequipment(설비명)은 금형을 식별하는 열이 **아니다** — 그 구간에 어느\n"
+        "설비의 실적을 붙일지 고르는 데 쓴다. 있으면 잡되, 없다고 헤매지 마라.\n"
+    ),
+    "jig_master": (
+        "이 시트는 JIG 기준정보다. 금형번호·설비명·설비코드·라인을 잇는\n"
+        "매핑표이며, 한 행이 금형 하나다. 아래 필드에 해당하는 열을 찾아\n"
+        "field 이름을 **정확히 이 영문 이름으로** 지정하라:\n"
+        + "\n".join(f"  - {f}" for f in JIG_MASTER_FIELDS)
+        + "\n\n짝지어 보면 이렇다:\n"
+        "  'JIG ID'(#RX39513 처럼 생긴 값) → mold_no\n"
+        "  'JIG명'                         → jig_name\n"
+        "  '설비명'(POU WND10_Stack(1차)_01 꼴) → equipment\n"
+        "  '설비코드'(21004780 같은 숫자)   → equipment_code\n"
+        "  'Line명'                        → line\n"
+        "\nmold_no 와 equipment_code 는 반드시 찾아야 한다. 관리대장의 JIG ID\n"
+        "로 이 표를 조회해 MES 조회 키(설비코드)를 얻는 것이 이 문서의 유일한\n"
+        "역할이라, 둘 중 하나만 없어도 불량율이 통째로 비어 버린다.\n"
+        "equipment(설비명)도 가능하면 잡아라 — 금형이 설비를 옮겨 다닐 때\n"
+        "구간마다 맞는 설비코드를 고르는 데 쓴다. 없으면 notes 에 적어라.\n"
+    ),
     "mes": (
-        "이 시트는 MES 생산 이벤트 기록이다. 한 행이 생산 1건이며 같은 금형이\n"
-        "여러 번 나올 수 있다. 아래 필드에 해당하는 열을 찾아 field 이름을\n"
-        "**정확히 이 영문 이름으로** 지정하라(없으면 넣지 않는다):\n"
+        "이 시트는 MES 일자별 생산·불량 실적이다. 한 행이 (라인, 설비코드)\n"
+        "하나의 그날 실적이며, **금형번호는 없다.**\n"
+        "아래 필드에 해당하는 열을 찾아 field 이름을 **정확히 이 영문 이름으로**\n"
+        "지정하라(없으면 넣지 않는다):\n"
         + "\n".join(f"  - {f}" for f in MES_FIELDS)
-        + "\n\nmachine 은 설비 번호인 **호기**(2, 5 같은 값)다. '기종'(H104 처럼\n"
-        "금형 모델을 가리키는 열)은 machine 이 아니다 — 둘 다 있으면 호기 열을\n"
-        "machine 으로 잡고, 기종은 헤더 텍스트 그대로 별도 컬럼으로 남겨라.\n"
-        "\nmold_no 와 status 는 반드시 찾아야 한다. 없으면 notes 에 적어라.\n"
+        + "\n\n짝지어 보면 이렇다:\n"
+        "  '투입수량' → produced,  '양품수량' → good,  '불량수량' → defects\n"
+        "  '종합/불량율(PPM)' → defect_ppm  (조립라인·조립별화성 것이 아니라\n"
+        "                                   **종합** 것을 골라라)\n"
+        "\nrun_date(날짜)는 표 안이 아니라 시트 위쪽 라벨에 있을 수 있다.\n"
+        "그럴 때는 표의 컬럼이 아니라 key_values 로 잡아라 — 그래야 모든 행에\n"
+        "그 날짜가 붙는다.\n"
+        "\n마지막의 'TOTAL' 행은 라인이 아니라 합계다. 그 행에는 설비코드가\n"
+        "없으므로 자연히 걸러지지만, 표의 범위를 잡을 때 참고하라.\n"
     ),
     "iqc": (
         "이 시트는 IQC 입고 검사 기록이다. 금형번호 열이 있다.\n"

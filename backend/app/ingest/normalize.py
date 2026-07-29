@@ -35,6 +35,35 @@ STATUS_MAP: dict[str, str] = {
 }
 
 
+# JIG 관리대장의 '위치' → 대시보드 MoldStatus.
+#
+# 상태를 적은 열이 따로 없다. 금형이 **어디에 있는가**가 곧 상태다: 설비에
+# 있으면 가동 중이고, 수리실에 있으면 수리 중이다. 보관 위치의 이름은 공장마다
+# 다르므로(입고 대기 보관함·통합 Jig Room·사용 대기 보관함·반납 대기 보관함…)
+# 하나씩 나열하는 대신 '설비/수리/폐기'만 알아보고 나머지는 대기로 본다 —
+# 보관함 이름이 하나 늘 때마다 금형이 화면에서 사라지면 안 된다.
+_LOCATION_IN_USE = "설비"
+_LOCATION_KEYWORDS = (
+    ("수리", "repair"),
+    ("폐기", "retired"),
+    ("불용", "retired"),
+)
+
+
+def status_from_location(raw: object) -> str | None:
+    """관리대장의 위치 → MoldStatus. 위치를 못 읽으면 None."""
+    text = cell_to_text(raw)
+    if text is None:
+        return None
+    squeezed = re.sub(r"\s+", "", text)
+    if squeezed == _LOCATION_IN_USE:
+        return "in_use"
+    for keyword, status in _LOCATION_KEYWORDS:
+        if keyword in squeezed:
+            return status
+    return "standby"
+
+
 def cell_to_text(v: object) -> str | None:
     """셀 값을 표시·비교용 문자열로. 빈 값은 None."""
     if v is None:
@@ -114,3 +143,41 @@ def to_int(v: object) -> int | None:
     if n is None:
         return None
     return int(n)
+
+
+# 실물 이벤트시간에서 본 표기들. cell_to_text 가 datetime 을 isoformat 으로
+# 바꾸므로 대개 첫 번째로 맞지만, 사람이 손으로 적은 칸은 형식이 흔들린다.
+_DATETIME_FORMATS = (
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d",
+    "%Y.%m.%d %H:%M:%S",
+    "%Y.%m.%d %H:%M",
+    "%Y.%m.%d",
+    "%Y/%m/%d %H:%M:%S",
+    "%Y/%m/%d",
+)
+
+
+def to_datetime(v: object) -> datetime | None:
+    """이벤트 시각을 datetime 으로. 못 읽으면 None — 추측하지 않는다.
+
+    사용구간의 시작과 끝이 곧 MES 조회 날짜이므로, 여기서 조용히 틀리면
+    엉뚱한 날의 불량율이 금형에 붙는다. 형식을 못 알아보면 그 행을 버리고
+    호출자가 건수를 드러내는 편이 낫다.
+    """
+    if isinstance(v, datetime):
+        return v
+    if isinstance(v, date):
+        return datetime(v.year, v.month, v.day)
+    text = cell_to_text(v)
+    if text is None:
+        return None
+    text = text.strip()
+    for fmt in _DATETIME_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
