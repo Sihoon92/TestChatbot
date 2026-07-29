@@ -1,8 +1,9 @@
 """관리대장 + 기준정보 + MES + IQC → 금형 레코드.
 
-마스터는 **JIG 관리대장**이다. 시트에 이벤트가 있어야 그 금형이 실재한다.
-기준정보는 매핑표일 뿐이라 거기에만 있는 JIG 는 아직 들어온 적 없는 금형이다.
-이 방향이 뒤집히면 대시보드 목록의 정의가 흔들린다.
+마스터는 **JIG 관리대장**이다. 행의 JIG ID 가 금형을 확정하고, 그 금형에
+이벤트가 있어야 실재한다. 기준정보는 매핑표일 뿐이라 거기에만 있는 JIG 는
+아직 들어온 적 없는 금형이다. 이 방향이 뒤집히면 대시보드 목록의 정의가
+흔들린다.
 
 조인이 조용히 어긋나면 엉뚱한 금형에 엉뚱한 불량율이 붙는데 화면만 봐서는
 알 수 없다. 그래서 손실 경로를 하나씩 못 박는다.
@@ -25,9 +26,11 @@ def _master(mold_no, equipment, code, line="톈진 Pouch #10(S)", no=1):
     }, file="master.xlsx", no=no)
 
 
-def _event(when, location, equipment=EQUIP_A, sheet="금형A", no=1):
+def _event(when, location, equipment=EQUIP_A, mold_no="#RX39513",
+           sheet="관리대장", no=1):
     return _row(
-        {"event_at": when, "location": location, "equipment": equipment},
+        {"mold_no": mold_no, "event_at": when,
+         "location": location, "equipment": equipment},
         sheet=sheet, file="ledger.xlsx", no=no,
     )
 
@@ -47,7 +50,8 @@ def _iqc(mold_no, values=None, no=1):
 
 
 MASTER = [_master("#RX39513", EQUIP_A, "21004780"),
-          _master("RX28312", EQUIP_B, "21004781", no=2)]
+          _master("RX28312", EQUIP_B, "21004781",
+                  line="톈진 Pouch #11(S)", no=2)]
 
 
 # ── 마스터: 관리대장이 금형의 존재를 선언한다 ────────────────────────
@@ -64,17 +68,35 @@ def test_master_only_jig_never_appears():
     assert "RX28312" not in [r.mold_no for r in result.records]
 
 
-def test_equipment_missing_from_master_is_reported_not_silently_dropped():
-    """기준정보가 낡으면 금형이 통째로 사라진다 — 가장 흔한 사고다."""
+def test_jig_id_missing_from_master_is_reported_not_silently_dropped():
+    """기준정보가 낡으면 그 금형이 MES 조회 키를 못 얻어 통째로 사라진다 —
+    가장 흔한 사고다."""
     result = assemble(
-        MASTER, [_event("2026-07-01T07:00:00", "설비", equipment="신규설비_01")], [], []
+        MASTER, [_event("2026-07-01T07:00:00", "설비", mold_no="#RX77777")], [], []
     )
 
     assert result.records == []
+    assert result.losses.unknown_jig_id == ["RX77777"]
+
+
+def test_unknown_equipment_keeps_the_mold_and_only_warns():
+    """설비명을 못 찾아도 금형은 사라지지 않는다 — JIG ID 행으로 폴백한다.
+    이게 예전 설계와 갈리는 지점이다(예전에는 금형이 통째로 빠졌다)."""
+    result = assemble(
+        MASTER,
+        [_event("2026-07-01T07:00:00", "설비", equipment="신규설비_01"),
+         _event("2026-07-02T07:00:00", "Jig Room", no=2)],
+        [_mes("2026.07.01-2026.07.01", "21004780", 10000, 300)],
+        [],
+    )
+
+    assert [r.mold_no for r in result.records] == ["RX39513"]
+    assert result.records[0].runs[0].defect_rate == 300 / 10000, "폴백으로 조회된다"
     assert result.losses.unknown_equipment == ["신규설비_01"]
+    assert result.losses.unknown_jig_id == []
 
 
-def test_master_rows_that_cannot_bridge_are_reported():
+def test_master_rows_without_a_jig_id_are_reported():
     rows = MASTER + [_master(None, "설비명만_있음", "999", no=3)]
 
     result = assemble(rows, [_event("2026-07-01T07:00:00", "설비")], [], [])
@@ -127,6 +149,21 @@ def test_line_comes_from_the_master_not_the_ledger():
     result = assemble(MASTER, [_event("2026-07-01T07:00:00", "설비")], [], [])
 
     assert result.records[0].line == "톈진 Pouch #10(S)"
+
+
+def test_line_and_machine_follow_the_mold_to_its_current_machine():
+    """금형이 옮겨 다니면 '지금 어디에 걸려 있는가'는 마지막 구간이 답한다.
+    기준정보에 등록된 현재 설비를 그대로 쓰면 옮겨간 사실이 화면에서 지워진다."""
+    result = assemble(MASTER, [
+        _event("2026-07-01T07:00:00", "설비", no=1),
+        _event("2026-07-02T07:00:00", "Jig Room", no=2),
+        _event("2026-07-10T07:00:00", "설비", equipment=EQUIP_B, no=3),
+    ], [], [])
+
+    record = result.records[0]
+    assert record.status == "in_use"
+    assert record.machine == EQUIP_B, "기준정보의 EQUIP_A 가 아니다"
+    assert record.line == "톈진 Pouch #11(S)", "라인도 옮겨간 설비 기준"
 
 
 # ── 사용구간과 불량율 ────────────────────────────────────────────────

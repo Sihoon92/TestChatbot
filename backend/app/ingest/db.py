@@ -118,6 +118,7 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "failed_json": "TEXT NOT NULL DEFAULT '[]'",
         "unknown_status_rows": "INTEGER NOT NULL DEFAULT 0",
         "unknown_equipment_json": "TEXT NOT NULL DEFAULT '[]'",
+        "unknown_jig_id_json": "TEXT NOT NULL DEFAULT '[]'",
         "missing_mes_days_json": "TEXT NOT NULL DEFAULT '[]'",
         "unmatched_runs": "INTEGER NOT NULL DEFAULT 0",
         "open_runs": "INTEGER NOT NULL DEFAULT 0",

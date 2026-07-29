@@ -22,18 +22,20 @@ SourceKind = Literal[
 # 같은 이름으로 읽는다. 양쪽이 공유하므로 스키마 모듈에 둔다 — assemble 에 두면
 # discover 가 조립 로직을 import 하게 되어 의존 방향이 뒤집힌다.
 
-# JIG 관리대장: 시트 하나가 금형 하나이고 한 행이 이벤트 하나다.
-# **금형번호가 없다** — 설비명으로 기준정보를 찾아야 알 수 있다.
+# JIG 관리대장: 한 행이 이벤트 하나다. 한 시트에 여러 금형이 섞여 있고,
+# **JIG ID 열이 그 행의 금형을 확정한다** — 이미 알고 있는 값이므로 다른
+# 문서를 거쳐 알아낼 필요가 없다.
 EES_FIELDS = [
+    "mold_no",     # JIG ID (#RX39513 → RX39513). 금형을 확정하는 키
     "event_at",    # 이벤트시간
     "location",    # 위치. 이 값이 "설비" 인 구간이 곧 사용구간이다
-    "equipment",   # 설비명 — 기준정보와 이어붙이는 유일한 키
+    "equipment",   # 설비명 — 식별용이 아니라 **그 구간의 MES 조회 키**를 고른다
     "line",        # 관리대장의 라인(공장 접두사가 없어 MES 와 직접 비교 불가)
     "process",
 ]
 
-# JIG 기준정보: 설비명 ↔ 금형번호 ↔ 설비코드 ↔ 라인 매핑표.
-# 이것이 빠지면 금형 식별과 MES 조회가 동시에 끊긴다.
+# JIG 기준정보: 금형번호 ↔ 설비명 ↔ 설비코드 ↔ 라인 매핑표.
+# 이것이 빠지면 MES 조회 키를 얻을 수 없어 불량율이 통째로 끊긴다.
 JIG_MASTER_FIELDS = [
     "mold_no",          # JIG ID (#RX39513 → RX39513)
     "jig_name",         # JIG명
@@ -196,14 +198,17 @@ class ScanResult(BaseModel):
 
 
 class JigInfo(BaseModel):
-    """기준정보 한 행 — 설비명으로 금형과 MES 조회 키를 찾는 다리.
+    """기준정보 한 행 — 금형/설비에서 MES 조회 키(설비코드·라인)를 얻는 다리.
 
-    관리대장도 MES 도 금형번호를 모른다. 이 표가 없으면 두 조인이 동시에
-    끊기므로, 부분 실패가 아니라 전면 실패다.
+    MES 는 금형번호를 모른다. 이 표가 없으면 관리대장의 사용구간에 붙일
+    실적을 찾을 수 없어 불량율이 통째로 비어 버린다.
+
+    설비명은 비어 있을 수 있다 — JIG ID 로 조회하는 경로에는 필요 없기
+    때문이다. 필수 키는 mold_no 하나다.
     """
 
     mold_no: str
-    equipment: str
+    equipment: str | None = None
     equipment_code: str | None = None
     line: str | None = None
     jig_name: str | None = None
@@ -226,7 +231,10 @@ class UsageRun(BaseModel):
     """
 
     mold_no: str
-    equipment: str
+    # 그 구간에 금형이 들어가 있던 설비명. 관리대장 이벤트의 원문 그대로다
+    # (기준정보에 없는 이름일 수도 있다 — 그때는 조회만 JIG ID 행으로 폴백하고
+    # 표시는 원문을 남긴다). 비어 있는 이벤트가 있을 수 있어 None 을 허용한다.
+    equipment: str | None = None
     equipment_code: str | None = None
     line: str | None = None
     started_at: str                    # isoformat
@@ -303,8 +311,12 @@ class RunSummary(BaseModel):
     failed_files: list[str] = []
 
     # ── EES/MES 조인에서 생기는 손실 ────────────────────────────────
-    # 관리대장에 있는데 기준정보에 없는 설비명. 그 금형은 번호를 얻지 못해
-    # 통째로 안 나온다 — 기준정보가 낡았다는 가장 흔한 신호다.
+    # 관리대장에 있는데 기준정보에 없는 JIG ID. MES 조회 키를 얻지 못해 그
+    # 금형이 통째로 안 나온다 — 기준정보가 낡았다는 가장 흔한 신호다.
+    unknown_jig_id: list[str] = []
+    # 관리대장에 있는데 기준정보에 없는 설비명. **금형은 나온다** — JIG ID 행의
+    # 설비코드로 대신 조회한다. 다만 그 구간의 실적이 '그때 그 설비'가 아니라
+    # '현재 등록된 설비' 기준이라는 뜻이므로 값을 그대로 믿으면 안 된다.
     unknown_equipment: list[str] = []
     # 사용구간이 덮는 날인데 MES 파일이 없는 날짜. 불량율이 일부 날만
     # 반영되므로 값이 있어도 믿을 수 없다.

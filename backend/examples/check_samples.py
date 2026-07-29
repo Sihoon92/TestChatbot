@@ -33,7 +33,7 @@ PPM = 1_000_000
 
 # 격자는 top_left=B2 이므로 인덱스 0 = 열 B.
 M_LINE, M_JIG_ID, M_CODE, M_EQUIP = 2, 5, 8, 9        # 기준정보
-L_TIME, L_LOC, L_EQUIP = 0, 3, 5                       # 관리대장
+L_JIG_ID, L_TIME, L_LOC, L_EQUIP = 0, 1, 4, 6          # 관리대장
 X_CODE, X_IN, X_BAD = 3, 5, 7                          # MES (6행부터)
 Q_MOLD = 2          # IQC 대장 상세표(33행~)의 '금형 번호' = 열 D
 Q_HIST_MOLD = 4     # IQC 이력표(17행~)의 '관리 번호'      = 열 F
@@ -47,14 +47,17 @@ def _grid(path: Path, sheet: str):
 def main() -> int:
     root = Path(get_settings().resolved_ingest_root)
 
-    # ── 기준정보: 설비명 → 금형 ──────────────────────────────────────
-    master = {}
+    # ── 기준정보를 두 벌로 색인한다 ───────────────────────────────────
+    # JIG ID 쪽은 금형이 등록돼 있는지 판정하고 폴백 조회 키를 준다.
+    # 설비명 쪽은 구간마다 "그때 그 설비"의 조회 키를 준다.
+    by_jig_id, by_equip = {}, {}
     for r in _grid(root / "JIG기준정보" / "JIG_기준정보.xlsx", "기준정보")[1:]:
-        if r and r[M_EQUIP]:
-            master[r[M_EQUIP]] = {
-                "mold": str(r[M_JIG_ID]).lstrip("#"),
-                "code": int(r[M_CODE]), "line": r[M_LINE],
-            }
+        if not r or not r[M_JIG_ID]:
+            continue
+        info = {"code": int(r[M_CODE]), "line": r[M_LINE]}
+        by_jig_id[str(r[M_JIG_ID]).lstrip("#").strip().upper()] = info
+        if r[M_EQUIP]:
+            by_equip[r[M_EQUIP]] = info
 
     # ── MES: (날짜, 설비코드) → (투입, 불량) ─────────────────────────
     mes = {}
@@ -66,33 +69,52 @@ def main() -> int:
             if r and r[X_CODE]:
                 mes[(day, int(r[X_CODE]))] = (int(r[X_IN]), int(r[X_BAD]))
 
-    # ── 관리대장: 시트마다 사용구간 ──────────────────────────────────
+    # ── 관리대장: JIG ID 로 묶어 사용구간을 뽑는다 ────────────────────
+    # 한 시트에 여러 금형이 섞여 있으므로 시트로 묶으면 A 금형의 설비 진입이
+    # B 금형의 다음 이벤트로 닫힌다.
     ledger = root / "EES" / "JIG_관리대장.xlsx"
     with open_workbook(str(ledger)) as wb:
-        sheets = wb.sheet_names()
-        grids = {s: wb.used_values(s)[0] for s in sheets}
+        events = []
+        for sheet in wb.sheet_names():
+            events += [r for r in wb.used_values(sheet)[0][1:]
+                       if r and r[L_JIG_ID] and r[L_TIME]]
 
-    molds, unknown_equipment, missing_days, open_runs, unmatched = {}, [], set(), 0, 0
+    by_mold = {}
+    for r in events:
+        by_mold.setdefault(
+            str(r[L_JIG_ID]).lstrip("#").strip().upper(), []
+        ).append(r)
 
-    for sheet in sheets:
-        rows = sorted([r for r in grids[sheet][1:] if r and r[L_TIME]],
-                      key=lambda r: r[L_TIME])
-        equip = rows[0][L_EQUIP]
-        info = master.get(equip)
-        if info is None:
-            if equip not in unknown_equipment:
-                unknown_equipment.append(equip)
+    molds, unknown_jig_id, unknown_equipment = {}, [], []
+    missing_days, open_runs, unmatched = set(), 0, 0
+
+    for mold, rows in by_mold.items():
+        jig_info = by_jig_id.get(mold)
+        if jig_info is None:
+            # 조회 키를 어디서도 못 얻는다 — 이 금형은 통째로 빠진다.
+            unknown_jig_id.append(mold)
             continue
+        rows = sorted(rows, key=lambda r: r[L_TIME])
 
         runs = []
         for i, r in enumerate(rows):
             if str(r[L_LOC]).strip() != "설비":
                 continue
+            # 조회 키는 그 이벤트의 설비명에서 온다. 기준정보에 없으면 JIG ID
+            # 행으로 폴백하되 그 사실을 남긴다.
+            equip = r[L_EQUIP]
+            info = by_equip.get(equip)
+            if info is None:
+                if equip and equip not in unknown_equipment:
+                    unknown_equipment.append(equip)
+                info = jig_info
+
             start = r[L_TIME]
             end = rows[i + 1][L_TIME] if i + 1 < len(rows) else None
             if end is None:
                 open_runs += 1
                 runs.append({"start": start, "end": None, "days": [],
+                             "equip": equip, "line": info["line"],
                              "produced": None, "defects": None, "rate": None})
                 continue
             n = max(1, math.ceil((end - start) / timedelta(hours=24)))
@@ -110,11 +132,12 @@ def main() -> int:
                 unmatched += 1
             runs.append({
                 "start": start, "end": end, "days": days,
+                "equip": equip, "line": info["line"],
                 "produced": produced or None, "defects": defects or None,
                 "rate": (defects / produced) if produced else None,
             })
-        molds[info["mold"]] = {
-            "sheet": sheet, "line": info["line"], "equip": equip,
+        molds[mold] = {
+            "line": runs[-1]["line"] if runs else jig_info["line"],
             "last_location": rows[-1][L_LOC], "runs": runs,
         }
 
@@ -139,7 +162,8 @@ def main() -> int:
     print("=" * 74)
     print(f"\n금형 {len(molds)}건  IQC붙음 {len(matched)}건")
     print(f"고아(관리대장에 없는 IQC 금형) {orphans}")
-    print(f"기준정보에 없는 설비 {unknown_equipment}")
+    print(f"기준정보에 없는 JIG ID {sorted(unknown_jig_id)}  ← 금형이 통째로 빠짐")
+    print(f"기준정보에 없는 설비 {unknown_equipment}  ← JIG ID 행으로 폴백")
     print(f"MES 파일이 없는 날 {sorted(missing_days)}")
     print(f"가동 중(종료 없음) {open_runs}건   MES 실적 못 찾은 구간 {unmatched}건")
 
@@ -163,7 +187,8 @@ def main() -> int:
             rate = f"{r['rate']*100:.3f}%" if r["rate"] else "—"
             print(f"  {mold:10} {r['start']:%m-%d %H:%M} ~ {end:14} "
                   f"{hours:>6.1f}h  {len(r['days'])}일  "
-                  f"투입 {r['produced'] or 0:>7,}  불량 {r['defects'] or 0:>5,}  {rate}")
+                  f"투입 {r['produced'] or 0:>7,}  불량 {r['defects'] or 0:>5,}  {rate}"
+                  f"   {r['equip']}")
             if r["days"]:
                 gone = [d for d in r["days"] if d not in have_days]
                 note = f"   ← {gone} 파일 없음" if gone else ""

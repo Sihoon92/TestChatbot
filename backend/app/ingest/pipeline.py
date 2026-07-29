@@ -206,6 +206,7 @@ def run_ingest(
             skipped_rows=result.skipped_rows,
             files=[f.path for f in found],
             failed_files=failed,
+            unknown_jig_id=result.losses.unknown_jig_id,
             unknown_equipment=result.losses.unknown_equipment,
             missing_mes_days=result.losses.missing_mes_days,
             unmatched_runs=result.losses.unmatched_runs,

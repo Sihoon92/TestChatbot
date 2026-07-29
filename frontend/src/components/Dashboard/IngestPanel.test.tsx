@@ -34,6 +34,7 @@ const OK: RunSummary = {
   files: ["MES/mes.xlsx"],
   error: null,
   unreadable_files: [],
+  unknown_jig_id: [],
   unknown_equipment: [],
   missing_mes_days: [],
   unmatched_runs: 0,
@@ -79,9 +80,26 @@ describe("IngestPanel", () => {
     expect(screen.getByText(/건너뛴 행 2건/)).toBeInTheDocument();
   });
 
-  it("기준정보에 없는 설비를 원문 그대로 보여준다", async () => {
-    // 기준정보가 낡으면 그 금형이 번호를 얻지 못해 목록에서 통째로 빠진다.
-    // 설비명이 안 보이면 무엇을 표에 추가해야 하는지 알 수 없다.
+  it("기준정보에 없는 JIG ID 를 원문 그대로 보여준다", async () => {
+    // 기준정보가 낡으면 그 금형이 조회 키를 얻지 못해 목록에서 통째로 빠진다.
+    // JIG ID 가 안 보이면 무엇을 표에 추가해야 하는지 알 수 없다.
+    vi.mocked(api.runIngest).mockResolvedValue({
+      ...OK,
+      unknown_jig_id: ["RX77777"],
+    });
+
+    render(<IngestPanel />);
+    await userEvent.click(await screen.findByRole("button", { name: /수집 실행/ }));
+
+    expect(
+      await screen.findByText(/JIG 기준정보에 없는 JIG ID 1건/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/RX77777/)).toBeInTheDocument();
+  });
+
+  it("기준정보에 없는 설비는 금형이 빠졌다고 말하지 않는다", async () => {
+    // 설비명을 못 찾아도 금형은 나온다(JIG ID 로 폴백). 치명적 손실과 같은
+    // 문구로 띄우면 사용자가 없는 문제를 찾아 헤맨다.
     vi.mocked(api.runIngest).mockResolvedValue({
       ...OK,
       unknown_equipment: ["POU WND99_New_01"],
@@ -90,8 +108,11 @@ describe("IngestPanel", () => {
     render(<IngestPanel />);
     await userEvent.click(await screen.findByRole("button", { name: /수집 실행/ }));
 
-    expect(await screen.findByText(/JIG 기준정보에 없는 설비 1건/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/현재 등록된 설비의 실적으로 대체함/)
+    ).toBeInTheDocument();
     expect(screen.getByText(/POU WND99_New_01/)).toBeInTheDocument();
+    expect(screen.queryByText(/목록에서 빠짐/)).not.toBeInTheDocument();
   });
 
   it("MES 파일이 빠진 날을 드러낸다", async () => {

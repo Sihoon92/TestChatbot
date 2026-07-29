@@ -19,9 +19,9 @@ JIG_MASTER_GRID = [
     ["#RX28312", EQUIP, "21004780", "톈진 Pouch #10(S)"],
 ]
 EES_GRID = [
-    ["이벤트시간", "위치", "설비명"],
-    ["2026-07-01T07:00:00", "설비", EQUIP],
-    ["2026-07-02T07:00:00", "통합 Jig Room", EQUIP],
+    ["JIG ID", "이벤트시간", "위치", "설비명"],
+    ["#RX28312", "2026-07-01T07:00:00", "설비", EQUIP],
+    ["#RX28312", "2026-07-02T07:00:00", "통합 Jig Room", EQUIP],
 ]
 MES_GRID = [
     ["날짜", "설비코드", "투입수량", "불량수량"],
@@ -67,8 +67,8 @@ LAYOUTS = {
         [("mold_no", "A"), ("equipment", "B"), ("equipment_code", "C"),
          ("line", "D")], anchor="JIG ID"),
     "ees": _layout(
-        [("event_at", "A"), ("location", "B"), ("equipment", "C")],
-        anchor="이벤트시간"),
+        [("mold_no", "A"), ("event_at", "B"), ("location", "C"),
+         ("equipment", "D")], anchor="JIG ID"),
     "mes": _layout(
         [("run_date", "A"), ("equipment_code", "B"), ("produced", "C"),
          ("defects", "D")], anchor="날짜"),

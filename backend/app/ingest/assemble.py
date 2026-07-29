@@ -2,8 +2,8 @@
 
 ## 무엇이 마스터인가
 
-**JIG 관리대장이 마스터다.** 시트 하나가 금형 하나이고, 거기에 이벤트가 있어야
-그 금형이 실재한다고 본다. 기준정보는 매핑표일 뿐이라 마스터가 아니다 —
+**JIG 관리대장이 마스터다.** 행의 JIG ID 가 금형을 확정하고, 그 금형에 이벤트가
+있어야 실재한다고 본다. 기준정보는 매핑표일 뿐이라 마스터가 아니다 —
 기준정보에만 있고 관리대장에 이력이 없는 JIG 는 아직 들어온 적 없는 금형이다.
 
 방향이 뒤집히면 "대시보드 목록에 무엇이 나오는가"의 정의가 흔들린다.
@@ -13,9 +13,9 @@
 관리대장에는 상태 열도, 사용타수도, 총생산수량도 없다. 그래서 이렇게 채운다.
 
   status            마지막 이벤트의 **위치**(설비=가동중, 수리=수리중, 나머지=대기)
-  line              **기준정보**의 Line명. 관리대장의 라인은 공장 접두사가 없어
-                    MES 와 대조할 수 없으므로 쓰지 않는다.
-  machine           설비명(사람이 알아보는 설비 이름)
+  line              마지막 사용구간이 조회한 **기준정보**의 Line명. 관리대장의
+                    라인은 공장 접두사가 없어 MES 와 대조할 수 없으므로 안 쓴다.
+  machine           마지막 사용구간의 설비명(사람이 알아보는 설비 이름)
   total_installs    설비 사용구간의 개수 — 그것이 곧 설치 횟수다
   total_production  MES 투입수량의 합(그 금형이 돌던 날들)
   shot_count        **미상**. 어느 문서에도 없다. 0 으로 두면 '신품'이라는
@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from app.ingest.join import (
     JoinLosses,
     attach_defect_rates,
+    build_equipment_index,
     build_jig_index,
     extract_runs,
     index_mes,
@@ -60,8 +61,11 @@ def _mold_records_from_ees(
     master_rows: list[Row], ees_rows: list[Row], mes_rows: list[Row]
 ) -> tuple[dict[str, MoldRecord], list[str], JoinLosses]:
     """관리대장 + 기준정보 + MES → {금형번호: MoldRecord}."""
+    # 기준정보를 두 벌로 색인한다. JIG ID 쪽은 금형을 확정하고, 설비명 쪽은
+    # 구간마다 MES 조회 키를 고른다 — 역할이 다르므로 색인도 따로 둔다.
     jig_index, dropped = build_jig_index(master_rows)
-    runs, losses = extract_runs(ees_rows, jig_index)
+    equip_index = build_equipment_index(master_rows)
+    runs, losses = extract_runs(ees_rows, jig_index, equip_index)
 
     mes_index, _bad = index_mes(mes_rows)
     losses.merge(attach_defect_rates(runs, mes_index))
@@ -71,10 +75,9 @@ def _mold_records_from_ees(
         runs_by_mold.setdefault(run.mold_no, []).append(run)
 
     records: dict[str, MoldRecord] = {}
-    for equipment, location in latest_locations(ees_rows).items():
-        info = jig_index.get(equipment)
-        if info is None:
-            # extract_runs 가 이미 unknown_equipment 로 셌다. 여기서 또 세면
+    for mold_no, location in latest_locations(ees_rows).items():
+        if mold_no not in jig_index:
+            # extract_runs 가 이미 unknown_jig_id 로 셌다. 여기서 또 세면
             # 같은 사건이 두 번 보고된다.
             continue
         status = status_from_location(location)
@@ -82,7 +85,7 @@ def _mold_records_from_ees(
             continue
 
         mold_runs = sorted(
-            runs_by_mold.get(info.mold_no, []), key=lambda r: r.started_at
+            runs_by_mold.get(mold_no, []), key=lambda r: r.started_at
         )
         produced = [r.produced for r in mold_runs if r.produced is not None]
         # 가장 최근 구간의 불량율. 없으면 그 앞 구간으로 거슬러 올라간다 —
@@ -92,13 +95,18 @@ def _mold_records_from_ees(
             None,
         )
 
-        records[info.mold_no] = MoldRecord(
-            mold_no=info.mold_no,
+        # 가동 중이면 마지막 이벤트가 '설비' 이므로 그에 대응하는 구간이 반드시
+        # 있다. 기준정보의 현재 설비가 아니라 **그 구간이 실제로 조회한** 설비·
+        # 라인을 쓴다 — 금형이 옮겨 다녔다면 둘이 다르다.
+        current = mold_runs[-1] if status == "in_use" and mold_runs else None
+
+        records[mold_no] = MoldRecord(
+            mold_no=mold_no,
             status=status,
             # 가동 중이 아니면 라인·설비를 비운다. 남겨두면 화면이 "지금 저기
             # 걸려 있다"는 거짓 정보를 보여준다(대시보드 필터도 같은 규칙이다).
-            line=info.line if status == "in_use" else None,
-            machine=equipment if status == "in_use" else None,
+            line=current.line if current else None,
+            machine=current.equipment if current else None,
             shot_count=None,
             total_installs=len(mold_runs) or None,
             total_production=sum(produced) if produced else None,
@@ -178,7 +186,10 @@ def assemble(
     return AssembleResult(
         records=list(records.values()),
         orphan_mold_nos=orphans,
-        skipped_rows=skipped,
+        # 관리대장에서 JIG ID 를 못 읽은 행도 같은 성격의 손실이다("금형번호가
+        # 없어 버린 행"). 별도 필드를 새로 만들면 화면에 같은 뜻의 숫자가 둘
+        # 생기므로 여기에 합친다.
+        skipped_rows=skipped + losses.rows_without_mold_no,
         iqc_matched=len(matched),
         dropped_master_rows=dropped,
         losses=losses,

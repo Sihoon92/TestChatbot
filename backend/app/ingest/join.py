@@ -6,19 +6,30 @@ normalize.py·layout.py 와 같은 성격의 모듈이다.
 
 ## 왜 세 소스가 필요한가
 
-관리대장은 **금형번호를 모르고**, MES 도 **금형번호를 모른다**. 기준정보가
-설비명으로 둘을 이어 준다:
+관리대장은 **JIG ID 열**로 어느 금형인지 알려주지만 그 금형이 얼마나 불량을
+냈는지는 모른다. MES 는 실적을 알지만 **금형번호를 모른다**. 기준정보가 둘
+사이에서 MES 조회 키(설비코드·Line명)를 내준다:
 
-    관리대장.설비명 ─→ 기준정보 ─→ 금형번호 + 설비코드 + Line명 ─→ MES
+    관리대장.JIG ID ─────────────────→ 금형 확정
+    관리대장.설비명 ─→ 기준정보[설비명] ─┐
+                        (없으면 폴백)     ├─→ 설비코드 + Line명 ─→ MES
+    관리대장.JIG ID ─→ 기준정보[JIG ID] ─┘
 
-그래서 기준정보가 낡으면 부분 실패가 아니라 전면 실패다. 그 사실이 화면에
-드러나야 사람이 표를 고친다.
+## 식별과 조회를 왜 나누는가
+
+금형을 확정하는 것은 **JIG ID 하나**다. 이미 알고 있는 값이므로 다른 문서를
+거쳐 알아낼 필요가 없다. 설비명은 "이 구간에 어느 설비의 실적을 붙일까" 만
+정한다. 둘을 나눠 두면:
+
+  - 금형이 설비를 옮겨 다녀도 각 구간이 **그때 그 설비**의 실적에 붙는다
+    (기준정보는 JIG ID 당 현재 설비 하나만 알아서 과거 구간을 잘못 귀속시킨다)
+  - 설비명이 기준정보에 없어도 금형은 사라지지 않는다 — JIG ID 행으로 폴백한다
 
 ## 라인 문자열로 조인하지 않는 이유
 
 관리대장의 라인은 "Pouch #10(S)", 기준정보의 Line명은 "톈진 Pouch #10(S)" 다.
-공장 접두사가 붙고 안 붙고의 차이라 문자열 비교는 조용히 어긋난다.
-조인은 **설비명으로만** 하고, 라인은 기준정보 것을 신뢰한다.
+공장 접두사가 붙고 안 붙고의 차이라 문자열 비교는 조용히 어긋난다. 라인은
+기준정보 것을 신뢰하고, MES 조회는 설비코드로만 한다.
 """
 import math
 import re
@@ -49,8 +60,14 @@ _DATE_IN_LABEL = re.compile(r"(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})")
 class JoinLosses(BaseModel):
     """조인에서 빠진 것들. 비어 있지 않으면 사람이 원인을 찾아야 한다."""
 
-    # 관리대장에 있는데 기준정보에 없는 설비명(중복 제거)
+    # 관리대장에 있는데 기준정보에 없는 JIG ID(중복 제거). 그 금형은 MES
+    # 조회 키를 못 얻어 통째로 빠진다 — 치명적인 쪽이다.
+    unknown_jig_id: list[str] = []
+    # 관리대장에 있는데 기준정보에 없는 설비명(중복 제거). 금형은 나오되
+    # 실적을 '현재 등록된 설비' 기준으로 읽었다는 경고다.
     unknown_equipment: list[str] = []
+    # JIG ID 를 못 읽어 어느 금형에도 못 붙인 행 수
+    rows_without_mold_no: int = 0
     # 이벤트 시각을 못 읽어 버린 행 수
     bad_event_times: int = 0
     # 사용구간이 덮는 날인데 MES 파일이 없는 날짜(중복 제거)
@@ -61,48 +78,79 @@ class JoinLosses(BaseModel):
     open_runs: int = 0
 
     def merge(self, other: "JoinLosses") -> None:
+        for jig_id in other.unknown_jig_id:
+            if jig_id not in self.unknown_jig_id:
+                self.unknown_jig_id.append(jig_id)
         for equip in other.unknown_equipment:
             if equip not in self.unknown_equipment:
                 self.unknown_equipment.append(equip)
         for day in other.missing_mes_days:
             if day not in self.missing_mes_days:
                 self.missing_mes_days.append(day)
+        self.rows_without_mold_no += other.rows_without_mold_no
         self.bad_event_times += other.bad_event_times
         self.unmatched_runs += other.unmatched_runs
         self.open_runs += other.open_runs
 
 
-def build_jig_index(rows: list[Row]) -> tuple[dict[str, JigInfo], list[str]]:
-    """기준정보 행 → {설비명: JigInfo}. 두 번째 값은 버린 행의 사유다.
+def _jig_info(mold_no: str, row: Row) -> JigInfo:
+    return JigInfo(
+        mold_no=mold_no,
+        equipment=cell_to_text(row.values.get("equipment")),
+        equipment_code=cell_to_text(row.values.get("equipment_code")),
+        line=cell_to_text(row.values.get("line")),
+        jig_name=cell_to_text(row.values.get("jig_name")),
+    )
 
-    설비명이나 금형번호가 없는 행은 다리 역할을 못 하므로 버리되, 조용히
-    버리면 "왜 이 금형이 안 나오지"를 추적할 수 없어 사유를 함께 돌려준다.
-    같은 설비명이 여러 번 나오면 뒤에 나온 것이 최신이다.
+
+def build_jig_index(rows: list[Row]) -> tuple[dict[str, JigInfo], list[str]]:
+    """기준정보 행 → {JIG ID: JigInfo}. 두 번째 값은 버린 행의 사유다.
+
+    관리대장이 아는 JIG ID 로 바로 조회하는 색인이다. 필수 키는 금형번호
+    하나다 — 설비명이 비어 있어도 설비코드·라인은 얻을 수 있다. 금형번호가
+    없는 행을 조용히 버리면 "왜 이 금형이 안 나오지"를 추적할 수 없어 사유를
+    함께 돌려준다. 같은 JIG ID 가 여러 번 나오면 뒤에 나온 것이 최신이다.
     """
     index: dict[str, JigInfo] = {}
     dropped: list[str] = []
 
     for row in rows:
-        equipment = cell_to_text(row.values.get("equipment"))
         mold_no = normalize_mold_no(row.values.get("mold_no"))
-        if not equipment or not mold_no:
+        if not mold_no:
+            raw = cell_to_text(row.values.get("mold_no"))
             dropped.append(
-                f"{row.source_file} {row.row_no}행: "
-                f"설비명={equipment or '(빈 값)'} 금형번호={mold_no or '(빈 값)'}"
+                f"{row.source_file} {row.row_no}행: JIG ID={raw or '(빈 값)'}"
             )
             continue
-        index[equipment] = JigInfo(
-            mold_no=mold_no,
-            equipment=equipment,
-            equipment_code=cell_to_text(row.values.get("equipment_code")),
-            line=cell_to_text(row.values.get("line")),
-            jig_name=cell_to_text(row.values.get("jig_name")),
-        )
+        index[mold_no] = _jig_info(mold_no, row)
     return index, dropped
 
 
+def build_equipment_index(rows: list[Row]) -> dict[str, JigInfo]:
+    """기준정보 행 → {설비명: JigInfo}. MES 조회 키를 고르는 데만 쓴다.
+
+    여기서 나오는 `JigInfo.mold_no` 는 **그 설비에 등록된 금형**이지 조회 중인
+    금형이 아니다. 읽어야 할 것은 `equipment_code` 와 `line` 뿐이다 — mold_no
+    까지 가져다 쓰면 금형이 설비를 옮긴 순간 남의 번호가 붙는다.
+
+    설비명이 없는 행은 이 색인에 못 들어간다. 사유를 남기지 않는 이유는
+    build_jig_index 가 같은 행을 이미 봤기 때문이다 — 거기서는 유효한 행이라
+    여기서 또 세면 멀쩡한 행이 손실로 보고된다.
+    """
+    index: dict[str, JigInfo] = {}
+    for row in rows:
+        equipment = cell_to_text(row.values.get("equipment"))
+        mold_no = normalize_mold_no(row.values.get("mold_no"))
+        if not equipment or not mold_no:
+            continue
+        index[equipment] = _jig_info(mold_no, row)
+    return index
+
+
 def extract_runs(
-    rows: list[Row], jig_index: dict[str, JigInfo]
+    rows: list[Row],
+    jig_index: dict[str, JigInfo],
+    equip_index: dict[str, JigInfo],
 ) -> tuple[list[UsageRun], JoinLosses]:
     """관리대장 이벤트 → 설비 사용구간.
 
@@ -110,22 +158,49 @@ def extract_runs(
     (그 이벤트의 위치가 무엇이든 설비를 떠났다는 사실만 중요하다). 마지막
     이벤트가 설비면 아직 가동 중이라 종료가 없다.
 
-    시트 하나가 금형 하나이므로 시트별로 따로 짝짓는다 — 섞으면 A 금형의
-    설비 진입이 B 금형의 이벤트로 닫힌다.
+    **JIG ID 로 묶어서 짝짓는다.** 한 시트에 여러 금형의 이벤트가 시간순으로
+    섞여 있으므로, 시트로 묶으면 A 금형의 설비 진입이 B 금형의 다음 이벤트로
+    닫힌다. 파일 경계도 넘는다 — 금형 이력은 파일이 아니라 금형을 따라
+    이어지기 때문이다. 대신 관리대장이 겹쳐 올라올 때를 대비해 완전히 같은
+    이벤트는 하나로 접는다(안 접으면 길이 0 짜리 유령 구간이 생긴다).
+
+    구간마다 MES 조회 키는 **그 이벤트의 설비명**으로 고른다. 기준정보에 없는
+    설비명이면 JIG ID 행으로 폴백한다 — 금형을 잃는 것보다 낫지만, 그 구간의
+    실적이 '현재 등록된 설비' 기준이라는 사실은 손실로 남긴다.
     """
     losses = JoinLosses()
 
-    # (파일, 시트) 로 묶는다. 파일이 여럿일 때 같은 시트 이름이 겹칠 수 있다.
-    by_sheet: dict[tuple[str, str], list[tuple[datetime, Row]]] = {}
+    by_mold: dict[str, list[tuple[datetime, Row]]] = {}
+    seen: set[tuple[str, datetime, str, str]] = set()
     for row in rows:
+        mold_no = normalize_mold_no(row.values.get("mold_no"))
+        if mold_no is None:
+            losses.rows_without_mold_no += 1
+            continue
         when = to_datetime(row.values.get("event_at"))
         if when is None:
             losses.bad_event_times += 1
             continue
-        by_sheet.setdefault((row.source_file, row.sheet), []).append((when, row))
+        key = (
+            mold_no,
+            when,
+            cell_to_text(row.values.get("location")) or "",
+            cell_to_text(row.values.get("equipment")) or "",
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        by_mold.setdefault(mold_no, []).append((when, row))
 
     runs: list[UsageRun] = []
-    for (source_file, sheet), events in by_sheet.items():
+    for mold_no, events in by_mold.items():
+        jig_info = jig_index.get(mold_no)
+        if jig_info is None:
+            # 설비코드를 어디서도 얻을 수 없으므로 이 금형은 통째로 빠진다.
+            if mold_no not in losses.unknown_jig_id:
+                losses.unknown_jig_id.append(mold_no)
+            continue
+
         # 엑셀 행 순서가 시간순이라는 보장이 없다. 정렬하지 않으면 '다음
         # 이벤트'가 엉뚱한 행이 되어 사용구간이 음수 길이가 된다.
         events.sort(key=lambda pair: pair[0])
@@ -136,19 +211,21 @@ def extract_runs(
                 continue
 
             equipment = cell_to_text(row.values.get("equipment"))
-            info = jig_index.get(equipment) if equipment else None
+            info = equip_index.get(equipment) if equipment else None
             if info is None:
-                # 금형번호를 얻을 수 없으면 이 구간은 어디에도 못 붙는다.
                 if equipment and equipment not in losses.unknown_equipment:
                     losses.unknown_equipment.append(equipment)
-                continue
+                info = jig_info
 
             ended = events[i + 1][0] if i + 1 < len(events) else None
             if ended is None:
                 losses.open_runs += 1
 
             runs.append(UsageRun(
-                mold_no=info.mold_no,
+                # 금형번호는 언제나 **행의 JIG ID** 다. info.mold_no 는 그
+                # 설비에 등록된 금형이라, 금형이 설비를 옮긴 순간 남의 번호가
+                # 붙는다.
+                mold_no=mold_no,
                 equipment=equipment,
                 equipment_code=info.equipment_code,
                 # 라인은 기준정보 것을 쓴다 — 관리대장 라인은 공장 접두사가
@@ -156,8 +233,8 @@ def extract_runs(
                 line=info.line,
                 started_at=when.isoformat(),
                 ended_at=ended.isoformat() if ended else None,
-                source_file=source_file,
-                source_sheet=sheet,
+                source_file=row.source_file,
+                source_sheet=row.sheet,
             ))
 
     runs.sort(key=lambda r: (r.mold_no, r.started_at))
@@ -165,23 +242,26 @@ def extract_runs(
 
 
 def latest_locations(rows: list[Row]) -> dict[str, str]:
-    """설비명 → 가장 마지막 이벤트의 위치.
+    """JIG ID → 가장 마지막 이벤트의 위치.
 
     관리대장에 상태 열이 따로 없다. 금형이 **지금 어디에 있는가**가 곧 상태다.
     설비 사용구간(extract_runs)과 달리 여기서는 '설비' 가 아닌 위치도 필요하다 —
     수리실에 있는 금형도 화면에 나와야 하기 때문이다.
+
+    설비명은 보지 않는다. 보관함에 있는 이벤트는 설비명이 비어 있을 수 있는데,
+    그 행을 버리면 그 금형이 목록에서 통째로 사라진다.
     """
     latest: dict[str, tuple[datetime, str]] = {}
     for row in rows:
+        mold_no = normalize_mold_no(row.values.get("mold_no"))
         when = to_datetime(row.values.get("event_at"))
-        equipment = cell_to_text(row.values.get("equipment"))
         location = cell_to_text(row.values.get("location"))
-        if when is None or not equipment or not location:
+        if mold_no is None or when is None or not location:
             continue
-        prev = latest.get(equipment)
+        prev = latest.get(mold_no)
         if prev is None or when >= prev[0]:
-            latest[equipment] = (when, location)
-    return {equip: loc for equip, (_when, loc) in latest.items()}
+            latest[mold_no] = (when, location)
+    return {mold: loc for mold, (_when, loc) in latest.items()}
 
 
 def covered_dates(started_at: str, ended_at: str | None) -> list[date]:

@@ -119,12 +119,14 @@ def test_each_source_gets_its_own_field_vocabulary():
     관리대장에서 punch 를 찾거나 MES 에서 금형번호를 지어낸다."""
     ees = _prompt_for("ees")
     assert "location(위치)" in ees
-    assert "금형번호 열은 없다" in ees, "없는 것을 찾아 헤매면 수렴하지 않는다"
+    assert "'JIG ID'" in ees, "금형을 확정하는 열이라 반드시 지목해야 한다"
+    assert "반드시 찾아야 한다" in ees
+    assert "식별하는 열이 **아니다**" in ees, "설비명의 역할을 못 박아야 한다"
     assert "punch" not in ees
 
     master = _prompt_for("jig_master")
     assert "equipment_code" in master
-    assert "이 둘이 없으면" in master, "왜 필수인지 함께 말해야 한다"
+    assert "둘 중 하나만 없어도" in master, "왜 필수인지 함께 말해야 한다"
 
     mes = _prompt_for("mes")
     assert "defect_ppm" in mes

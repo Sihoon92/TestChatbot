@@ -11,13 +11,22 @@ function Losses({ s }: { s: RunSummary }) {
       `관리대장에 없는 금형 ${s.orphan_mold_nos.length}건: ${s.orphan_mold_nos.join(", ")}`
     );
   }
-  // 기준정보가 낡으면 그 금형이 번호를 얻지 못해 목록에서 통째로 빠진다.
-  // 가장 흔한 사고이므로 설비명 원문을 그대로 보여준다 — 그래야 사용자가
-  // "아, 이 설비를 기준정보에 넣어야겠다"까지 갈 수 있다.
+  // 기준정보가 낡으면 그 금형이 MES 조회 키를 얻지 못해 목록에서 통째로
+  // 빠진다. 가장 흔한 사고이므로 JIG ID 를 그대로 보여준다 — 그래야 사용자가
+  // "아, 이 금형을 기준정보에 넣어야겠다"까지 갈 수 있다.
+  if (s.unknown_jig_id.length > 0) {
+    items.push(
+      `JIG 기준정보에 없는 JIG ID ${s.unknown_jig_id.length}건` +
+        ` (해당 금형이 목록에서 빠짐): ${s.unknown_jig_id.join(", ")}`
+    );
+  }
+  // 설비명은 못 찾아도 금형은 나온다(JIG ID 로 폴백). 다만 그 구간의 실적을
+  // "그때 그 설비"가 아니라 "현재 등록된 설비" 기준으로 읽었다는 뜻이라,
+  // 위의 치명적 손실과 같은 무게로 읽히면 안 된다.
   if (s.unknown_equipment.length > 0) {
     items.push(
       `JIG 기준정보에 없는 설비 ${s.unknown_equipment.length}건` +
-        ` (해당 금형이 목록에서 빠짐): ${s.unknown_equipment.join(", ")}`
+        ` (현재 등록된 설비의 실적으로 대체함): ${s.unknown_equipment.join(", ")}`
     );
   }
   // 값이 있어도 일부 날만 반영된 불량율이라는 사실이 드러나야 한다.
