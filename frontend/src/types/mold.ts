@@ -56,14 +56,22 @@ export interface DefectRate {
   rate: number;
 }
 
+/** 금형이 설비에 투입돼 있던 구간 하나. 화면의 "기간별 불량율" 표 한 행. */
 export interface ProductionRun {
   install_seq: number;
-  line: string;
-  machine: string;
-  started_at: string;
-  ended_at: string | null;
+  line: string | null;
+  machine: string | null;
+  started_at: string | null;
+  ended_at: string | null; // null = 아직 설비에 있다(진행 중)
   grind_result: string | null;
   defect_rate: number | null;
+  // 합산의 근거. 불량율만 있으면 "이 1.253%가 어디서 나왔나"에 답할 수 없다.
+  produced: number | null;
+  defect_count: number | null;
+  // 구간이 덮는 날 중 MES 실적을 실제로 찾은 날 수와 전체 날 수. 둘이 다르면
+  // 그 불량율은 **일부 날만 반영된 값**이다 — 표가 이 차이를 숨기면 안 된다.
+  days_covered: number | null;
+  days_expected: number | null;
   defects: DefectRate[];
 }
 

@@ -1,5 +1,12 @@
 import type { ProductionRun } from "../../types/mold";
-import { DASH, fmtInstallation, fmtPercent, fmtText } from "./formatters";
+import {
+  DASH,
+  fmtNumber,
+  fmtPercent,
+  fmtPeriod,
+  fmtRunDays,
+  fmtText,
+} from "./formatters";
 
 /** 화면에 있는 행들에 등장한 불량 항목의 합집합(처음 등장한 순서 유지).
  *
@@ -30,10 +37,12 @@ export default function ProductionTable({ runs }: { runs: ProductionRun[] }) {
       <table className="w-full min-w-max text-sm">
         <thead>
           <tr>
-            <th className={TH}>설치#</th>
-            <th className={TH}>호기</th>
-            <th className={TH}>시간대</th>
-            <th className={TH}>연마결과</th>
+            <th className={TH}>기간</th>
+            <th className={TH}>라인</th>
+            <th className={TH}>설비</th>
+            <th className={TH}>일수</th>
+            <th className={TH}>투입</th>
+            <th className={TH}>불량</th>
             <th className={TH}>불량율</th>
             {labels.map((label) => (
               <th key={label} className={TH}>
@@ -51,13 +60,17 @@ export default function ProductionTable({ runs }: { runs: ProductionRun[] }) {
             // index 를 key 에 더한다.
             return (
               <tr key={`${run.install_seq}-${index}`}>
-                <td className={TD}>{run.install_seq}</td>
-                <td className={TD}>{fmtInstallation(run.line, run.machine)}</td>
+                <td className={TD}>{fmtPeriod(run.started_at, run.ended_at)}</td>
+                <td className={TD}>{fmtText(run.line)}</td>
+                <td className={TD}>{fmtText(run.machine)}</td>
                 <td className={TD}>
-                  {run.started_at} ~ {fmtText(run.ended_at)}
+                  {fmtRunDays(run.days_covered, run.days_expected, run.ended_at)}
                 </td>
-                <td className={TD}>{fmtText(run.grind_result)}</td>
-                <td className={TD}>{fmtPercent(run.defect_rate)}</td>
+                <td className={TD}>{fmtNumber(run.produced)}</td>
+                <td className={TD}>{fmtNumber(run.defect_count)}</td>
+                {/* PPM 단위의 불량율이라 소수 첫째 자리로는 1.2%/1.3% 로 뭉개져
+                    구간끼리 비교가 안 된다. 셋째 자리까지 보여준다. */}
+                <td className={TD}>{fmtPercent(run.defect_rate, 3)}</td>
                 {labels.map((label) => (
                   <td key={label} className={TD}>
                     {/* 이 행에 없는 항목은 0.0% 가 아니라 — 다. 0 으로 채우면

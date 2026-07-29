@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { DASH, fmtInstallation, fmtMeasure, fmtMeasurePair, fmtNumber, fmtPercent, fmtText } from "./formatters";
+import {
+  DASH,
+  fmtInstallation,
+  fmtMeasure,
+  fmtMeasurePair,
+  fmtNumber,
+  fmtPercent,
+  fmtPeriod,
+  fmtRunDays,
+  fmtText,
+} from "./formatters";
 
 describe("formatters", () => {
   it("renders null as a dash, never as zero", () => {
@@ -51,5 +61,50 @@ describe("formatters", () => {
   it("keeps a real zero pair distinguishable from null in measurements", () => {
     expect(fmtMeasurePair(0, 0, "mm")).toBe("0×0mm");
     expect(fmtMeasurePair(0, null, "mm")).toBe(DASH);
+  });
+});
+
+describe("fmtPeriod", () => {
+  it("renders a closed period as start~end", () => {
+    expect(fmtPeriod("2026-07-01T07:00:00", "2026-07-05T07:00:00")).toBe(
+      "07-01 07:00~07-05 07:00"
+    );
+  });
+
+  it("leaves the end open for a run still in progress", () => {
+    expect(fmtPeriod("2026-07-14T09:00:00", null)).toBe("07-14 09:00~");
+  });
+
+  it("does not shift by the browser timezone", () => {
+    // naive ISO 문자열을 Date 로 파싱하면 한국에서 9시간이 밀려 07:00 이
+    // 16:00 으로 보인다. 문자열을 자르므로 어느 타임존에서도 같아야 한다.
+    expect(fmtPeriod("2026-07-01T00:30:00", "2026-07-01T23:30:00")).toBe(
+      "07-01 00:30~07-01 23:30"
+    );
+  });
+
+  it("dashes when the start is unknown", () => {
+    expect(fmtPeriod(null, "2026-07-05T07:00:00")).toBe(DASH);
+  });
+});
+
+describe("fmtRunDays", () => {
+  it("shows a plain count when every day was covered", () => {
+    expect(fmtRunDays(4, 4, "2026-07-05T07:00:00")).toBe("4일");
+  });
+
+  it("shows covered/expected when MES files were missing", () => {
+    // "3일" 로 쓰면 원래 3일짜리 구간과 구분되지 않아, 일부만 반영된
+    // 불량율을 완전한 값으로 오해하게 된다.
+    expect(fmtRunDays(3, 4, "2026-07-05T07:00:00")).toBe("3/4일");
+  });
+
+  it("reports an unfinished run as 가동 중, not as zero days", () => {
+    // 불량율이 빈 이유가 "아직 안 끝남" 인지 "조인 실패" 인지 구분돼야 한다.
+    expect(fmtRunDays(0, 0, null)).toBe("가동 중");
+  });
+
+  it("dashes when the expected span is unknown", () => {
+    expect(fmtRunDays(null, null, "2026-07-05T07:00:00")).toBe(DASH);
   });
 });
