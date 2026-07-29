@@ -114,27 +114,22 @@ def test_last_submission_wins():
     assert layout.anchors[0].text == "금형번호"
 
 
-def test_prompt_carries_stage_specific_field_vocabulary():
-    """MES 와 IQC 는 요구 필드가 다르다. 같은 프롬프트를 쓰면 에이전트가
-    MES 시트에서 punch 를 찾거나 IQC 시트에서 status 를 지어낸다."""
-    received: list[str] = []
+def test_each_source_gets_its_own_field_vocabulary():
+    """세 소스는 요구 필드가 전혀 다르다. 같은 프롬프트를 쓰면 에이전트가
+    관리대장에서 punch 를 찾거나 MES 에서 금형번호를 지어낸다."""
+    ees = _prompt_for("ees")
+    assert "location(위치)" in ees
+    assert "금형번호 열은 없다" in ees, "없는 것을 찾아 헤매면 수렴하지 않는다"
+    assert "punch" not in ees
 
-    class RecordingModel(FakeToolCallingModel):
-        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-            received.append("\n".join(str(m.content) for m in messages))
-            return super()._generate(messages, stop, run_manager, **kwargs)
+    master = _prompt_for("jig_master")
+    assert "equipment_code" in master
+    assert "이 둘이 없으면" in master, "왜 필수인지 함께 말해야 한다"
 
-    model = RecordingModel(responses=[
-        AIMessage(content="", tool_calls=[
-            {"name": "submit_layout", "args": LAYOUT_ARGS, "id": "c1"}
-        ]),
-        AIMessage(content="완료", tool_calls=[]),
-    ])
-
-    discover_layout(model, FakeWorkbook(), "mes", "Sheet1")
-
-    assert "defect_rate" in received[0]
-    assert "punch" not in received[0]
+    mes = _prompt_for("mes")
+    assert "defect_ppm" in mes
+    assert "**종합** 것을 골라라" in mes, "지표군이 셋이라 지목이 필요하다"
+    assert "key_values 로 잡아라" in mes, "날짜가 표 밖에 있다"
 
 
 def test_raises_for_stage_without_field_guide():
@@ -315,14 +310,6 @@ def test_prompt_explains_the_outline_column_span():
     assert "B~U" in prompt, "윤곽 줄의 생김새를 예시로 보여줘야 한다"
     assert "윤곽이 알려준 열 범위를 그대로 쓴다" in prompt
     assert "읽은 표를 윤곽과 대조한다" in prompt
-
-
-def test_mes_guide_separates_machine_from_model_name():
-    """실물에서 machine 을 G(호기) 대신 E(기종)로 지목해 호기가 H104 로 들어왔다."""
-    prompt = _prompt_for("mes")
-
-    assert "호기" in prompt
-    assert "'기종'(H104 처럼" in prompt
 
 
 def test_iqc_guide_names_the_korean_headers_of_fixed_fields():

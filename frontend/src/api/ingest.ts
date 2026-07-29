@@ -21,10 +21,21 @@ export interface RunSummary {
   // 경우). 비어 있지 않으면 백엔드가 배치를 건너뛰고 status="skipped" 를
   // 돌려준다 — "변경 없어서 건너뜀"과 구분해서 보여줘야 한다.
   unreadable_files: string[];
-  // 열리긴 했으나 파싱에 실패한 IQC 파일과 사유("경로: 예외: 메시지").
+  // 열리긴 했으나 파싱에 실패한 IQC/MES 파일과 사유("경로: 예외: 메시지").
   // 그 파일만 건너뛰고 배치는 성공하므로 status 는 "ok" 다 — 화면에서
-  // 드러내지 않으면 그 파일의 IQC 항목이 사유 없이 사라진다.
+  // 드러내지 않으면 그 파일의 데이터가 사유 없이 사라진다.
   failed_files: string[];
+  // 관리대장에 있는데 JIG 기준정보에 없는 설비명. 그 금형은 번호를 얻지 못해
+  // 목록에서 통째로 빠진다 — 기준정보가 낡았다는 가장 흔한 신호다.
+  unknown_equipment: string[];
+  // 사용구간이 덮는 날인데 MES 파일이 없는 날짜. 불량율이 일부 날만
+  // 반영되므로 값이 있어도 그대로 믿으면 안 된다.
+  missing_mes_days: string[];
+  // MES 에서 단 하루도 못 찾은 사용구간 수(가동 중인 구간은 제외).
+  unmatched_runs: number;
+  // 아직 설비에 있어 종료가 없는 구간 수. **손실이 아니다** — 불량율이 비어
+  // 있는 이유가 "가동 중"인지 "조인 실패"인지 구분하려고 따로 센다.
+  open_runs: number;
 }
 
 async function json<T>(res: Response): Promise<T> {

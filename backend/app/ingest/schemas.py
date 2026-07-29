@@ -14,23 +14,44 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-SourceKind = Literal["mes", "iqc", "pqc", "design", "install", "ai_recheck"]
+SourceKind = Literal[
+    "ees", "jig_master", "mes", "iqc", "pqc", "design", "install", "ai_recheck"
+]
 
 # 단계별 고정 필드 어휘. discover 의 프롬프트가 이 이름을 요구하고, assemble 이
 # 같은 이름으로 읽는다. 양쪽이 공유하므로 스키마 모듈에 둔다 — assemble 에 두면
 # discover 가 조립 로직을 import 하게 되어 의존 방향이 뒤집힌다.
-MES_FIELDS = [
-    "mold_no",
-    "status",
-    "line",
-    "machine",
-    "date",
+
+# JIG 관리대장: 시트 하나가 금형 하나이고 한 행이 이벤트 하나다.
+# **금형번호가 없다** — 설비명으로 기준정보를 찾아야 알 수 있다.
+EES_FIELDS = [
+    "event_at",    # 이벤트시간
+    "location",    # 위치. 이 값이 "설비" 인 구간이 곧 사용구간이다
+    "equipment",   # 설비명 — 기준정보와 이어붙이는 유일한 키
+    "line",        # 관리대장의 라인(공장 접두사가 없어 MES 와 직접 비교 불가)
     "process",
-    "time",
-    "shot_count",
-    "total_installs",
-    "total_production",
-    "defect_rate",
+]
+
+# JIG 기준정보: 설비명 ↔ 금형번호 ↔ 설비코드 ↔ 라인 매핑표.
+# 이것이 빠지면 금형 식별과 MES 조회가 동시에 끊긴다.
+JIG_MASTER_FIELDS = [
+    "mold_no",          # JIG ID (#RX39513 → RX39513)
+    "jig_name",         # JIG명
+    "equipment",        # 설비명
+    "equipment_code",   # 설비코드 — MES 조회 키
+    "line",             # Line명 — MES 조회 키
+]
+
+# MES: 하루 한 파일, 한 행이 (라인, 설비코드) 하나의 그날 실적이다.
+# 여기에도 금형번호가 없다.
+MES_FIELDS = [
+    "run_date",         # 상단 라벨의 날짜(표가 아니라 key_values 로 온다)
+    "line",
+    "equipment_code",
+    "produced",         # 투입수량
+    "good",             # 양품수량
+    "defects",          # 불량수량
+    "defect_ppm",       # 종합/불량율(PPM)
 ]
 
 # IQC 에서 수치로 뽑을 고정 필드. 나머지 컬럼은 헤더 텍스트 그대로 항목이 된다.
@@ -174,6 +195,51 @@ class ScanResult(BaseModel):
     unreadable: list[str] = []
 
 
+class JigInfo(BaseModel):
+    """기준정보 한 행 — 설비명으로 금형과 MES 조회 키를 찾는 다리.
+
+    관리대장도 MES 도 금형번호를 모른다. 이 표가 없으면 두 조인이 동시에
+    끊기므로, 부분 실패가 아니라 전면 실패다.
+    """
+
+    mold_no: str
+    equipment: str
+    equipment_code: str | None = None
+    line: str | None = None
+    jig_name: str | None = None
+
+
+class DailyDefect(BaseModel):
+    """MES 하루치 실적. 근거를 되짚을 수 있게 원값 그대로 남긴다."""
+
+    date: str          # YYYY-MM-DD
+    produced: int
+    defects: int
+
+
+class UsageRun(BaseModel):
+    """금형이 설비에 들어가 있던 구간 하나 = production_run 한 행.
+
+    ended_at 이 None 이면 아직 설비에 있다는 뜻이다. 불량율이 비어 있는 것이
+    '가동 중이라 아직 없음'인지 '조인이 깨짐'인지 구분되어야 하므로, 이 둘을
+    같은 None 으로 뭉개지 않는다(호출자가 ended_at 으로 판단한다).
+    """
+
+    mold_no: str
+    equipment: str
+    equipment_code: str | None = None
+    line: str | None = None
+    started_at: str                    # isoformat
+    ended_at: str | None = None
+    source_file: str
+    source_sheet: str
+    # ── MES 조인 결과 ──
+    produced: int | None = None
+    defects: int | None = None
+    defect_rate: float | None = None   # 비율(0.0154 = 1.54%)
+    daily: list[DailyDefect] = []
+
+
 class StageItemRecord(BaseModel):
     """대시보드 StageItem 이 될 항목 + 출처."""
 
@@ -199,6 +265,9 @@ class MoldRecord(BaseModel):
     source_file: str
     iqc_items: list[StageItemRecord] = []
     iqc_source_file: str | None = None
+    # 설비 사용구간(최근순). production_run 테이블이 되고, 가장 최근 구간의
+    # 불량율이 latest_defect_rate 다.
+    runs: list[UsageRun] = []
 
 
 class RunSummary(BaseModel):
@@ -232,3 +301,17 @@ class RunSummary(BaseModel):
     # 목록을 버릴 이유가 없다. 다만 사유 없이 넘기면 그 파일의 IQC 항목이
     # 화면에서 사라지는데 아무도 원인을 못 찾는다.
     failed_files: list[str] = []
+
+    # ── EES/MES 조인에서 생기는 손실 ────────────────────────────────
+    # 관리대장에 있는데 기준정보에 없는 설비명. 그 금형은 번호를 얻지 못해
+    # 통째로 안 나온다 — 기준정보가 낡았다는 가장 흔한 신호다.
+    unknown_equipment: list[str] = []
+    # 사용구간이 덮는 날인데 MES 파일이 없는 날짜. 불량율이 일부 날만
+    # 반영되므로 값이 있어도 믿을 수 없다.
+    missing_mes_days: list[str] = []
+    # MES 파일은 있는데 그 (라인, 설비코드) 행이 없는 경우. 라인 표기가
+    # 어긋났거나 그날 그 설비가 안 돌았다.
+    unmatched_runs: int = 0
+    # 아직 설비에 있어 종료가 없는 구간 수. **손실이 아니다** — 불량율이
+    # 비어 있는 이유가 '가동 중'인지 '조인 실패'인지 구분하려고 따로 센다.
+    open_runs: int = 0

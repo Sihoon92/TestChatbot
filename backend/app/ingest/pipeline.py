@@ -22,10 +22,17 @@ from app.ingest.schemas import FoundFile, Row, RunSummary
 from app.ingest.store import replace_all
 
 
-# 1단계는 MES + IQC 만 읽는다. 나머지 폴더의 파일을 found 에 남기면 이력에는
+# 이번 단계가 읽는 종류. 나머지 폴더의 파일을 found 에 남기면 이력에는
 # "읽었다"고 기록되면서 데이터는 안 들어와, 화면이 성공으로 보인다. 단계를
 # 늘릴 때 여기와 FIELD_GUIDE 를 함께 늘린다.
-_PROCESSED_KINDS = ("mes", "iqc")
+#
+# 순서가 곧 의존성이다. jig_master(기준정보)를 먼저 읽어야 관리대장의 설비명을
+# 금형번호로 옮길 수 있고, MES 조회 키(설비코드·라인)도 거기서 나온다.
+_PROCESSED_KINDS = ("jig_master", "ees", "mes", "iqc")
+
+# 이것이 없으면 금형 식별과 MES 조회가 **동시에** 끊긴다. 부분 실패가 아니라
+# 전면 실패이므로 MES 파일이 없을 때와 같은 취급을 한다.
+_REQUIRED_KIND = "jig_master"
 
 
 def _now() -> str:
@@ -142,34 +149,43 @@ def run_ingest(
             registry.record_run(conn, summary)
             return summary
 
-        mes_files = [f for f in found if f.kind == "mes"]
-        if not mes_files:
-            summary = RunSummary(
-                status="error", started_at=started, finished_at=_now(),
-                error="MES 파일이 없다. 금형 목록의 유일한 출처이므로 배치를 중단한다.",
-                files=[f.path for f in found],
-            )
-            registry.record_run(conn, summary)
-            return summary
+        for required in (_REQUIRED_KIND, "ees"):
+            if not [f for f in found if f.kind == required]:
+                label = {"jig_master": "JIG 기준정보", "ees": "JIG 관리대장"}[required]
+                summary = RunSummary(
+                    status="error", started_at=started, finished_at=_now(),
+                    error=(
+                        f"{label} 파일이 없다. 금형을 식별할 수 없으므로 "
+                        f"배치를 중단한다."
+                    ),
+                    files=[f.path for f in found],
+                )
+                registry.record_run(conn, summary)
+                return summary
 
-        # MES 실패는 배치를 중단시킨다(마스터가 없으면 금형 목록을 만들 수
-        # 없다). IQC 는 파일 단위로 격리한다 — 한 장이 깨졌다고 금형 목록까지
-        # 버리면 MES 는 멀쩡히 읽혔는데 화면이 통째로 옛 상태로 남는다.
-        mes_rows: list[Row] = []
-        iqc_rows: list[Row] = []
+        # 기준정보·관리대장 실패는 배치를 중단시킨다(금형 목록을 만들 수 없다).
+        # MES 와 IQC 는 파일 단위로 격리한다 — 하루치가 깨졌다고 금형 목록까지
+        # 버리면 관리대장은 멀쩡히 읽혔는데 화면이 통째로 옛 상태로 남는다.
+        rows_by_kind: dict[str, list[Row]] = {k: [] for k in _PROCESSED_KINDS}
         failed: list[str] = []
-        for f in mes_files:
-            mes_rows.extend(_read_file(conn, model, f, open_wb, config))
-        for f in [x for x in found if x.kind == "iqc"]:
-            try:
-                iqc_rows.extend(_read_file(conn, model, f, open_wb, config))
-            except Exception as exc:  # noqa: BLE001
-                # 부속 정보 하나가 없다고 금형 목록을 버리지 않는다. 다만
-                # 조용히 넘기지도 않는다 — 그 파일의 IQC 항목이 화면에서
-                # 사라지는데 사유가 없으면 아무도 원인을 못 찾는다.
-                failed.append(f"{f.path}: {type(exc).__name__}: {exc}")
+        for kind in _PROCESSED_KINDS:
+            isolated = kind in ("mes", "iqc")
+            for f in [x for x in found if x.kind == kind]:
+                try:
+                    rows_by_kind[kind].extend(
+                        _read_file(conn, model, f, open_wb, config)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    if not isolated:
+                        raise
+                    # 조용히 넘기지 않는다 — 그 파일의 데이터가 화면에서
+                    # 사라지는데 사유가 없으면 아무도 원인을 못 찾는다.
+                    failed.append(f"{f.path}: {type(exc).__name__}: {exc}")
 
-        result = assemble(mes_rows, iqc_rows)
+        result = assemble(
+            rows_by_kind["jig_master"], rows_by_kind["ees"],
+            rows_by_kind["mes"], rows_by_kind["iqc"],
+        )
         # mold 전체 교체 + 파일 이력 갱신 + 삭제 이력 제거를 한 트랜잭션으로
         # 묶는다. 각자 따로 커밋하면 예를 들어 replace_all 이 커밋된 뒤
         # record_files 가 실패했을 때 mold 는 새 상태, ingested_file 은 옛
@@ -187,11 +203,13 @@ def run_ingest(
             mold_count=len(result.records),
             iqc_matched=result.iqc_matched,
             orphan_mold_nos=result.orphan_mold_nos,
-            unknown_statuses=result.unknown_statuses,
-            unknown_status_rows=result.unknown_status_rows,
             skipped_rows=result.skipped_rows,
             files=[f.path for f in found],
             failed_files=failed,
+            unknown_equipment=result.losses.unknown_equipment,
+            missing_mes_days=result.losses.missing_mes_days,
+            unmatched_runs=result.losses.unmatched_runs,
+            open_runs=result.losses.open_runs,
         )
         registry.record_run(conn, summary)
         return summary

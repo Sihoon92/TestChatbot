@@ -52,7 +52,10 @@ class Settings(BaseSettings):
     ingest_root: str = "./data/uploads"
     # "폴더명:소스종류" 쌍을 쉼표로. 폴더 이름이 바뀌거나 공유드라이브로
     # 옮겨도 코드를 고치지 않기 위해 설정으로 뺀다.
-    ingest_stage_dirs: str = "MES:mes,IQC:iqc,PQC:pqc,설계:design,설치:install,AI복검:ai_recheck"
+    ingest_stage_dirs: str = (
+        "JIG기준정보:jig_master,EES:ees,MES:mes,IQC:iqc,PQC:pqc,"
+        "설계:design,설치:install,AI복검:ai_recheck"
+    )
     # 채팅용 app.db 와 반드시 별도 파일. 같은 파일을 쓰면 LangGraph 체크포인터와
     # SQLite 쓰기 락을 두고 경합해 'database is locked' 가 난다.
     molds_db_path: str = "./molds.db"

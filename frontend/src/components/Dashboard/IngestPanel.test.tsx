@@ -34,6 +34,10 @@ const OK: RunSummary = {
   files: ["MES/mes.xlsx"],
   error: null,
   unreadable_files: [],
+  unknown_equipment: [],
+  missing_mes_days: [],
+  unmatched_runs: 0,
+  open_runs: 0,
   failed_files: [],
 };
 
@@ -64,35 +68,55 @@ describe("IngestPanel", () => {
     vi.mocked(api.runIngest).mockResolvedValue({
       ...OK,
       orphan_mold_nos: ["RX99999"],
-      unknown_statuses: ["가동"],
       skipped_rows: 2,
     });
 
     render(<IngestPanel />);
     await userEvent.click(await screen.findByRole("button", { name: /수집 실행/ }));
 
-    expect(await screen.findByText(/MES에 없는 금형 1건/)).toBeInTheDocument();
+    expect(await screen.findByText(/관리대장에 없는 금형 1건/)).toBeInTheDocument();
     expect(screen.getByText(/RX99999/)).toBeInTheDocument();
-    expect(screen.getByText(/인식하지 못한 상태/)).toBeInTheDocument();
-    expect(screen.getByText(/가동/)).toBeInTheDocument();
     expect(screen.getByText(/건너뛴 행 2건/)).toBeInTheDocument();
   });
 
-  it("인식하지 못한 상태로 몇 건이 빠졌는지 보여준다", async () => {
-    // 원문만 보여주면 "그래서 몇 건이 사라졌는데?"에 답이 없다. 실물 어휘가
-    // STATUS_MAP 밖이면 목록이 통째로 비는데, 화면에는 작은 한 줄만 남는다.
+  it("기준정보에 없는 설비를 원문 그대로 보여준다", async () => {
+    // 기준정보가 낡으면 그 금형이 번호를 얻지 못해 목록에서 통째로 빠진다.
+    // 설비명이 안 보이면 무엇을 표에 추가해야 하는지 알 수 없다.
     vi.mocked(api.runIngest).mockResolvedValue({
       ...OK,
-      unknown_statuses: ["가동", "휴지"],
-      unknown_status_rows: 42,
+      unknown_equipment: ["POU WND99_New_01"],
     });
 
     render(<IngestPanel />);
     await userEvent.click(await screen.findByRole("button", { name: /수집 실행/ }));
 
-    expect(
-      await screen.findByText(/인식하지 못한 상태: 가동, 휴지 \(이 상태의 행 42건이 제외됨\)/)
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/JIG 기준정보에 없는 설비 1건/)).toBeInTheDocument();
+    expect(screen.getByText(/POU WND99_New_01/)).toBeInTheDocument();
+  });
+
+  it("MES 파일이 빠진 날을 드러낸다", async () => {
+    // 값이 있어도 일부 날만 반영된 불량율이라는 사실이 보여야 한다.
+    vi.mocked(api.runIngest).mockResolvedValue({
+      ...OK,
+      missing_mes_days: ["2026-07-02", "2026-07-03"],
+    });
+
+    render(<IngestPanel />);
+    await userEvent.click(await screen.findByRole("button", { name: /수집 실행/ }));
+
+    expect(await screen.findByText(/MES 파일이 없는 날 2일/)).toBeInTheDocument();
+  });
+
+  it("가동 중인 구간은 경고가 아니라 요약에 둔다", async () => {
+    // 고칠 것이 없는데 경고로 띄우면 사용자가 없는 문제를 찾아 헤맨다.
+    vi.mocked(api.runIngest).mockResolvedValue({ ...OK, open_runs: 3 });
+
+    render(<IngestPanel />);
+    await userEvent.click(await screen.findByRole("button", { name: /수집 실행/ }));
+
+    const line = await screen.findByText(/가동 중 3건/);
+    expect(line).toBeInTheDocument();
+    expect(line.textContent).toMatch(/금형 4건/);
   });
 
   it("파싱에 실패한 파일과 사유를 보여준다", async () => {

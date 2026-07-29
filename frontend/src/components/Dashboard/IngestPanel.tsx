@@ -8,18 +8,27 @@ function Losses({ s }: { s: RunSummary }) {
   const items: string[] = [];
   if (s.orphan_mold_nos.length > 0) {
     items.push(
-      `MES에 없는 금형 ${s.orphan_mold_nos.length}건: ${s.orphan_mold_nos.join(", ")}`
+      `관리대장에 없는 금형 ${s.orphan_mold_nos.length}건: ${s.orphan_mold_nos.join(", ")}`
     );
   }
-  if (s.unknown_statuses.length > 0) {
-    // 원문만 보여주면 "그래서 몇 건이 사라졌는데?"에 답이 없다. 실물 어휘가
-    // STATUS_MAP 밖이면 목록이 통째로 비는데, 건수가 보여야 사용자가
-    // "아, STATUS_MAP 에 '가동'을 넣어야겠다"까지 갈 수 있다.
-    const scale =
-      s.unknown_status_rows > 0
-        ? ` (이 상태의 행 ${s.unknown_status_rows}건이 제외됨)`
-        : "";
-    items.push(`인식하지 못한 상태: ${s.unknown_statuses.join(", ")}${scale}`);
+  // 기준정보가 낡으면 그 금형이 번호를 얻지 못해 목록에서 통째로 빠진다.
+  // 가장 흔한 사고이므로 설비명 원문을 그대로 보여준다 — 그래야 사용자가
+  // "아, 이 설비를 기준정보에 넣어야겠다"까지 갈 수 있다.
+  if (s.unknown_equipment.length > 0) {
+    items.push(
+      `JIG 기준정보에 없는 설비 ${s.unknown_equipment.length}건` +
+        ` (해당 금형이 목록에서 빠짐): ${s.unknown_equipment.join(", ")}`
+    );
+  }
+  // 값이 있어도 일부 날만 반영된 불량율이라는 사실이 드러나야 한다.
+  if (s.missing_mes_days.length > 0) {
+    items.push(
+      `MES 파일이 없는 날 ${s.missing_mes_days.length}일` +
+        ` (그날 실적이 불량율에서 빠짐): ${s.missing_mes_days.join(", ")}`
+    );
+  }
+  if (s.unmatched_runs > 0) {
+    items.push(`MES에서 실적을 찾지 못한 사용구간 ${s.unmatched_runs}건`);
   }
   if (s.skipped_rows > 0) items.push(`건너뛴 행 ${s.skipped_rows}건`);
   if (items.length === 0 && s.failed_files.length === 0) return null;
@@ -75,6 +84,9 @@ function Result({ s }: { s: RunSummary }) {
     <div>
       <p className="text-xs text-ink/70">
         금형 {s.mold_count}건 · IQC 붙은 금형 {s.iqc_matched}건
+        {/* 가동 중인 구간은 손실이 아니라 상태다. 경고에 섞으면 사용자가
+            고칠 것이 없는데도 고치려 든다 — 그래서 요약 줄에 둔다. */}
+        {s.open_runs > 0 && ` · 가동 중 ${s.open_runs}건(불량율 미확정)`}
       </p>
       <Losses s={s} />
     </div>
