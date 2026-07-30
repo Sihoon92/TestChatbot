@@ -58,7 +58,7 @@ def _read_file(conn, model, found: FoundFile, open_wb, config) -> list[Row]:
             if not grid:
                 continue
             cached = pick_layout(
-                grid, top_left, registry.load_layouts(conn, found.kind, sheet_name)
+                grid, top_left, registry.load_layouts(conn, found.kind)
             )
             layout = cached
             if layout is None:

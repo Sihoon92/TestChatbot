@@ -44,17 +44,30 @@ def test_load_layouts_returns_newest_first(conn):
     registry.save_layout(conn, "iqc", _layout("관리번호"), "old.xlsx")
     registry.save_layout(conn, "iqc", _layout("금형번호"), "new.xlsx")
 
-    layouts = registry.load_layouts(conn, "iqc", "Sheet1")
+    layouts = registry.load_layouts(conn, "iqc")
 
     assert [l.anchors[0].text for l in layouts] == ["금형번호", "관리번호"]
 
 
-def test_load_layouts_filters_by_kind_and_sheet(conn):
+def test_load_layouts_offers_other_sheets_of_the_same_kind(conn):
+    """시트 이름이 금형번호가 되면서 캐시 키로 쓸 수 없어졌다. 양식이 같은
+    시트들이 각각 LLM 발견을 도는 것을 막으려면 후보를 kind 로 모아 주고,
+    양식 일치 판정은 pick_layout 의 앵커 대조에 맡겨야 한다."""
+    registry.save_layout(conn, "ees", _layout(sheet="#RX39513"), "ledger.xlsx")
+
+    found = registry.load_layouts(conn, "ees")
+
+    assert [x.sheet_name for x in found] == ["#RX39513"]
+
+
+def test_load_layouts_still_separates_kinds(conn):
+    """앵커가 우연히 맞을 수 있으므로 단계 경계는 남겨 둔다."""
     registry.save_layout(conn, "iqc", _layout(sheet="Sheet1"), "a.xlsx")
     registry.save_layout(conn, "mes", _layout(sheet="Sheet1"), "b.xlsx")
 
-    assert len(registry.load_layouts(conn, "iqc", "Sheet1")) == 1
-    assert registry.load_layouts(conn, "iqc", "다른시트") == []
+    assert len(registry.load_layouts(conn, "iqc")) == 1
+    assert len(registry.load_layouts(conn, "mes")) == 1
+    assert registry.load_layouts(conn, "ees") == []
 
 
 def test_old_layouts_are_kept_for_traceability(conn):
@@ -62,7 +75,7 @@ def test_old_layouts_are_kept_for_traceability(conn):
     해석했는가' 가 추출값을 의심할 때 유일한 근거다."""
     registry.save_layout(conn, "iqc", _layout("관리번호"), "old.xlsx")
     registry.save_layout(conn, "iqc", _layout("금형번호"), "new.xlsx")
-    assert len(registry.load_layouts(conn, "iqc", "Sheet1")) == 2
+    assert len(registry.load_layouts(conn, "iqc")) == 2
 
 
 def test_record_and_read_latest_run(conn):

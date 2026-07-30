@@ -50,6 +50,25 @@ class FakeWorkbook:
         return [r[0] for r in self._rows]
 
 
+class MultiSheetWorkbook:
+    """시트마다 격자가 다른 워크북. 시트 하나가 문서 단위인 파일을 흉내낸다."""
+
+    def __init__(self, by_sheet: dict):
+        self._by_sheet = by_sheet
+
+    def sheet_names(self):
+        return list(self._by_sheet)
+
+    def used_values(self, sheet):
+        return self._by_sheet[sheet], "A1"
+
+    def range_values(self, sheet, address):
+        return self._by_sheet[sheet]
+
+    def column_values(self, sheet, column, max_rows=5000):
+        return [r[0] for r in self._by_sheet[sheet]]
+
+
 def _layout(fields, anchor="금형번호"):
     return SheetLayout(
         sheet_name="Sheet1",
@@ -256,7 +275,7 @@ def test_bad_cached_layout_is_reinterpreted_once(env, monkeypatch):
 
     # 재해석 결과가 캐시에 남아, 다음 회차에는 앵커 대조만으로 통과해야 한다.
     conn = db.connect(env.resolved_molds_db_path)
-    latest = registry.load_layouts(conn, "ees", "Sheet1")[0]
+    latest = registry.load_layouts(conn, "ees")[0]
     conn.close()
     assert latest.tables[0].columns, "성공한 레이아웃이 최신으로 저장돼야 한다"
 
@@ -467,3 +486,37 @@ def test_unreadable_file_in_unprocessed_dir_does_not_block_batch(env, monkeypatc
 
     assert summary.status == "ok"
     assert summary.unreadable_files == []
+
+
+def test_same_form_sheets_reuse_one_discovered_layout(env, monkeypatch):
+    """양식이 같은 시트가 여러 개면 레이아웃 발견은 한 번이어야 한다.
+    캐시를 시트명으로 조회하면 시트 수만큼 LLM 이 돈다 — 관리대장은 시트
+    이름이 금형번호라 시트마다 이름이 다르다."""
+    calls = []
+
+    def _counting_discover(model, wb, kind, sheet_name, *, config=None):
+        calls.append((kind, sheet_name))
+        return LAYOUTS[kind]
+
+    monkeypatch.setattr(
+        "app.ingest.pipeline.discover_layout", _counting_discover
+    )
+
+    iqc_sheets = {
+        "첫째": [["금형번호", "punch"], ["RX28312", 12.5]],
+        "둘째": [["금형번호", "punch"], ["RX28312", 9.0]],
+    }
+
+    @contextmanager
+    def _open(path):
+        kind = _kind_of(path)
+        if kind == "iqc":
+            yield MultiSheetWorkbook(iqc_sheets)
+        else:
+            yield FakeWorkbook(GRIDS[kind])
+
+    summary = run_ingest(env, model=object(), open_wb=_open)
+
+    assert summary.status == "ok"
+    iqc_calls = [c for c in calls if c[0] == "iqc"]
+    assert len(iqc_calls) == 1, f"시트마다 발견을 돌았다: {iqc_calls}"

@@ -54,17 +54,24 @@ def save_layout(
     conn.commit()
 
 
-def load_layouts(
-    conn: sqlite3.Connection, kind: str, sheet_name: str
-) -> list[SheetLayout]:
-    """최신순. 바뀐 양식이 먼저 맞아야 옛 규칙으로 파싱하는 일이 없다."""
+def load_layouts(conn: sqlite3.Connection, kind: str) -> list[SheetLayout]:
+    """이 단계에서 지금까지 학습한 레이아웃 전부. 최신순.
+
+    시트 이름으로 거르지 않는다. 관리대장은 시트 이름이 곧 금형번호라 시트마다
+    이름이 달라, 시트명으로 거르면 양식이 똑같은 시트들이 각각 LLM 발견을
+    돈다. 어느 레이아웃이 이 시트에 맞는지는 pick_layout 의 앵커 대조가
+    판정한다 — 원래 그러라고 만든 장치다.
+
+    최신순인 이유는 그대로다: 바뀐 양식이 먼저 맞아야 옛 규칙으로 파싱하는
+    일이 없다.
+    """
     rows = conn.execute(
         """
         SELECT layout_json FROM sheet_mapping
-        WHERE kind = ? AND sheet_name = ?
+        WHERE kind = ?
         ORDER BY id DESC
         """,
-        (kind, sheet_name),
+        (kind,),
     ).fetchall()
     return [SheetLayout.model_validate_json(r["layout_json"]) for r in rows]
 
