@@ -299,13 +299,12 @@ def make_jig_master(app, path: Path) -> int:
 
 
 # ────────────────────────────────────────────────────────────────────
-# JIG 관리대장 — 한 시트에 모든 금형. 시간순 이벤트 이력.
+# JIG 관리대장 — **시트 하나가 금형 하나**. 시트 이름이 그 금형의 JIG ID 다.
 #
-# 'JIG ID' 열이 그 행의 금형을 확정한다. 설비명은 식별이 아니라 그 구간의
-# MES 조회 키를 고르는 데 쓴다.
+# 시트 안에 JIG ID 열은 없다. 금형 귀속은 시트 이름이 한다 — 실물이 그렇다.
+# 설비명은 식별이 아니라 그 구간의 MES 조회 키를 고르는 데 쓴다.
 # ────────────────────────────────────────────────────────────────────
 _LEDGER_HEADER = [
-    "JIG ID",
     "이벤트시간", "활동", "수량", "위치", "상태", "설비명", "사용 여부",
     "Shop(공정군)", "라인", "공정", "상세 구분1", "상세 구분2",
     "규격(Spec)", "규격 단위", "제조 업체", "생산 유형", "폐기 기준",
@@ -319,51 +318,50 @@ _BEFORE = ["입고 대기 보관함", "통합 Jig Room"]
 _AFTER = ["내부 수리", "사용 대기 보관함", "반납 대기 보관함"]
 
 
-def _ledger_rows() -> list[list]:
-    """모든 금형의 이벤트를 한 시트에 시간순으로 섞어 넣는다.
+def _ledger_rows(jig) -> list[list]:
+    """금형 하나의 이벤트를 시간순으로. 시트 하나가 이대로 들어간다."""
+    # 관리대장의 '라인' 은 공장 접두사가 없다("Pouch #10(S)"). 기준정보의
+    # Line명은 붙어 있다("톈진 Pouch #10(S)"). 실물이 그렇고, 그래서 라인
+    # 문자열끼리 직접 비교하면 안 된다 — MES 조회는 설비코드로 해야 한다.
+    ledger_line = jig.line.split(None, 1)[1]
 
-    금형별로 뭉쳐 놓으면 "JIG ID 로 묶지 않아 남의 이벤트로 구간이 닫히는"
-    사고를 샘플이 안 태운다. 실물도 시간순으로 적힌다.
-    """
     rows = []
-    for jig in [*JIGS, UNREGISTERED]:
-        # 관리대장의 '라인' 은 공장 접두사가 없다("Pouch #10(S)"). 기준정보의
-        # Line명은 붙어 있다("톈진 Pouch #10(S)"). 실물이 그렇고, 그래서 라인
-        # 문자열끼리 직접 비교하면 안 된다 — MES 조회는 설비코드로 해야 한다.
-        ledger_line = jig.line.split(None, 1)[1]
-
-        for month, day, hour, location, *override in EVENTS[jig.jig_id]:
-            # 정각으로 둔다. 분·초를 흩으면 24시간·96시간 **정확히** 걸친 구간이
-            # 96.5h 가 되어 하루가 더 붙는다 — 올림 규칙의 경계가 곧 이 샘플의
-            # 핵심 검증 대상인데 그게 뭉개진다.
-            when = datetime(2026, month, day, hour)
-            equipment = override[0] if override else jig.equip_name
-            rows.append([
-                jig.jig_id,
-                when, None, None, location, None, equipment, "사용",
-                jig.shop, ledger_line, "Pouch",
-                *([None] * 13),
-            ])
-    rows.sort(key=lambda r: r[1])
+    for month, day, hour, location, *override in EVENTS[jig.jig_id]:
+        # 정각으로 둔다. 분·초를 흩으면 24시간·96시간 **정확히** 걸친 구간이
+        # 96.5h 가 되어 하루가 더 붙는다 — 올림 규칙의 경계가 곧 이 샘플의
+        # 핵심 검증 대상인데 그게 뭉개진다.
+        when = datetime(2026, month, day, hour)
+        equipment = override[0] if override else jig.equip_name
+        rows.append([
+            when, None, None, location, None, equipment, "사용",
+            jig.shop, ledger_line, "Pouch",
+            *([None] * 13),
+        ])
+    rows.sort(key=lambda r: r[0])
     return rows
 
 
 def make_jig_ledger(app, path: Path) -> dict:
     book = _new_book(app)
-    sht = book.sheets[0]
-    # 시트 이름은 아무 의미가 없다 — 금형을 확정하는 것은 'JIG ID' 열이다.
-    sht.name = "관리대장"
+    jigs = [*JIGS, UNREGISTERED]
+    total_rows = 0
 
-    sht.range("B2").value = _LEDGER_HEADER
-    rows = _ledger_rows()
-    sht.range("B3").value = rows
-    sht.range("B2:Y2").api.Font.Bold = True
-    # JIG ID 가 B 열로 들어와 이벤트시간은 C 열이다.
-    sht.range("C3:C%d" % (2 + len(rows))).number_format = "yyyy-mm-dd hh:mm:ss"
-    sht.autofit()
+    for i, jig in enumerate(jigs):
+        # 시트 이름이 곧 금형이다. 시트 안에 JIG ID 열은 없다 — 실물이 그렇다.
+        sht = book.sheets[0] if i == 0 else book.sheets.add(after=book.sheets[-1])
+        sht.name = jig.jig_id
+
+        sht.range("B2").value = _LEDGER_HEADER
+        rows = _ledger_rows(jig)
+        sht.range("B3").value = rows
+        sht.range("B2:X2").api.Font.Bold = True
+        # JIG ID 열이 빠져 이벤트시간이 B 열이다.
+        sht.range("B3:B%d" % (2 + len(rows))).number_format = "yyyy-mm-dd hh:mm:ss"
+        sht.autofit()
+        total_rows += len(rows)
 
     _save(book, path)
-    return {"sheets": 1, "rows": len(rows)}
+    return {"sheets": len(jigs), "rows": total_rows}
 
 
 # ────────────────────────────────────────────────────────────────────
