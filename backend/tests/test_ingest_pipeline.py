@@ -19,10 +19,13 @@ JIG_MASTER_GRID = [
     ["#RX28312", EQUIP, "21004780", "톈진 Pouch #10(S)"],
 ]
 EES_GRID = [
-    ["JIG ID", "이벤트시간", "위치", "설비명"],
-    ["#RX28312", "2026-07-01T07:00:00", "설비", EQUIP],
-    ["#RX28312", "2026-07-02T07:00:00", "통합 Jig Room", EQUIP],
+    ["이벤트시간", "위치", "설비명"],
+    ["2026-07-01T07:00:00", "설비", EQUIP],
+    ["2026-07-02T07:00:00", "통합 Jig Room", EQUIP],
 ]
+
+# 관리대장은 시트 이름이 곧 금형이다. 다른 단계는 시트 이름이 의미 없다.
+SHEET_NAMES = {"ees": "#RX28312"}
 MES_GRID = [
     ["날짜", "설비코드", "투입수량", "불량수량"],
     ["2026.07.01-2026.07.01", "21004780", 10000, 300],
@@ -34,11 +37,12 @@ IQC_GRID = [
 
 
 class FakeWorkbook:
-    def __init__(self, rows):
+    def __init__(self, rows, sheet="Sheet1"):
         self._rows = rows
+        self._sheet = sheet
 
     def sheet_names(self):
-        return ["Sheet1"]
+        return [self._sheet]
 
     def used_values(self, sheet):
         return self._rows, "A1"
@@ -86,8 +90,8 @@ LAYOUTS = {
         [("mold_no", "A"), ("equipment", "B"), ("equipment_code", "C"),
          ("line", "D")], anchor="JIG ID"),
     "ees": _layout(
-        [("mold_no", "A"), ("event_at", "B"), ("location", "C"),
-         ("equipment", "D")], anchor="JIG ID"),
+        [("event_at", "A"), ("location", "B"), ("equipment", "C")],
+        anchor="이벤트시간"),
     "mes": _layout(
         [("run_date", "A"), ("equipment_code", "B"), ("produced", "C"),
          ("defects", "D")], anchor="날짜"),
@@ -125,7 +129,8 @@ def _fake_open(grids=None):
 
     @contextmanager
     def _open(path):
-        yield FakeWorkbook(grids[_kind_of(path)])
+        kind = _kind_of(path)
+        yield FakeWorkbook(grids[kind], sheet=SHEET_NAMES.get(kind, "Sheet1"))
     return _open
 
 
@@ -513,7 +518,7 @@ def test_same_form_sheets_reuse_one_discovered_layout(env, monkeypatch):
         if kind == "iqc":
             yield MultiSheetWorkbook(iqc_sheets)
         else:
-            yield FakeWorkbook(GRIDS[kind])
+            yield FakeWorkbook(GRIDS[kind], sheet=SHEET_NAMES.get(kind, "Sheet1"))
 
     summary = run_ingest(env, model=object(), open_wb=_open)
 

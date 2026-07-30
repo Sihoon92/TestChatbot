@@ -6,7 +6,7 @@ Excel 도 LLM 도 DB 도 모르는 순수 계산이다 — Row 리터럴만으�
 
 ## 이 파일이 지키는 조인 방향
 
-금형을 확정하는 것은 **관리대장의 JIG ID 열**이다. 설비명은 식별이 아니라
+금형을 확정하는 것은 **관리대장의 시트 이름**이다. 설비명은 식별이 아니라
 "그 구간에 어느 설비의 MES 실적을 붙일지" 를 정하는 데만 쓴다. 두 역할이
 섞이면 사람이 고칠 수 있는 설비명 문자열이 금형 정체성을 좌우하게 된다.
 """
@@ -121,14 +121,65 @@ JIG_INDEX = build_jig_index(MASTER)[0]
 EQUIP_INDEX = build_equipment_index(MASTER)
 
 
-def _event(when: str, location: str, *, mold_no="#RX39513",
+def _event(when: str, location: str, *, sheet="#RX39513",
            equipment="POU WND10_Stack(1차)_01", file="ledger.xlsx",
            no=1) -> Row:
     return _row(
-        {"mold_no": mold_no, "event_at": when,
-         "location": location, "equipment": equipment},
-        file=file, no=no,
+        {"event_at": when, "location": location, "equipment": equipment},
+        sheet=sheet, file=file, no=no,
     )
+
+
+def test_sheet_name_decides_the_mold_not_a_column():
+    """실물 관리대장은 시트 하나가 금형 하나이고 시트 이름이 그 금형의 JIG ID 다.
+    시트 안에 JIG ID 열은 없다."""
+    jig_index, _ = build_jig_index(MASTER)
+    equip_index = build_equipment_index(MASTER)
+    rows = [
+        _row({"event_at": "2026-07-01 08:00", "location": "설비",
+              "equipment": "POU WND10_Stack(1차)_01"}, sheet="#RX39513"),
+        _row({"event_at": "2026-07-02 08:00", "location": "내부 수리",
+              "equipment": "POU WND10_Stack(1차)_01"}, sheet="#RX39513", no=2),
+    ]
+
+    runs, losses = extract_runs(rows, jig_index, equip_index)
+
+    assert [r.mold_no for r in runs] == ["RX39513"]
+    assert losses.bad_sheet_names == []
+
+
+def test_a_mold_no_column_is_ignored_when_it_disagrees_with_the_sheet():
+    """규칙이 둘이면 어긋났을 때 무엇이 옳은지 정할 근거가 없다. 시트가 이긴다."""
+    jig_index, _ = build_jig_index(MASTER)
+    equip_index = build_equipment_index(MASTER)
+    rows = [
+        _row({"mold_no": "#RX28312", "event_at": "2026-07-01 08:00",
+              "location": "설비", "equipment": "POU WND10_Stack(1차)_01"},
+             sheet="#RX39513"),
+        _row({"mold_no": "#RX28312", "event_at": "2026-07-02 08:00",
+              "location": "내부 수리"}, sheet="#RX39513", no=2),
+    ]
+
+    runs, _losses = extract_runs(rows, jig_index, equip_index)
+
+    assert [r.mold_no for r in runs] == ["RX39513"]
+
+
+def test_unreadable_sheet_name_is_reported_by_name():
+    """시트명 하나가 깨지면 그 시트의 전 행이 한꺼번에 죽는다. 행 수만
+    세면 어느 시트를 고쳐야 하는지 알 수 없다."""
+    jig_index, _ = build_jig_index(MASTER)
+    equip_index = build_equipment_index(MASTER)
+    rows = [
+        _row({"event_at": "2026-07-01 08:00", "location": "설비"}, sheet="합계"),
+        _row({"event_at": "2026-07-02 08:00", "location": "설비"}, sheet="합계", no=2),
+    ]
+
+    runs, losses = extract_runs(rows, jig_index, equip_index)
+
+    assert runs == []
+    assert losses.bad_sheet_names == ["합계"], "시트 이름이 한 번만 오른다"
+    assert losses.rows_without_mold_no == 2, "행 수는 skipped_rows 로 합산된다"
 
 
 def test_run_starts_at_설비_and_ends_at_the_next_event():
@@ -188,14 +239,14 @@ def test_events_are_sorted_before_pairing():
     assert runs[0].ended_at == "2026-07-05T07:00:00"
 
 
-def test_two_molds_in_one_sheet_do_not_close_each_other():
-    """한 시트에 여러 금형의 이벤트가 시간순으로 섞여 있다. JIG ID 로 묶지
-    않으면 A 금형의 설비 진입이 B 금형의 다음 이벤트로 닫힌다."""
+def test_two_molds_in_different_sheets_do_not_close_each_other():
+    """여러 시트의 이벤트가 시간순으로 섞여 있다. 시트로 묶지 않으면 A 금형의
+    설비 진입이 B 금형의 다음 이벤트로 닫힌다."""
     rows = [
-        _event("2026-07-01T07:00:00", "설비", mold_no="#RX39513", no=1),
-        _event("2026-07-01T08:00:00", "설비", mold_no="RX28312",
+        _event("2026-07-01T07:00:00", "설비", sheet="#RX39513", no=1),
+        _event("2026-07-01T08:00:00", "설비", sheet="RX28312",
                equipment="POU WND10_Stack(1차)_02", no=2),
-        _event("2026-07-09T07:00:00", "통합 Jig Room", mold_no="#RX39513", no=3),
+        _event("2026-07-09T07:00:00", "통합 Jig Room", sheet="#RX39513", no=3),
     ]
 
     runs, _ = extract_runs(rows, JIG_INDEX, EQUIP_INDEX)
@@ -205,20 +256,20 @@ def test_two_molds_in_one_sheet_do_not_close_each_other():
     assert by_mold["RX28312"].ended_at is None, "B 는 아직 설비에 있다"
 
 
-def test_mold_no_comes_from_the_row_and_mes_keys_come_from_the_equipment():
-    """식별은 행의 JIG ID, MES 조회 키는 이벤트 설비명 — 둘의 출처가 다르다.
+def test_mold_no_comes_from_the_sheet_and_mes_keys_come_from_the_equipment():
+    """식별은 시트 이름, MES 조회 키는 이벤트 설비명 — 둘의 출처가 다르다.
 
     이 금형이 다른 JIG ID 에 등록된 설비에서 돌아도 실적은 **그 설비**의
-    것이어야 하고, 금형번호는 여전히 행의 JIG ID 여야 한다."""
+    것이어야 하고, 금형번호는 여전히 시트 이름이 확정한 값이어야 한다."""
     rows = [
-        _event("2026-07-01T07:00:00", "설비", mold_no="#RX39513",
+        _event("2026-07-01T07:00:00", "설비",
                equipment="POU WND10_Stack(1차)_02", no=1),
-        _event("2026-07-02T07:00:00", "통합 Jig Room", mold_no="#RX39513", no=2),
+        _event("2026-07-02T07:00:00", "통합 Jig Room", no=2),
     ]
 
     runs, losses = extract_runs(rows, JIG_INDEX, EQUIP_INDEX)
 
-    assert runs[0].mold_no == "RX39513", "기준정보가 아니라 행의 JIG ID 다"
+    assert runs[0].mold_no == "RX39513", "기준정보가 아니라 시트 이름이다"
     assert runs[0].equipment_code == "21004781", "그 설비의 코드로 MES 를 본다"
     assert runs[0].line == "톈진 Pouch #11(S)", "라인도 그 설비 기준"
     assert losses.unknown_equipment == []
@@ -263,9 +314,9 @@ def test_jig_id_missing_from_the_master_makes_no_runs_and_is_reported():
     """기준정보에 없는 JIG ID 는 MES 조회 키를 얻을 수 없어 금형이 통째로
     빠진다. 가장 흔한 사고이므로 번호를 모아 화면에 띄운다."""
     rows = [
-        _event("2026-07-01T07:00:00", "설비", mold_no="#RX77777",
+        _event("2026-07-01T07:00:00", "설비", sheet="#RX77777",
                equipment="POU WND99_Unknown_01", no=1),
-        _event("2026-07-02T07:00:00", "통합 Jig Room", mold_no="#RX77777",
+        _event("2026-07-02T07:00:00", "통합 Jig Room", sheet="#RX77777",
                equipment="POU WND99_Unknown_01", no=2),
     ]
 
@@ -277,9 +328,10 @@ def test_jig_id_missing_from_the_master_makes_no_runs_and_is_reported():
 
 
 def test_rows_without_a_jig_id_are_counted():
-    """JIG ID 를 못 읽은 행은 어느 금형에도 못 붙는다. 버리되 센다."""
+    """시트 이름을 JIG ID 로 못 읽은 행은 어느 금형에도 못 붙는다. 버리되 센다.
+    다른 시트의 멀쩡한 행까지 함께 버려지면 안 된다."""
     rows = [
-        _event("2026-07-01T07:00:00", "설비", mold_no=None, no=1),
+        _event("2026-07-01T07:00:00", "설비", sheet="소계", no=1),
         _event("2026-07-01T07:00:00", "설비", no=2),
     ]
 
@@ -287,6 +339,7 @@ def test_rows_without_a_jig_id_are_counted():
 
     assert len(runs) == 1
     assert losses.rows_without_mold_no == 1
+    assert losses.bad_sheet_names == ["소계"]
 
 
 def test_unreadable_event_time_is_counted():
@@ -326,7 +379,7 @@ def test_latest_locations_is_keyed_by_jig_id():
     rows = [
         _event("2026-07-01T07:00:00", "설비", no=1),
         _event("2026-07-05T07:00:00", "내부 수리", no=2),
-        _event("2026-07-02T08:00:00", "설비", mold_no="RX28312", no=3),
+        _event("2026-07-02T08:00:00", "설비", sheet="RX28312", no=3),
     ]
 
     assert latest_locations(rows) == {
@@ -342,6 +395,16 @@ def test_latest_locations_keeps_events_without_an_equipment_name():
     ]
 
     assert latest_locations(rows) == {"RX39513": "통합 Jig Room"}
+
+
+def test_latest_locations_uses_the_sheet_name_too():
+    rows = [
+        _row({"event_at": "2026-07-01 08:00", "location": "설비"}, sheet="#RX39513"),
+        _row({"event_at": "2026-07-02 08:00", "location": "폐기"},
+             sheet="#RX39513", no=2),
+    ]
+
+    assert latest_locations(rows) == {"RX39513": "폐기"}
 
 
 # ── 날짜 계산 ────────────────────────────────────────────────────────

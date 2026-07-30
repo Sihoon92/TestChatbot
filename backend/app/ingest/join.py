@@ -6,18 +6,18 @@ normalize.py·layout.py 와 같은 성격의 모듈이다.
 
 ## 왜 세 소스가 필요한가
 
-관리대장은 **JIG ID 열**로 어느 금형인지 알려주지만 그 금형이 얼마나 불량을
-냈는지는 모른다. MES 는 실적을 알지만 **금형번호를 모른다**. 기준정보가 둘
-사이에서 MES 조회 키(설비코드·Line명)를 내준다:
+관리대장은 **시트 이름**으로 어느 금형인지 알려주지만(시트 하나가 금형 하나다)
+그 금형이 얼마나 불량을 냈는지는 모른다. MES 는 실적을 알지만 **금형번호를
+모른다**. 기준정보가 둘 사이에서 MES 조회 키(설비코드·Line명)를 내준다:
 
-    관리대장.JIG ID ─────────────────→ 금형 확정
+    관리대장 시트명 ─────────────────→ 금형 확정
     관리대장.설비명 ─→ 기준정보[설비명] ─┐
                         (없으면 폴백)     ├─→ 설비코드 + Line명 ─→ MES
-    관리대장.JIG ID ─→ 기준정보[JIG ID] ─┘
+    관리대장 시트명 ─→ 기준정보[JIG ID] ─┘
 
 ## 식별과 조회를 왜 나누는가
 
-금형을 확정하는 것은 **JIG ID 하나**다. 이미 알고 있는 값이므로 다른 문서를
+금형을 확정하는 것은 **시트 이름 하나**다. 이미 알고 있는 값이므로 다른 문서를
 거쳐 알아낼 필요가 없다. 설비명은 "이 구간에 어느 설비의 실적을 붙일까" 만
 정한다. 둘을 나눠 두면:
 
@@ -66,7 +66,12 @@ class JoinLosses(BaseModel):
     # 관리대장에 있는데 기준정보에 없는 설비명(중복 제거). 금형은 나오되
     # 실적을 '현재 등록된 설비' 기준으로 읽었다는 경고다.
     unknown_equipment: list[str] = []
-    # JIG ID 를 못 읽어 어느 금형에도 못 붙인 행 수
+    # 시트 이름이 JIG ID 로 안 읽힌 시트(중복 제거). 관리대장은 시트 이름이 곧
+    # 금형이라 이름 하나가 깨지면 그 시트의 전 행이 한꺼번에 죽는다. 행 수만
+    # 세면 어느 시트를 고쳐야 하는지 알 수 없다.
+    bad_sheet_names: list[str] = []
+    # 시트 이름을 JIG ID 로 못 읽어 어느 금형에도 못 붙인 행 수. 시트 단위
+    # 사고이므로 어느 시트인지는 bad_sheet_names 를 본다.
     rows_without_mold_no: int = 0
     # 이벤트 시각을 못 읽어 버린 행 수
     bad_event_times: int = 0
@@ -84,6 +89,9 @@ class JoinLosses(BaseModel):
         for equip in other.unknown_equipment:
             if equip not in self.unknown_equipment:
                 self.unknown_equipment.append(equip)
+        for sheet in other.bad_sheet_names:
+            if sheet not in self.bad_sheet_names:
+                self.bad_sheet_names.append(sheet)
         for day in other.missing_mes_days:
             if day not in self.missing_mes_days:
                 self.missing_mes_days.append(day)
@@ -158,11 +166,11 @@ def extract_runs(
     (그 이벤트의 위치가 무엇이든 설비를 떠났다는 사실만 중요하다). 마지막
     이벤트가 설비면 아직 가동 중이라 종료가 없다.
 
-    **JIG ID 로 묶어서 짝짓는다.** 한 시트에 여러 금형의 이벤트가 시간순으로
-    섞여 있으므로, 시트로 묶으면 A 금형의 설비 진입이 B 금형의 다음 이벤트로
-    닫힌다. 파일 경계도 넘는다 — 금형 이력은 파일이 아니라 금형을 따라
-    이어지기 때문이다. 대신 관리대장이 겹쳐 올라올 때를 대비해 완전히 같은
-    이벤트는 하나로 접는다(안 접으면 길이 0 짜리 유령 구간이 생긴다).
+    **시트 이름이 확정한 금형으로 묶어서 짝짓는다.** 시트 하나가 금형 하나라
+    보통은 시트 경계와 같지만, 관리대장이 여러 번 올라오거나 파일이 나뉘면 같은
+    금형의 이력이 여러 시트·파일에 흩어진다. 금형 이력은 파일이 아니라 금형을
+    따라 이어지므로 파일 경계를 넘어 묶는다. 대신 완전히 같은 이벤트는 하나로
+    접는다(안 접으면 길이 0 짜리 유령 구간이 생긴다).
 
     구간마다 MES 조회 키는 **그 이벤트의 설비명**으로 고른다. 기준정보에 없는
     설비명이면 JIG ID 행으로 폴백한다 — 금형을 잃는 것보다 낫지만, 그 구간의
@@ -173,9 +181,11 @@ def extract_runs(
     by_mold: dict[str, list[tuple[datetime, Row]]] = {}
     seen: set[tuple[str, datetime, str, str]] = set()
     for row in rows:
-        mold_no = normalize_mold_no(row.values.get("mold_no"))
+        mold_no = normalize_mold_no(row.sheet)
         if mold_no is None:
             losses.rows_without_mold_no += 1
+            if row.sheet not in losses.bad_sheet_names:
+                losses.bad_sheet_names.append(row.sheet)
             continue
         when = to_datetime(row.values.get("event_at"))
         if when is None:
@@ -222,9 +232,9 @@ def extract_runs(
                 losses.open_runs += 1
 
             runs.append(UsageRun(
-                # 금형번호는 언제나 **행의 JIG ID** 다. info.mold_no 는 그
-                # 설비에 등록된 금형이라, 금형이 설비를 옮긴 순간 남의 번호가
-                # 붙는다.
+                # 금형번호는 언제나 **시트 이름이 확정한 값** 이다. info.mold_no
+                # 는 그 설비에 등록된 금형이라, 금형이 설비를 옮긴 순간 남의
+                # 번호가 붙는다.
                 mold_no=mold_no,
                 equipment=equipment,
                 equipment_code=info.equipment_code,
@@ -250,10 +260,13 @@ def latest_locations(rows: list[Row]) -> dict[str, str]:
 
     설비명은 보지 않는다. 보관함에 있는 이벤트는 설비명이 비어 있을 수 있는데,
     그 행을 버리면 그 금형이 목록에서 통째로 사라진다.
+
+    손실은 세지 않는다. extract_runs 가 같은 행을 이미 봤고, 여기서 또 세면
+    같은 시트가 두 번 보고된다.
     """
     latest: dict[str, tuple[datetime, str]] = {}
     for row in rows:
-        mold_no = normalize_mold_no(row.values.get("mold_no"))
+        mold_no = normalize_mold_no(row.sheet)
         when = to_datetime(row.values.get("event_at"))
         location = cell_to_text(row.values.get("location"))
         if mold_no is None or when is None or not location:
