@@ -32,6 +32,10 @@ export interface RunSummary {
   // 행의 설비코드로 대신 조회한다. 다만 그 구간의 실적이 "그때 그 설비"가 아닌
   // "현재 등록된 설비" 기준이라는 뜻이라 값을 그대로 믿으면 안 된다.
   unknown_equipment: string[];
+  // 시트 이름이 JIG ID 로 안 읽힌 관리대장 시트. 관리대장은 시트 하나가 금형
+  // 하나라 이름이 깨지면 그 금형이 통째로 빠진다. unknown_jig_id 와는 다른
+  // 사고다 — 이쪽은 관리대장을, 저쪽은 기준정보를 고쳐야 한다.
+  bad_sheet_names: string[];
   // 사용구간이 덮는 날인데 MES 파일이 없는 날짜. 불량율이 일부 날만
   // 반영되므로 값이 있어도 그대로 믿으면 안 된다.
   missing_mes_days: string[];

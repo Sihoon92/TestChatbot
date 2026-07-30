@@ -11,6 +11,15 @@ function Losses({ s }: { s: RunSummary }) {
       `관리대장에 없는 금형 ${s.orphan_mold_nos.length}건: ${s.orphan_mold_nos.join(", ")}`
     );
   }
+  // 관리대장은 시트 하나가 금형 하나다. 시트 이름이 JIG ID 로 안 읽히면 그
+  // 금형이 통째로 빠지는데, 이름을 보여주지 않으면 어느 시트를 고쳐야 하는지
+  // 알 수가 없다.
+  if (s.bad_sheet_names.length > 0) {
+    items.push(
+      `관리대장 시트 이름을 JIG ID 로 읽지 못함 ${s.bad_sheet_names.length}건` +
+        ` (해당 금형이 목록에서 빠짐): ${s.bad_sheet_names.join(", ")}`
+    );
+  }
   // 기준정보가 낡으면 그 금형이 MES 조회 키를 얻지 못해 목록에서 통째로
   // 빠진다. 가장 흔한 사고이므로 JIG ID 를 그대로 보여준다 — 그래야 사용자가
   // "아, 이 금형을 기준정보에 넣어야겠다"까지 갈 수 있다.
