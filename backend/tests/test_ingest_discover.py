@@ -11,7 +11,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
-from app.ingest.discover import LayoutNotSubmittedError, discover_layout
+from app.ingest.discover import FIELD_GUIDE, LayoutNotSubmittedError, discover_layout
 
 
 class FakeWorkbook:
@@ -119,7 +119,7 @@ def test_each_source_gets_its_own_field_vocabulary():
     관리대장에서 punch 를 찾거나 MES 에서 금형번호를 지어낸다."""
     ees = _prompt_for("ees")
     assert "location(위치)" in ees
-    assert "'JIG ID'" in ees, "금형을 확정하는 열이라 반드시 지목해야 한다"
+    assert "시트 이름" in ees, "금형을 확정하는 것은 열이 아니라 시트 이름이다"
     assert "반드시 찾아야 한다" in ees
     assert "식별하는 열이 **아니다**" in ees, "설비명의 역할을 못 박아야 한다"
     assert "punch" not in ees
@@ -132,6 +132,16 @@ def test_each_source_gets_its_own_field_vocabulary():
     assert "defect_ppm" in mes
     assert "**종합** 것을 골라라" in mes, "지표군이 셋이라 지목이 필요하다"
     assert "key_values 로 잡아라" in mes, "날짜가 표 밖에 있다"
+
+
+def test_ees_guide_does_not_ask_for_a_mold_no_column():
+    """실물 관리대장에는 JIG ID 열이 없다. 반드시 찾으라고 하면 LLM 이 엉뚱한
+    열을 지목하거나 헤매다 실패한다."""
+    guide = FIELD_GUIDE["ees"]
+
+    assert "mold_no" not in guide
+    assert "시트 이름" in guide
+    assert "여러 금형" not in guide, "틀린 전제가 프롬프트에 남아 있다"
 
 
 def test_raises_for_stage_without_field_guide():
@@ -158,7 +168,7 @@ def test_submit_tool_schema_explains_row_conventions():
     from app.ingest.discover import build_discover_agent
 
     _agent, tools = build_discover_agent(
-        FakeToolCallingModel(responses=[]), FakeWorkbook(), "iqc", {}
+        FakeToolCallingModel(responses=[]), FakeWorkbook(), "iqc", "Sheet1", {}
     )
     submit = next(t for t in tools if t.name == "submit_layout")
     table = submit.args_schema.model_json_schema()["$defs"]["TableBlock"]
@@ -198,7 +208,7 @@ def _submit_results(*submissions) -> tuple[list[str], object]:
     holder: dict = {}
     from app.ingest.discover import build_discover_agent
 
-    agent, tools = build_discover_agent(model, FakeWorkbook(), "iqc", holder)
+    agent, tools = build_discover_agent(model, FakeWorkbook(), "iqc", "Sheet1", holder)
     submit = next(t for t in tools if t.name == "submit_layout")
     replies = [submit.invoke(args) for args in submissions]
     return replies, holder.get("layout")
@@ -266,7 +276,7 @@ def test_validation_failure_does_not_block_submission():
     holder: dict = {}
     from app.ingest.discover import build_discover_agent
 
-    _agent, tools = build_discover_agent(model, BrokenWorkbook(), "iqc", holder)
+    _agent, tools = build_discover_agent(model, BrokenWorkbook(), "iqc", "Sheet1", holder)
     submit = next(t for t in tools if t.name == "submit_layout")
 
     assert "레이아웃을 접수했다" in submit.invoke(INCOMPLETE)
