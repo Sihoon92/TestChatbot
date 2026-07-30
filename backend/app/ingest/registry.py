@@ -84,8 +84,8 @@ def record_run(conn: sqlite3.Connection, summary: RunSummary) -> None:
              orphan_json, unknown_json, skipped_rows, files_json, error,
              unreadable_json, failed_json, unknown_status_rows,
              unknown_jig_id_json, unknown_equipment_json, missing_mes_days_json,
-             unmatched_runs, open_runs)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             unmatched_runs, open_runs, bad_sheet_names_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             summary.status,
@@ -106,6 +106,7 @@ def record_run(conn: sqlite3.Connection, summary: RunSummary) -> None:
             json.dumps(summary.missing_mes_days, ensure_ascii=False),
             summary.unmatched_runs,
             summary.open_runs,
+            json.dumps(summary.bad_sheet_names, ensure_ascii=False),
         ),
     )
     conn.commit()
@@ -136,4 +137,5 @@ def latest_run(conn: sqlite3.Connection) -> RunSummary | None:
         missing_mes_days=json.loads(row["missing_mes_days_json"]),
         unmatched_runs=row["unmatched_runs"],
         open_runs=row["open_runs"],
+        bad_sheet_names=json.loads(row["bad_sheet_names_json"]),
     )

@@ -211,6 +211,7 @@ def run_ingest(
             missing_mes_days=result.losses.missing_mes_days,
             unmatched_runs=result.losses.unmatched_runs,
             open_runs=result.losses.open_runs,
+            bad_sheet_names=result.losses.bad_sheet_names,
         )
         registry.record_run(conn, summary)
         return summary

@@ -110,6 +110,20 @@ def test_latest_run_none_when_never_run(conn):
     assert registry.latest_run(conn) is None
 
 
+def test_run_summary_round_trips_bad_sheet_names(conn):
+    """시트 이름이 깨져 금형이 빠진 사실은 화면까지 가야 한다. 여기서 끊기면
+    사용자는 금형이 왜 안 나오는지 알 방법이 없다."""
+    registry.record_run(conn, RunSummary(
+        status="ok", started_at="2026-07-30T00:00:00",
+        bad_sheet_names=["합계", "표지"],
+    ))
+
+    latest = registry.latest_run(conn)
+
+    assert latest is not None
+    assert latest.bad_sheet_names == ["합계", "표지"]
+
+
 def test_init_db_adds_columns_to_an_older_database(tmp_path):
     """CREATE TABLE IF NOT EXISTS 는 이미 있는 테이블에 컬럼을 붙여주지 않는다.
 
@@ -144,6 +158,7 @@ def test_init_db_adds_columns_to_an_older_database(tmp_path):
         status="ok", started_at="s", finished_at="f",
         failed_files=["iqc.xlsx: ValueError: 컬럼 매핑이 없다"],
         unknown_statuses=["가동"], unknown_status_rows=42,
+        bad_sheet_names=["합계"],
     ))
     latest = registry.latest_run(c)
     c.close()
@@ -152,3 +167,4 @@ def test_init_db_adds_columns_to_an_older_database(tmp_path):
     assert latest.failed_files == ["iqc.xlsx: ValueError: 컬럼 매핑이 없다"]
     # 손실 규모는 새로고침 후에도 보여야 한다 — 화면은 status 조회로 다시 읽는다.
     assert latest.unknown_status_rows == 42
+    assert latest.bad_sheet_names == ["합계"]

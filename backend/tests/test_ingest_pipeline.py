@@ -525,3 +525,23 @@ def test_same_form_sheets_reuse_one_discovered_layout(env, monkeypatch):
     assert summary.status == "ok"
     iqc_calls = [c for c in calls if c[0] == "iqc"]
     assert len(iqc_calls) == 1, f"시트마다 발견을 돌았다: {iqc_calls}"
+
+
+def test_bad_ledger_sheet_name_is_reported_and_the_mold_is_missing(env, monkeypatch):
+    """관리대장 시트 이름이 JIG ID 로 안 읽히면 그 금형이 통째로 빠진다.
+    이름을 요약에 남기지 않으면 사용자가 어느 시트를 고칠지 알 수 없다."""
+    monkeypatch.setattr(
+        "app.ingest.pipeline.discover_layout", _fake_discover(LAYOUTS)
+    )
+
+    @contextmanager
+    def _open(path):
+        kind = _kind_of(path)
+        sheet = "합계" if kind == "ees" else SHEET_NAMES.get(kind, "Sheet1")
+        yield FakeWorkbook(GRIDS[kind], sheet=sheet)
+
+    summary = run_ingest(env, model=object(), open_wb=_open)
+
+    assert summary.bad_sheet_names == ["합계"]
+    assert summary.mold_count == 0
+    assert summary.skipped_rows >= 2
