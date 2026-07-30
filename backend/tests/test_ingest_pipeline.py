@@ -31,8 +31,8 @@ MES_GRID = [
     ["2026.07.01-2026.07.01", "21004780", 10000, 300],
 ]
 IQC_GRID = [
-    ["금형번호", "punch"],
-    ["RX28312", 12.5],
+    ["금형번호", "punch", "die"],
+    ["RX28312", 12.5, 12.1],
 ]
 
 
@@ -73,10 +73,14 @@ class MultiSheetWorkbook:
         return [r[0] for r in self._by_sheet[sheet]]
 
 
-def _layout(fields, anchor="금형번호"):
+def _layout(fields, anchors):
+    # 앵커 3개 이상을 요구한다(layout.anchors_match, F1) — 2개 이하는 격자와
+    # 완전히 일치해도 캐시 재사용 후보가 되지 못해, 이 픽스처의 캐싱 테스트
+    # (test_cached_layout_avoids_calling_agent 등)가 매번 discover 를 다시
+    # 부르게 된다.
     return SheetLayout(
         sheet_name="Sheet1",
-        anchors=[{"cell": "A1", "text": anchor}],
+        anchors=[{"cell": c, "text": t} for c, t in anchors],
         tables=[{
             "name": "상세", "role": "detail", "header_rows": [1],
             "data_start_row": 2,
@@ -88,14 +92,18 @@ def _layout(fields, anchor="금형번호"):
 LAYOUTS = {
     "jig_master": _layout(
         [("mold_no", "A"), ("equipment", "B"), ("equipment_code", "C"),
-         ("line", "D")], anchor="JIG ID"),
+         ("line", "D")],
+        anchors=[("A1", "JIG ID"), ("B1", "설비명"), ("C1", "설비코드")]),
     "ees": _layout(
         [("event_at", "A"), ("location", "B"), ("equipment", "C")],
-        anchor="이벤트시간"),
+        anchors=[("A1", "이벤트시간"), ("B1", "위치"), ("C1", "설비명")]),
     "mes": _layout(
         [("run_date", "A"), ("equipment_code", "B"), ("produced", "C"),
-         ("defects", "D")], anchor="날짜"),
-    "iqc": _layout([("mold_no", "A"), ("punch", "B")]),
+         ("defects", "D")],
+        anchors=[("A1", "날짜"), ("B1", "설비코드"), ("C1", "투입수량")]),
+    "iqc": _layout(
+        [("mold_no", "A"), ("punch", "B")],
+        anchors=[("A1", "금형번호"), ("B1", "punch"), ("C1", "die")]),
 }
 GRIDS = {
     "jig_master": JIG_MASTER_GRID, "ees": EES_GRID,
@@ -507,9 +515,12 @@ def test_same_form_sheets_reuse_one_discovered_layout(env, monkeypatch):
         "app.ingest.pipeline.discover_layout", _counting_discover
     )
 
+    # 헤더 3열 모두(LAYOUTS["iqc"] 의 앵커 3개)를 채워야 두 시트가 같은
+    # 레이아웃으로 캐시 대조를 통과한다 — F1 이후 앵커 2개짜리는 재사용
+    # 후보가 되지 못한다.
     iqc_sheets = {
-        "첫째": [["금형번호", "punch"], ["RX28312", 12.5]],
-        "둘째": [["금형번호", "punch"], ["RX28312", 9.0]],
+        "첫째": [["금형번호", "punch", "die"], ["RX28312", 12.5, 12.1]],
+        "둘째": [["금형번호", "punch", "die"], ["RX28312", 9.0, 8.7]],
     }
 
     @contextmanager
