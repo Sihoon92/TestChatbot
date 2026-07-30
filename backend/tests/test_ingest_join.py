@@ -13,6 +13,7 @@ Excel 도 LLM 도 DB 도 모르는 순수 계산이다 — Row 리터럴만으�
 from datetime import date
 
 from app.ingest.join import (
+    _JIG_ID_SHAPE,
     attach_defect_rates,
     build_equipment_index,
     build_jig_index,
@@ -167,19 +168,55 @@ def test_a_mold_no_column_is_ignored_when_it_disagrees_with_the_sheet():
 
 def test_unreadable_sheet_name_is_reported_by_name():
     """시트명 하나가 깨지면 그 시트의 전 행이 한꺼번에 죽는다. 행 수만
-    세면 어느 시트를 고쳐야 하는지 알 수 없다."""
+    세면 어느 시트를 고쳐야 하는지 알 수 없다.
+
+    "합계" 는 normalize_mold_no 의 _NOT_A_MOLD 아홉 단어 중 하나라 그것만으로도
+    걸린다. "RX39513 복사본" 은 그 아홉 단어에 없다 — normalize_mold_no 는
+    '#'만 떼고 나머지는 그대로 통과시키므로 mold_no 가 "RX39513 복사본"이 되어
+    None 이 아니다. _JIG_ID_SHAPE 모양 검사가 없으면 이런 사람이 만든 사본
+    시트가 유령 금형으로 새어 나가 unknown_jig_id(기준정보가 낡았다)로
+    잘못 보고된다."""
     jig_index, _ = build_jig_index(MASTER)
     equip_index = build_equipment_index(MASTER)
     rows = [
         _row({"event_at": "2026-07-01 08:00", "location": "설비"}, sheet="합계"),
-        _row({"event_at": "2026-07-02 08:00", "location": "설비"}, sheet="합계", no=2),
+        _row({"event_at": "2026-07-02 08:00", "location": "설비"},
+             sheet="RX39513 복사본", no=2),
     ]
 
     runs, losses = extract_runs(rows, jig_index, equip_index)
 
     assert runs == []
-    assert losses.bad_sheet_names == ["합계"], "시트 이름이 한 번만 오른다"
+    assert losses.bad_sheet_names == ["합계", "RX39513 복사본"], (
+        "_NOT_A_MOLD 로 걸리는 이름과 모양 검사로 걸리는 이름이 둘 다 잡혀야 한다"
+    )
     assert losses.rows_without_mold_no == 2, "행 수는 skipped_rows 로 합산된다"
+
+
+def test_sheet_name_that_looks_like_a_column_header_is_reported_too():
+    """"Sheet1" 은 _NOT_A_MOLD 에 없고 normalize_mold_no 가 'SHEET1' 을
+    돌려주므로(None 이 아님) 모양 검사가 없으면 그냥 통과해 유령 금형이 된다."""
+    jig_index, _ = build_jig_index(MASTER)
+    equip_index = build_equipment_index(MASTER)
+    rows = [
+        _row({"event_at": "2026-07-01 08:00", "location": "설비"}, sheet="Sheet1"),
+    ]
+
+    runs, losses = extract_runs(rows, jig_index, equip_index)
+
+    assert runs == []
+    assert losses.bad_sheet_names == ["Sheet1"]
+    assert losses.unknown_jig_id == [], "기준정보 탓이 아니라 시트 이름 탓이다"
+
+
+def test_jig_id_shape_regex_accepts_all_sample_mold_sheet_names():
+    """샘플/실물에서 쓰는 일곱 금형 시트 이름이 전부 통과해야 한다.
+    하나라도 못 통과하면 샘플 배치 전체가 bad_sheet_names 로 깨진다."""
+    for name in [
+        "#RX39513", "#RX28312", "#RX28315", "#RX50177",
+        "#RX41194", "#RX39002", "#RX77777",
+    ]:
+        assert _JIG_ID_SHAPE.match(name), name
 
 
 def test_run_starts_at_설비_and_ends_at_the_next_event():

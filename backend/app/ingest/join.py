@@ -35,6 +35,15 @@ import math
 import re
 from datetime import date, datetime, timedelta
 
+# 실물 JIG ID 모양: 선택적 '#' + 영문 1~3자 + 숫자 4자 이상(#RX39513 꼴).
+# 시트 이름이 곧 금형번호이므로, 이 모양이 아닌 이름은 금형이 아니라 사람이
+# 만든 시트(목차·사본·"Sheet1" 등)로 본다. normalize_mold_no 만으로는 부족하다
+# — 그것은 빈 값과 '소계/합계' 류 아홉 단어만 걸러서, "Sheet1" 이나
+# "RX39513 복사본" 같은 이름이 유령 금형으로 통과해 unknown_jig_id(기준정보가
+# 낡았다)로 새어 나간다. 그러면 화면이 사용자를 엉뚱한 파일(기준정보)로
+# 보낸다 — 정작 고쳐야 할 것은 관리대장의 시트 이름인데도.
+_JIG_ID_SHAPE = re.compile(r"^#?[A-Za-z]{1,3}\d{4,}$")
+
 from pydantic import BaseModel
 
 from app.ingest.normalize import (
@@ -182,10 +191,15 @@ def extract_runs(
     seen: set[tuple[str, datetime, str, str]] = set()
     for row in rows:
         mold_no = normalize_mold_no(row.sheet)
-        if mold_no is None:
+        # mold_no is None 만으로는 "Sheet1"·"RX39513 복사본" 같은 이름을
+        # 놓친다 — _JIG_ID_SHAPE 로 모양까지 확인해야 유령 금형이 안 생긴다.
+        if mold_no is None or not _JIG_ID_SHAPE.match(row.sheet.strip()):
             losses.rows_without_mold_no += 1
-            if row.sheet not in losses.bad_sheet_names:
-                losses.bad_sheet_names.append(row.sheet)
+            # 빈 이름은 화면에 그대로 두면 공백으로 보여 뭘 고쳐야 할지
+            # 안 보인다.
+            label = row.sheet.strip() or "(빈 이름)"
+            if label not in losses.bad_sheet_names:
+                losses.bad_sheet_names.append(label)
             continue
         when = to_datetime(row.values.get("event_at"))
         if when is None:
