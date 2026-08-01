@@ -1,6 +1,6 @@
 """관리대장 + 기준정보 + MES + IQC → 금형 레코드.
 
-마스터는 **JIG 관리대장**이다. 행의 JIG ID 가 금형을 확정하고, 그 금형에
+마스터는 **JIG 관리대장**이다. 시트 이름이 금형을 확정하고, 그 금형에
 이벤트가 있어야 실재한다. 기준정보는 매핑표일 뿐이라 거기에만 있는 JIG 는
 아직 들어온 적 없는 금형이다. 이 방향이 뒤집히면 대시보드 목록의 정의가
 흔들린다.
@@ -26,11 +26,9 @@ def _master(mold_no, equipment, code, line="톈진 Pouch #10(S)", no=1):
     }, file="master.xlsx", no=no)
 
 
-def _event(when, location, equipment=EQUIP_A, mold_no="#RX39513",
-           sheet="관리대장", no=1):
+def _event(when, location, equipment=EQUIP_A, sheet="#RX39513", no=1):
     return _row(
-        {"mold_no": mold_no, "event_at": when,
-         "location": location, "equipment": equipment},
+        {"event_at": when, "location": location, "equipment": equipment},
         sheet=sheet, file="ledger.xlsx", no=no,
     )
 
@@ -72,7 +70,7 @@ def test_jig_id_missing_from_master_is_reported_not_silently_dropped():
     """기준정보가 낡으면 그 금형이 MES 조회 키를 못 얻어 통째로 사라진다 —
     가장 흔한 사고다."""
     result = assemble(
-        MASTER, [_event("2026-07-01T07:00:00", "설비", mold_no="#RX77777")], [], []
+        MASTER, [_event("2026-07-01T07:00:00", "설비", sheet="#RX77777")], [], []
     )
 
     assert result.records == []

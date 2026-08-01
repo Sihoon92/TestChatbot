@@ -33,7 +33,7 @@ def test_parses_simple_table():
             ],
         )],
     )
-    rows = parse_rows(grid, "A1", layout, "iqc.xlsx")
+    rows = parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
     assert [r.values["mold_no"] for r in rows] == ["RX28312", "RX28315"]
     assert rows[0].values["punch"] == "12.5"
     assert rows[0].row_no == 2
@@ -57,7 +57,7 @@ def test_skips_summary_tables():
             columns=[ColumnMap(field="mold_no", column="A")],
         )],
     )
-    assert parse_rows(grid, "A1", layout, "iqc.xlsx") == []
+    assert parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1") == []
 
 
 def test_parses_multiple_detail_tables_in_one_sheet():
@@ -85,7 +85,7 @@ def test_parses_multiple_detail_tables_in_one_sheet():
             ),
         ],
     )
-    rows = parse_rows(grid, "A1", layout, "iqc.xlsx")
+    rows = parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
     assert [r.values["mold_no"] for r in rows] == ["#RX41194", "RX28312"]
 
 
@@ -105,7 +105,7 @@ def test_stops_at_blank_row_when_no_end_specified():
             columns=[ColumnMap(field="mold_no", column="B")],
         )],
     )
-    rows = parse_rows(grid, "A1", layout, "iqc.xlsx")
+    rows = parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
     assert len(rows) == 1
 
 
@@ -124,7 +124,7 @@ def test_respects_explicit_end_row():
             columns=[ColumnMap(field="mold_no", column="B")],
         )],
     )
-    rows = parse_rows(grid, "A1", layout, "iqc.xlsx")
+    rows = parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
     assert len(rows) == 2
 
 
@@ -147,7 +147,7 @@ def test_multi_header_columns_use_combined_labels():
             ],
         )],
     )
-    rows = parse_rows(grid, "A1", layout, "iqc.xlsx")
+    rows = parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
     assert rows[0].values["성형부/정극 성형"] == "체크"
     assert rows[0].values["성형부/부극 성형"] is None
 
@@ -171,7 +171,7 @@ def test_key_values_merge_into_every_row():
             ],
         )],
     )
-    rows = parse_rows(grid, "A1", layout, "iqc.xlsx")
+    rows = parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
     assert rows[0].values["기종"] == "H999"
 
 
@@ -189,7 +189,7 @@ def test_key_values_used_when_table_lacks_field():
             columns=[ColumnMap(field="mold_no", column="B")],
         )],
     )
-    rows = parse_rows(grid, "A1", layout, "iqc.xlsx")
+    rows = parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
     assert rows[0].values["업체"] == "일신"
 
 
@@ -207,7 +207,7 @@ def test_handles_grid_offset():
             columns=[ColumnMap(field="mold_no", column="D")],
         )],
     )
-    rows = parse_rows(grid, "C3", layout, "iqc.xlsx")
+    rows = parse_rows(grid, "C3", layout, "iqc.xlsx", "Sheet1")
     assert rows[0].values["mold_no"] == "RX28312"
     assert rows[0].row_no == 4
 
@@ -226,7 +226,7 @@ def test_row_beyond_grid_is_not_produced():
             columns=[ColumnMap(field="mold_no", column="B")],
         )],
     )
-    assert len(parse_rows(grid, "A1", layout, "iqc.xlsx")) == 1
+    assert len(parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")) == 1
 
 
 def test_detail_table_without_columns_fails_loudly():
@@ -242,7 +242,7 @@ def test_detail_table_without_columns_fails_loudly():
         )],
     )
     with pytest.raises(ValueError, match="컬럼 매핑이 없다"):
-        parse_rows(grid, "A1", layout, "iqc.xlsx")
+        parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
 
 
 def test_layout_without_tables_yields_single_key_value_row():
@@ -256,7 +256,7 @@ def test_layout_without_tables_yields_single_key_value_row():
             KeyValueItem(field="punch", value_cell="B2", label_cell="A2"),
         ],
     )
-    rows = parse_rows(grid, "A1", layout, "iqc.xlsx")
+    rows = parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
     assert len(rows) == 1
     assert rows[0].values == {"mold_no": "RX28312", "punch": "12.5"}
 
@@ -280,7 +280,7 @@ def test_explicit_end_row_skips_blank_rows_and_keeps_going():
             columns=[ColumnMap(field="mold_no", column="B")],
         )],
     )
-    rows = parse_rows(grid, "A1", layout, "iqc.xlsx")
+    rows = parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
     assert [r.values["mold_no"] for r in rows] == ["RX28312", "RX28315"]
 
 
@@ -299,7 +299,7 @@ def test_end_row_before_start_row_fails_loudly():
         )],
     )
     with pytest.raises(ValueError, match="data_end_row"):
-        parse_rows(grid, "A1", layout, "iqc.xlsx")
+        parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
 
 
 def test_end_row_zero_is_treated_as_specified_not_missing():
@@ -315,4 +315,26 @@ def test_end_row_zero_is_treated_as_specified_not_missing():
         )],
     )
     with pytest.raises(ValueError, match="data_end_row"):
-        parse_rows(grid, "A1", layout, "iqc.xlsx")
+        parse_rows(grid, "A1", layout, "iqc.xlsx", "Sheet1")
+
+
+def test_row_sheet_is_the_real_sheet_name_not_the_layout_echo():
+    """layout.sheet_name 은 LLM 이 적어낸 값이고, 캐시된 레이아웃이 다른 시트에
+    재사용되면 남의 시트 이름이 들어 있다. 관리대장에서는 시트 이름이 곧
+    금형번호라, 그대로 믿으면 모든 금형이 한 시트로 뭉친다."""
+    grid = [
+        ["No", "위치"],
+        [1, "설비"],
+    ]
+    layout = SheetLayout(
+        sheet_name="#RX00000",  # 캐시에서 딸려온 남의 시트 이름
+        anchors=ANCHOR,
+        tables=[TableBlock(
+            name="이력", role="detail", header_rows=[1], data_start_row=2,
+            columns=[ColumnMap(field="location", column="B")],
+        )],
+    )
+
+    rows = parse_rows(grid, "A1", layout, "ledger.xlsx", "#RX39513")
+
+    assert [r.sheet for r in rows] == ["#RX39513"]

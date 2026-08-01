@@ -39,6 +39,7 @@ const OK: RunSummary = {
   missing_mes_days: [],
   unmatched_runs: 0,
   open_runs: 0,
+  bad_sheet_names: [],
   failed_files: [],
 };
 
@@ -95,6 +96,23 @@ describe("IngestPanel", () => {
       await screen.findByText(/JIG 기준정보에 없는 JIG ID 1건/)
     ).toBeInTheDocument();
     expect(screen.getByText(/RX77777/)).toBeInTheDocument();
+  });
+
+  it("시트 이름이 JIG ID 로 안 읽힌 관리대장 시트를 이름까지 보여준다", async () => {
+    // 관리대장은 시트 하나가 금형 하나다. 이름이 깨지면 그 금형이 통째로
+    // 빠지는데, 어느 시트인지 안 보이면 사용자가 고칠 수가 없다.
+    vi.mocked(api.getIngestStatus).mockResolvedValue({
+      ...OK,
+      mold_count: 0,
+      bad_sheet_names: ["합계"],
+    });
+
+    render(<IngestPanel />);
+
+    expect(
+      await screen.findByText(/관리대장 시트 이름을 JIG ID 로 읽지 못함 1건/)
+    ).toBeInTheDocument();
+    expect(await screen.findByText(/합계/)).toBeInTheDocument();
   });
 
   it("기준정보에 없는 설비는 금형이 빠졌다고 말하지 않는다", async () => {

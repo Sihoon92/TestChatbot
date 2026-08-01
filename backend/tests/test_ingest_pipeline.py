@@ -17,28 +17,37 @@ EQUIP = "POU WND10_Stack(1차)_01"
 JIG_MASTER_GRID = [
     ["JIG ID", "설비명", "설비코드", "Line명"],
     ["#RX28312", EQUIP, "21004780", "톈진 Pouch #10(S)"],
+    # F4 회귀 테스트(시트 A→B 캐시 재사용)가 두 금형을 다 조회할 수 있어야
+    # 하므로 두 번째 JIG 를 등록해 둔다. 다른 테스트는 이 행을 쓰는 EES 시트가
+    # 없어 영향받지 않는다(latest_locations 는 실제 관리대장에 등장한 시트만
+    # 본다).
+    ["#RX39513", "POU WND10_Stack(1차)_02", "21004781", "톈진 Pouch #11(S)"],
 ]
 EES_GRID = [
-    ["JIG ID", "이벤트시간", "위치", "설비명"],
-    ["#RX28312", "2026-07-01T07:00:00", "설비", EQUIP],
-    ["#RX28312", "2026-07-02T07:00:00", "통합 Jig Room", EQUIP],
+    ["이벤트시간", "위치", "설비명"],
+    ["2026-07-01T07:00:00", "설비", EQUIP],
+    ["2026-07-02T07:00:00", "통합 Jig Room", EQUIP],
 ]
+
+# 관리대장은 시트 이름이 곧 금형이다. 다른 단계는 시트 이름이 의미 없다.
+SHEET_NAMES = {"ees": "#RX28312"}
 MES_GRID = [
     ["날짜", "설비코드", "투입수량", "불량수량"],
     ["2026.07.01-2026.07.01", "21004780", 10000, 300],
 ]
 IQC_GRID = [
-    ["금형번호", "punch"],
-    ["RX28312", 12.5],
+    ["금형번호", "punch", "die"],
+    ["RX28312", 12.5, 12.1],
 ]
 
 
 class FakeWorkbook:
-    def __init__(self, rows):
+    def __init__(self, rows, sheet="Sheet1"):
         self._rows = rows
+        self._sheet = sheet
 
     def sheet_names(self):
-        return ["Sheet1"]
+        return [self._sheet]
 
     def used_values(self, sheet):
         return self._rows, "A1"
@@ -50,10 +59,33 @@ class FakeWorkbook:
         return [r[0] for r in self._rows]
 
 
-def _layout(fields, anchor="금형번호"):
+class MultiSheetWorkbook:
+    """시트마다 격자가 다른 워크북. 시트 하나가 문서 단위인 파일을 흉내낸다."""
+
+    def __init__(self, by_sheet: dict):
+        self._by_sheet = by_sheet
+
+    def sheet_names(self):
+        return list(self._by_sheet)
+
+    def used_values(self, sheet):
+        return self._by_sheet[sheet], "A1"
+
+    def range_values(self, sheet, address):
+        return self._by_sheet[sheet]
+
+    def column_values(self, sheet, column, max_rows=5000):
+        return [r[0] for r in self._by_sheet[sheet]]
+
+
+def _layout(fields, anchors):
+    # 앵커 3개 이상을 요구한다(layout.anchors_match, F1) — 2개 이하는 격자와
+    # 완전히 일치해도 캐시 재사용 후보가 되지 못해, 이 픽스처의 캐싱 테스트
+    # (test_cached_layout_avoids_calling_agent 등)가 매번 discover 를 다시
+    # 부르게 된다.
     return SheetLayout(
         sheet_name="Sheet1",
-        anchors=[{"cell": "A1", "text": anchor}],
+        anchors=[{"cell": c, "text": t} for c, t in anchors],
         tables=[{
             "name": "상세", "role": "detail", "header_rows": [1],
             "data_start_row": 2,
@@ -65,14 +97,18 @@ def _layout(fields, anchor="금형번호"):
 LAYOUTS = {
     "jig_master": _layout(
         [("mold_no", "A"), ("equipment", "B"), ("equipment_code", "C"),
-         ("line", "D")], anchor="JIG ID"),
+         ("line", "D")],
+        anchors=[("A1", "JIG ID"), ("B1", "설비명"), ("C1", "설비코드")]),
     "ees": _layout(
-        [("mold_no", "A"), ("event_at", "B"), ("location", "C"),
-         ("equipment", "D")], anchor="JIG ID"),
+        [("event_at", "A"), ("location", "B"), ("equipment", "C")],
+        anchors=[("A1", "이벤트시간"), ("B1", "위치"), ("C1", "설비명")]),
     "mes": _layout(
         [("run_date", "A"), ("equipment_code", "B"), ("produced", "C"),
-         ("defects", "D")], anchor="날짜"),
-    "iqc": _layout([("mold_no", "A"), ("punch", "B")]),
+         ("defects", "D")],
+        anchors=[("A1", "날짜"), ("B1", "설비코드"), ("C1", "투입수량")]),
+    "iqc": _layout(
+        [("mold_no", "A"), ("punch", "B")],
+        anchors=[("A1", "금형번호"), ("B1", "punch"), ("C1", "die")]),
 }
 GRIDS = {
     "jig_master": JIG_MASTER_GRID, "ees": EES_GRID,
@@ -106,7 +142,8 @@ def _fake_open(grids=None):
 
     @contextmanager
     def _open(path):
-        yield FakeWorkbook(grids[_kind_of(path)])
+        kind = _kind_of(path)
+        yield FakeWorkbook(grids[kind], sheet=SHEET_NAMES.get(kind, "Sheet1"))
     return _open
 
 
@@ -256,7 +293,7 @@ def test_bad_cached_layout_is_reinterpreted_once(env, monkeypatch):
 
     # 재해석 결과가 캐시에 남아, 다음 회차에는 앵커 대조만으로 통과해야 한다.
     conn = db.connect(env.resolved_molds_db_path)
-    latest = registry.load_layouts(conn, "ees", "Sheet1")[0]
+    latest = registry.load_layouts(conn, "ees")[0]
     conn.close()
     assert latest.tables[0].columns, "성공한 레이아웃이 최신으로 저장돼야 한다"
 
@@ -467,3 +504,130 @@ def test_unreadable_file_in_unprocessed_dir_does_not_block_batch(env, monkeypatc
 
     assert summary.status == "ok"
     assert summary.unreadable_files == []
+
+
+def test_same_form_sheets_reuse_one_discovered_layout(env, monkeypatch):
+    """양식이 같은 시트가 여러 개면 레이아웃 발견은 한 번이어야 한다.
+    캐시를 시트명으로 조회하면 시트 수만큼 LLM 이 돈다 — 관리대장은 시트
+    이름이 금형번호라 시트마다 이름이 다르다."""
+    calls = []
+
+    def _counting_discover(model, wb, kind, sheet_name, *, config=None):
+        calls.append((kind, sheet_name))
+        return LAYOUTS[kind]
+
+    monkeypatch.setattr(
+        "app.ingest.pipeline.discover_layout", _counting_discover
+    )
+
+    # 헤더 3열 모두(LAYOUTS["iqc"] 의 앵커 3개)를 채워야 두 시트가 같은
+    # 레이아웃으로 캐시 대조를 통과한다 — F1 이후 앵커 2개짜리는 재사용
+    # 후보가 되지 못한다.
+    iqc_sheets = {
+        "첫째": [["금형번호", "punch", "die"], ["RX28312", 12.5, 12.1]],
+        "둘째": [["금형번호", "punch", "die"], ["RX28312", 9.0, 8.7]],
+    }
+
+    @contextmanager
+    def _open(path):
+        kind = _kind_of(path)
+        if kind == "iqc":
+            yield MultiSheetWorkbook(iqc_sheets)
+        else:
+            yield FakeWorkbook(GRIDS[kind], sheet=SHEET_NAMES.get(kind, "Sheet1"))
+
+    summary = run_ingest(env, model=object(), open_wb=_open)
+
+    assert summary.status == "ok"
+    iqc_calls = [c for c in calls if c[0] == "iqc"]
+    assert len(iqc_calls) == 1, f"시트마다 발견을 돌았다: {iqc_calls}"
+
+
+def test_bad_ledger_sheet_name_is_reported_and_the_mold_is_missing(env, monkeypatch):
+    """관리대장 시트 이름이 JIG ID 로 안 읽히면 그 금형이 통째로 빠진다.
+    이름을 요약에 남기지 않으면 사용자가 어느 시트를 고칠지 알 수 없다."""
+    monkeypatch.setattr(
+        "app.ingest.pipeline.discover_layout", _fake_discover(LAYOUTS)
+    )
+
+    @contextmanager
+    def _open(path):
+        kind = _kind_of(path)
+        sheet = "합계" if kind == "ees" else SHEET_NAMES.get(kind, "Sheet1")
+        yield FakeWorkbook(GRIDS[kind], sheet=sheet)
+
+    summary = run_ingest(env, model=object(), open_wb=_open)
+
+    assert summary.bad_sheet_names == ["합계"]
+    assert summary.mold_count == 0
+    assert summary.skipped_rows >= 2
+
+
+def test_ees_sheet_a_layout_reused_on_sheet_b_keeps_molds_separate(env, monkeypatch):
+    """설계 문서의 테스트 요구 1번 — 문서가 "가장 중요한 방어선"이라 부른
+    회귀다: 시트 A 에서 학습한 캐시 레이아웃이 시트 B 에 재사용될 때
+    `Row.sheet` 가 A 가 아니라 **B** 인지.
+
+    지금까지 있는 캐시 재사용 테스트(test_same_form_sheets_reuse_one_discovered_layout)
+    는 IQC 로 검증하고 발견 **호출 횟수만** 본다. 관리대장(EES)은 실물에서
+    시트 하나가 금형 하나인 유일한 다중 시트 소스인데, 그동안 EES 테스트는
+    전부 시트 하나짜리 FakeWorkbook 이라 "레이아웃이 재사용된 시트의 행이
+    원래 시트의 금형으로 뭉치는" 실패가 구조적으로 관측 불가능했다.
+
+    판별력: `parser.parse_rows` 가 (버그를 되돌려) `sheet_name` 인자 대신
+    캐시에 박힌 `layout.sheet_name`("Sheet1", 두 시트가 공유하는 값)을 썼다면
+    두 시트의 이벤트가 전부 같은 mold_no 로 뭉치거나("Sheet1" 은 JIG ID 모양이
+    아니라 bad_sheet_names 로 잡혀 둘 다 사라진다), 어느 쪽이든 mold_count 가
+    2 가 아니게 된다 — 이 테스트는 그 옛 구현에서 반드시 실패한다.
+    """
+    calls: list[tuple[str, str]] = []
+
+    def _counting_discover(model, wb, kind, sheet_name, *, config=None):
+        calls.append((kind, sheet_name))
+        return LAYOUTS[kind]
+
+    monkeypatch.setattr("app.ingest.pipeline.discover_layout", _counting_discover)
+
+    # 두 시트 모두 EES 의 실제 헤더(이벤트시간/위치/설비명)를 그대로 써서
+    # 앵커 3개가 둘 다에 맞아야 캐시가 재사용된다.
+    ees_sheets = {
+        "#RX28312": [
+            ["이벤트시간", "위치", "설비명"],
+            ["2026-07-01T07:00:00", "설비", EQUIP],
+            ["2026-07-02T07:00:00", "통합 Jig Room", EQUIP],
+        ],
+        "#RX39513": [
+            ["이벤트시간", "위치", "설비명"],
+            ["2026-07-05T07:00:00", "설비", EQUIP],
+            ["2026-07-06T07:00:00", "통합 Jig Room", EQUIP],
+        ],
+    }
+
+    @contextmanager
+    def _open(path):
+        kind = _kind_of(path)
+        if kind == "ees":
+            yield MultiSheetWorkbook(ees_sheets)
+        else:
+            yield FakeWorkbook(GRIDS[kind], sheet=SHEET_NAMES.get(kind, "Sheet1"))
+
+    summary = run_ingest(env, model=object(), open_wb=_open)
+
+    assert summary.status == "ok"
+    assert summary.mold_count == 2, "두 시트가 각각 다른 금형으로 남아야 한다"
+    ees_calls = [c for c in calls if c[0] == "ees"]
+    assert len(ees_calls) == 1, f"양식이 같은 두 시트인데 발견을 두 번 돌았다: {ees_calls}"
+    # 두 손실 버킷이 분리된다는 이월 항목도 여기서 함께 닫힌다 — 둘 다
+    # 비어 있어야 두 시트가 온전히 각자의 금형으로 붙었다고 말할 수 있다.
+    assert summary.unknown_jig_id == [], "두 JIG ID 모두 기준정보에 있다"
+    assert summary.bad_sheet_names == [], "두 시트 이름 모두 JIG ID 모양이다"
+
+    conn = db.connect(env.resolved_molds_db_path)
+    mold_nos = {
+        r["mold_no"] for r in conn.execute("SELECT mold_no FROM production_run")
+    }
+    conn.close()
+    assert mold_nos == {"RX28312", "RX39513"}, (
+        "두 시트의 사용구간이 서로 다른 금형에 붙어야 한다 — 뭉치면 전 금형이 "
+        "하나로 합쳐지는, 설계 문서가 '가장 중요한 방어선'이라 부른 사고다"
+    )

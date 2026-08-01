@@ -118,22 +118,21 @@ _IQC_HEADER_HINTS = {
 
 FIELD_GUIDE: dict[SourceKind, str] = {
     "ees": (
-        "이 시트는 JIG 관리대장이다. 한 행이 사건 하나(그 금형이 어디로\n"
-        "옮겨졌는지)이고, **한 시트에 여러 금형의 사건이 섞여** 시간순으로\n"
-        "적혀 있다.\n"
+        "이 시트는 JIG 관리대장이며 **금형 하나의 이력**이다. 한 행이 사건\n"
+        "하나(그 금형이 어디로 옮겨졌는지)이고 시간순으로 적혀 있다.\n"
+        "\n어느 금형인지는 **시트 이름**이 정한다(시트 이름이 곧 JIG ID 다).\n"
+        "시트 안에 JIG ID 열은 **없다. 찾지 마라.**\n"
         "아래 필드에 해당하는 열을 찾아 field 이름을 **정확히 이 영문 이름으로**\n"
         "지정하라(없으면 넣지 않는다):\n"
         + "\n".join(f"  - {f}" for f in EES_FIELDS)
         + "\n\n짝지어 보면 이렇다:\n"
-        "  'JIG ID'(#RX39513 처럼 생긴 값) → mold_no\n"
         "  '이벤트시간'                    → event_at\n"
         "  '위치'                          → location\n"
         "  '설비명'(POU WND10_Stack(1차)_01 꼴) → equipment\n"
-        "\nmold_no(JIG ID) 와 location(위치) 는 **반드시 찾아야 한다.**\n"
-        "mold_no 를 놓치면 그 행이 어느 금형의 사건인지 알 수 없어 파일 전체가\n"
-        "버려진다. location 은 값이 '설비' 인 행이 곧 그 금형이 설비에 투입된\n"
-        "시점이고 그 다음 사건의 시각이 빠져나온 시점이라, 놓치면 금형이 언제\n"
-        "가동됐는지 알 방법이 사라진다. 없으면 notes 에 적어라.\n"
+        "\nlocation(위치) 와 event_at(이벤트시간) 은 **반드시 찾아야 한다.**\n"
+        "값이 '설비' 인 행이 곧 그 금형이 설비에 투입된 시점이고 그 다음 사건의\n"
+        "시각이 빠져나온 시점이라, 둘 중 하나만 없어도 금형이 언제 가동됐는지\n"
+        "알 방법이 사라진다. 없으면 notes 에 적어라.\n"
         "\nequipment(설비명)은 금형을 식별하는 열이 **아니다** — 그 구간에 어느\n"
         "설비의 실적을 붙일지 고르는 데 쓴다. 있으면 잡되, 없다고 헤매지 마라.\n"
     ),
@@ -191,20 +190,24 @@ FIELD_GUIDE: dict[SourceKind, str] = {
 }
 
 
-def _gaps(wb, layout: SheetLayout) -> list[str]:
+def _gaps(wb, layout: SheetLayout, sheet_name: str) -> list[str]:
     """제출된 레이아웃이 시트에서 덮지 못한 곳. 검증이 못 돌면 빈 목록이다.
 
-    검증 자체의 실패(시트 이름 오타 등)가 제출을 막을 이유는 없다 — 그러면
-    레이아웃을 하나도 못 얻어 파일 전체가 실패한다.
+    시트는 호출자가 준 **실제 이름**으로 연다. layout.sheet_name 은 에이전트가
+    적은 값이라, 오기가 나면 검증이 조용히 건너뛰어지고 열이 빠진 레이아웃이
+    그대로 접수된다.
+
+    검증 자체의 실패가 제출을 막을 이유는 없다 — 그러면 레이아웃을 하나도 못
+    얻어 파일 전체가 실패한다.
     """
     try:
-        grid, top_left = wb.used_values(layout.sheet_name)
+        grid, top_left = wb.used_values(sheet_name)
     except Exception:  # noqa: BLE001
         return []
     return find_layout_gaps(grid, top_left, layout)
 
 
-def _make_submit_tool(holder: dict, wb) -> StructuredTool:
+def _make_submit_tool(holder: dict, wb, sheet_name: str) -> StructuredTool:
     def _submit(**kwargs) -> str:
         layout = SheetLayout(**kwargs)
         # 되돌려보낼 때도 붙잡아 둔다. 에이전트가 재제출을 포기하면
@@ -212,7 +215,7 @@ def _make_submit_tool(holder: dict, wb) -> StructuredTool:
         # 레이아웃이 아무것도 없는 것보다 낫다(다음 제출이 덮어쓴다).
         holder["layout"] = layout
 
-        gaps = _gaps(wb, layout)
+        gaps = _gaps(wb, layout, sheet_name)
         rejections = holder.get("rejections", 0)
         if gaps and rejections < _MAX_SUBMIT_REJECTIONS:
             # 무한 왕복을 막는다. 못 맞추는 모델이 걸렸을 때 표를 하나도 못
@@ -241,14 +244,18 @@ def _make_submit_tool(holder: dict, wb) -> StructuredTool:
     )
 
 
-def build_discover_agent(model, wb, kind: SourceKind, holder: dict):
+def build_discover_agent(model, wb, kind: SourceKind, sheet_name: str, holder: dict):
     """열린 workbook(wb)에 바인딩된 발견 에이전트와 도구 목록을 만든다.
 
     `holder` 에 최종 제출된 SheetLayout 이 담긴다(에이전트 그래프의 반환값이
     아니라 도구 클로저를 통해 전달된다 — submit_layout 인자가 검증된 시점의
     Pydantic 인스턴스를 그대로 잡아두기 위해서다).
+
+    `sheet_name` 은 호출자가 넘긴 실제 시트 이름이다. 기본값을 주지 않는
+    이유: 호출부에서 빠뜨리면 다시 에이전트가 적은 이름으로 조용히 돌아가
+    _gaps 의 검증이 오타에 노출된다.
     """
-    tools = make_excel_tools(wb) + [_make_submit_tool(holder, wb)]
+    tools = make_excel_tools(wb) + [_make_submit_tool(holder, wb, sheet_name)]
     agent = create_react_agent(model, tools)
     return agent, tools
 
@@ -280,7 +287,7 @@ def discover_layout(
         )
 
     holder: dict = {}
-    agent, _tools = build_discover_agent(model, wb, kind, holder)
+    agent, _tools = build_discover_agent(model, wb, kind, sheet_name, holder)
 
     prompt = _BASE_PROMPT + "\n" + guide
     question = (

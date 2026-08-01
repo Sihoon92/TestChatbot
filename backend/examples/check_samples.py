@@ -33,7 +33,7 @@ PPM = 1_000_000
 
 # 격자는 top_left=B2 이므로 인덱스 0 = 열 B.
 M_LINE, M_JIG_ID, M_CODE, M_EQUIP = 2, 5, 8, 9        # 기준정보
-L_JIG_ID, L_TIME, L_LOC, L_EQUIP = 0, 1, 4, 6          # 관리대장
+L_TIME, L_LOC, L_EQUIP = 0, 3, 5                       # 관리대장(JIG ID 열 없음)
 X_CODE, X_IN, X_BAD = 3, 5, 7                          # MES (6행부터)
 Q_MOLD = 2          # IQC 대장 상세표(33행~)의 '금형 번호' = 열 D
 Q_HIST_MOLD = 4     # IQC 이력표(17행~)의 '관리 번호'      = 열 F
@@ -69,21 +69,16 @@ def main() -> int:
             if r and r[X_CODE]:
                 mes[(day, int(r[X_CODE]))] = (int(r[X_IN]), int(r[X_BAD]))
 
-    # ── 관리대장: JIG ID 로 묶어 사용구간을 뽑는다 ────────────────────
-    # 한 시트에 여러 금형이 섞여 있으므로 시트로 묶으면 A 금형의 설비 진입이
-    # B 금형의 다음 이벤트로 닫힌다.
+    # ── 관리대장: 시트 하나가 금형 하나다 ────────────────────────────
+    # 시트 이름이 곧 JIG ID 다. 시트 안에 JIG ID 열은 없다.
     ledger = root / "EES" / "JIG_관리대장.xlsx"
-    with open_workbook(str(ledger)) as wb:
-        events = []
-        for sheet in wb.sheet_names():
-            events += [r for r in wb.used_values(sheet)[0][1:]
-                       if r and r[L_JIG_ID] and r[L_TIME]]
-
     by_mold = {}
-    for r in events:
-        by_mold.setdefault(
-            str(r[L_JIG_ID]).lstrip("#").strip().upper(), []
-        ).append(r)
+    with open_workbook(str(ledger)) as wb:
+        for sheet in wb.sheet_names():
+            mold = sheet.strip().lstrip("#").strip().upper()
+            rows = [r for r in wb.used_values(sheet)[0][1:] if r and r[L_TIME]]
+            if rows:
+                by_mold.setdefault(mold, []).extend(rows)
 
     molds, unknown_jig_id, unknown_equipment = {}, [], []
     missing_days, open_runs, unmatched = set(), 0, 0

@@ -45,10 +45,19 @@ def cell_at(grid: list[list], top_left: str, cell: str) -> object | None:
 def anchors_match(grid: list[list], top_left: str, layout: SheetLayout) -> bool:
     """레이아웃의 앵커가 전부 일치하면 True.
 
-    앵커 목록이 비어 있으면 False 다 — 판정 근거가 없는 레이아웃을 참으로
-    처리하면 아무거나 재사용된다.
+    앵커가 3개 미만이면 False 다 — 판정 근거가 약한 레이아웃을 참으로 처리하면
+    아무거나 재사용된다. 캐시가 (kind, sheet_name) 이 아니라 kind 로만 좁혀진
+    지금은 이 판정이 그 kind 의 **모든 시트**에 대한 유일한 문지기라, 예전처럼
+    "잘못 걸려도 시트 하나만 오염된다"는 안전망이 없다.
+
+    이 최소 개수를 `SheetLayout.anchors` 에 Pydantic 제약(예: min_length=3)으로
+    걸지 않는 이유: 그 모델은 에이전트 제출 검증뿐 아니라
+    `registry.load_layouts` 의 역직렬화도 겸한다. 제약을 걸면 앵커가 3개
+    미만으로 이미 저장된 옛 캐시 행을 읽을 때 `ValidationError` 가 터져
+    레이아웃 로딩 전체가 죽는다. 여기 판정부에서만 거르면 그런 레이아웃은
+    그냥 캐시 미스로 취급돼 다시 발견될 뿐이라 안전하게 퇴화한다.
     """
-    if not layout.anchors:
+    if len(layout.anchors) < 3:
         return False
     for anchor in layout.anchors:
         actual = cell_to_text(cell_at(grid, top_left, anchor.cell))

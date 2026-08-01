@@ -58,7 +58,7 @@ def _read_file(conn, model, found: FoundFile, open_wb, config) -> list[Row]:
             if not grid:
                 continue
             cached = pick_layout(
-                grid, top_left, registry.load_layouts(conn, found.kind, sheet_name)
+                grid, top_left, registry.load_layouts(conn, found.kind)
             )
             layout = cached
             if layout is None:
@@ -66,7 +66,7 @@ def _read_file(conn, model, found: FoundFile, open_wb, config) -> list[Row]:
                     model, wb, found.kind, sheet_name, config=config
                 )
             try:
-                parsed = parse_rows(grid, top_left, layout, found.path)
+                parsed = parse_rows(grid, top_left, layout, found.path, sheet_name)
             except Exception:  # noqa: BLE001
                 # 캐시된 레이아웃으로 실패했다면 양식이 앵커 밖에서 바뀐 것이다
                 # (헤더 텍스트는 그대로인데 컬럼 구성만 달라진 경우 등).
@@ -77,7 +77,7 @@ def _read_file(conn, model, found: FoundFile, open_wb, config) -> list[Row]:
                 layout = discover_layout(
                     model, wb, found.kind, sheet_name, config=config
                 )
-                parsed = parse_rows(grid, top_left, layout, found.path)
+                parsed = parse_rows(grid, top_left, layout, found.path, sheet_name)
             if layout is not cached:
                 # 파싱에 성공한 레이아웃만 캐시에 남긴다. 저장을 파싱보다 앞에
                 # 두면 파싱을 못 하는 레이아웃이 캐시에 박혀 영구 실패한다
@@ -211,6 +211,7 @@ def run_ingest(
             missing_mes_days=result.losses.missing_mes_days,
             unmatched_runs=result.losses.unmatched_runs,
             open_runs=result.losses.open_runs,
+            bad_sheet_names=result.losses.bad_sheet_names,
         )
         registry.record_run(conn, summary)
         return summary

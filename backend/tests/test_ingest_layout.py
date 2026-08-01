@@ -48,23 +48,32 @@ def test_cell_at_out_of_range_is_none():
 def test_anchors_match_when_all_texts_equal():
     assert anchors_match(GRID, "A1", _layout([
         AnchorCheck(cell="A1", text="No"),
+        AnchorCheck(cell="B1", text="입고시간"),
         AnchorCheck(cell="C1", text="금형번호"),
     ]))
 
 
 def test_anchors_match_ignores_whitespace_and_case():
+    # 세 항목 다 최소 개수(3개)를 채워서, 아래 참/거짓이 앵커 개수가 아니라
+    # 텍스트 비교(공백·대소문자) 때문임을 분명히 한다.
     assert anchors_match(GRID, "A1", _layout([
-        AnchorCheck(cell="C1", text="  금형 번호 ")
+        AnchorCheck(cell="A1", text="No"),
+        AnchorCheck(cell="B1", text="입고시간"),
+        AnchorCheck(cell="C1", text="  금형 번호 "),
     ])) is False, "공백 위치가 다르면 다른 헤더다"
     assert anchors_match(GRID, "A1", _layout([
-        AnchorCheck(cell="B1", text=" 입고시간  ")
+        AnchorCheck(cell="A1", text="No"),
+        AnchorCheck(cell="B1", text=" 입고시간  "),
+        AnchorCheck(cell="C1", text="금형번호"),
     ])), "앞뒤 공백만 다른 것은 같은 헤더다"
     # 위 두 단언은 모두 한글이라 casefold 가 빠져도 통과한다 — 대소문자
     # 무시는 영문 앵커로만 검증된다. 실물 시트에 punch/die 같은 영문
     # 헤더가 있고, 대소문자가 흔들리면 캐시가 영원히 미스가 난다.
-    en_grid = [["Punch", "Die"]]
+    en_grid = [["Punch", "Die", "Gap"]]
     assert anchors_match(en_grid, "A1", _layout([
-        AnchorCheck(cell="A1", text="PUNCH")
+        AnchorCheck(cell="A1", text="PUNCH"),
+        AnchorCheck(cell="B1", text="die"),
+        AnchorCheck(cell="C1", text="GAP"),
     ])), "대소문자만 다른 것은 같은 헤더다"
 
 
@@ -72,13 +81,16 @@ def test_anchors_mismatch_when_one_differs():
     """표 세 개 중 하나만 바뀌어도 감지돼야 한다."""
     assert not anchors_match(GRID, "A1", _layout([
         AnchorCheck(cell="A1", text="No"),
+        AnchorCheck(cell="B1", text="입고시간"),
         AnchorCheck(cell="C1", text="관리번호"),
     ]))
 
 
 def test_anchors_mismatch_when_out_of_range():
     assert not anchors_match(GRID, "A1", _layout([
-        AnchorCheck(cell="Z99", text="금형번호")
+        AnchorCheck(cell="A1", text="No"),
+        AnchorCheck(cell="B1", text="입고시간"),
+        AnchorCheck(cell="Z99", text="금형번호"),
     ]))
 
 
@@ -88,14 +100,35 @@ def test_empty_anchor_list_never_matches():
     assert not anchors_match(GRID, "A1", _layout([]))
 
 
+def test_fewer_than_three_anchors_never_matches_even_if_they_all_agree():
+    """앵커가 2개뿐이면 격자와 완전히 일치해도 재사용 후보가 되면 안 된다.
+
+    캐시가 (kind, sheet_name) 이 아니라 kind 로만 좁혀진 뒤로는 이 판정이 그
+    kind 의 모든 시트에 대한 유일한 문지기다. 앵커 최소 개수를 코드로
+    강제하지 않으면, 약한 레이아웃 하나가 같은 kind 의 다른 모든 시트에
+    잘못 적용될 길이 열린다."""
+    assert anchors_match(GRID, "A1", _layout([
+        AnchorCheck(cell="A1", text="No"),
+        AnchorCheck(cell="B1", text="입고시간"),
+    ])) is False, "두 앵커가 격자와 완전히 일치해도 개수 미달이면 거부한다"
+
+
 def test_pick_layout_returns_first_match():
-    old = _layout([AnchorCheck(cell="C1", text="관리번호")])
-    new = _layout([AnchorCheck(cell="C1", text="금형번호")])
+    common = [
+        AnchorCheck(cell="A1", text="No"),
+        AnchorCheck(cell="B1", text="입고시간"),
+    ]
+    old = _layout([*common, AnchorCheck(cell="C1", text="관리번호")])
+    new = _layout([*common, AnchorCheck(cell="C1", text="금형번호")])
     assert pick_layout(GRID, "A1", [old, new]) is new
 
 
 def test_pick_layout_returns_none_when_nothing_matches():
-    old = _layout([AnchorCheck(cell="C1", text="관리번호")])
+    old = _layout([
+        AnchorCheck(cell="A1", text="No"),
+        AnchorCheck(cell="B1", text="입고시간"),
+        AnchorCheck(cell="C1", text="관리번호"),
+    ])
     assert pick_layout(GRID, "A1", [old]) is None
 
 

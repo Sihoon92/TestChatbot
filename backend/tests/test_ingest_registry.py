@@ -44,17 +44,30 @@ def test_load_layouts_returns_newest_first(conn):
     registry.save_layout(conn, "iqc", _layout("관리번호"), "old.xlsx")
     registry.save_layout(conn, "iqc", _layout("금형번호"), "new.xlsx")
 
-    layouts = registry.load_layouts(conn, "iqc", "Sheet1")
+    layouts = registry.load_layouts(conn, "iqc")
 
     assert [l.anchors[0].text for l in layouts] == ["금형번호", "관리번호"]
 
 
-def test_load_layouts_filters_by_kind_and_sheet(conn):
+def test_load_layouts_offers_other_sheets_of_the_same_kind(conn):
+    """시트 이름이 금형번호가 되면서 캐시 키로 쓸 수 없어졌다. 양식이 같은
+    시트들이 각각 LLM 발견을 도는 것을 막으려면 후보를 kind 로 모아 주고,
+    양식 일치 판정은 pick_layout 의 앵커 대조에 맡겨야 한다."""
+    registry.save_layout(conn, "ees", _layout(sheet="#RX39513"), "ledger.xlsx")
+
+    found = registry.load_layouts(conn, "ees")
+
+    assert [x.sheet_name for x in found] == ["#RX39513"]
+
+
+def test_load_layouts_still_separates_kinds(conn):
+    """앵커가 우연히 맞을 수 있으므로 단계 경계는 남겨 둔다."""
     registry.save_layout(conn, "iqc", _layout(sheet="Sheet1"), "a.xlsx")
     registry.save_layout(conn, "mes", _layout(sheet="Sheet1"), "b.xlsx")
 
-    assert len(registry.load_layouts(conn, "iqc", "Sheet1")) == 1
-    assert registry.load_layouts(conn, "iqc", "다른시트") == []
+    assert len(registry.load_layouts(conn, "iqc")) == 1
+    assert len(registry.load_layouts(conn, "mes")) == 1
+    assert registry.load_layouts(conn, "ees") == []
 
 
 def test_old_layouts_are_kept_for_traceability(conn):
@@ -62,7 +75,7 @@ def test_old_layouts_are_kept_for_traceability(conn):
     해석했는가' 가 추출값을 의심할 때 유일한 근거다."""
     registry.save_layout(conn, "iqc", _layout("관리번호"), "old.xlsx")
     registry.save_layout(conn, "iqc", _layout("금형번호"), "new.xlsx")
-    assert len(registry.load_layouts(conn, "iqc", "Sheet1")) == 2
+    assert len(registry.load_layouts(conn, "iqc")) == 2
 
 
 def test_record_and_read_latest_run(conn):
@@ -95,6 +108,20 @@ def test_latest_run_returns_most_recent(conn):
 
 def test_latest_run_none_when_never_run(conn):
     assert registry.latest_run(conn) is None
+
+
+def test_run_summary_round_trips_bad_sheet_names(conn):
+    """시트 이름이 깨져 금형이 빠진 사실은 화면까지 가야 한다. 여기서 끊기면
+    사용자는 금형이 왜 안 나오는지 알 방법이 없다."""
+    registry.record_run(conn, RunSummary(
+        status="ok", started_at="2026-07-30T00:00:00",
+        bad_sheet_names=["합계", "표지"],
+    ))
+
+    latest = registry.latest_run(conn)
+
+    assert latest is not None
+    assert latest.bad_sheet_names == ["합계", "표지"]
 
 
 def test_init_db_adds_columns_to_an_older_database(tmp_path):
@@ -131,6 +158,7 @@ def test_init_db_adds_columns_to_an_older_database(tmp_path):
         status="ok", started_at="s", finished_at="f",
         failed_files=["iqc.xlsx: ValueError: 컬럼 매핑이 없다"],
         unknown_statuses=["가동"], unknown_status_rows=42,
+        bad_sheet_names=["합계"],
     ))
     latest = registry.latest_run(c)
     c.close()
@@ -139,3 +167,4 @@ def test_init_db_adds_columns_to_an_older_database(tmp_path):
     assert latest.failed_files == ["iqc.xlsx: ValueError: 컬럼 매핑이 없다"]
     # 손실 규모는 새로고침 후에도 보여야 한다 — 화면은 status 조회로 다시 읽는다.
     assert latest.unknown_status_rows == 42
+    assert latest.bad_sheet_names == ["합계"]

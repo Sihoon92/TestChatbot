@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS ingest_run (
     unknown_equipment_json TEXT NOT NULL DEFAULT '[]',
     missing_mes_days_json  TEXT NOT NULL DEFAULT '[]',
     unmatched_runs INTEGER NOT NULL DEFAULT 0,
-    open_runs      INTEGER NOT NULL DEFAULT 0
+    open_runs      INTEGER NOT NULL DEFAULT 0,
+    bad_sheet_names_json TEXT NOT NULL DEFAULT '[]'
 );
 
 -- 아래 네 테이블은 대시보드 스키마와 대응하며, 배치마다 전체 교체된다.
@@ -122,6 +123,7 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "missing_mes_days_json": "TEXT NOT NULL DEFAULT '[]'",
         "unmatched_runs": "INTEGER NOT NULL DEFAULT 0",
         "open_runs": "INTEGER NOT NULL DEFAULT 0",
+        "bad_sheet_names_json": "TEXT NOT NULL DEFAULT '[]'",
     },
 }
 

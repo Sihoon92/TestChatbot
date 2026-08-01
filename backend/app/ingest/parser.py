@@ -33,6 +33,7 @@ def _table_rows(
     defaults: dict[str, str | None],
     layout: SheetLayout,
     source_file: str,
+    sheet_name: str,
 ) -> list[Row]:
     # detail 표에 컬럼 매핑이 없으면 뽑을 것이 없다. 조용히 0행을 돌려주면
     # "표는 있는데 행이 없다" 는 상태가 되어 원인을 추적할 수 없다 —
@@ -42,7 +43,7 @@ def _table_rows(
     if not table.columns:
         raise ValueError(
             f"detail 표 '{table.name}' 에 컬럼 매핑이 없다 "
-            f"(시트 '{layout.sheet_name}', {source_file})"
+            f"(시트 '{sheet_name}', {source_file})"
         )
 
     # 헤더 행 번호를 data_end_row 에 넣는 실수가 여기서 잡힌다. 그대로 두면
@@ -52,7 +53,7 @@ def _table_rows(
         raise ValueError(
             f"표 '{table.name}' 의 data_end_row({table.data_end_row}) 가 "
             f"data_start_row({table.data_start_row}) 보다 작다 "
-            f"(시트 '{layout.sheet_name}', {source_file})"
+            f"(시트 '{sheet_name}', {source_file})"
         )
 
     rows: list[Row] = []
@@ -84,7 +85,7 @@ def _table_rows(
         rows.append(
             Row(
                 source_file=source_file,
-                sheet=layout.sheet_name,
+                sheet=sheet_name,
                 row_no=row_no,
                 values=merged,
             )
@@ -93,7 +94,11 @@ def _table_rows(
 
 
 def parse_rows(
-    grid: list[list], top_left: str, layout: SheetLayout, source_file: str
+    grid: list[list],
+    top_left: str,
+    layout: SheetLayout,
+    source_file: str,
+    sheet_name: str,
 ) -> list[Row]:
     """detail 표들에서 행을 뽑는다.
 
@@ -101,6 +106,11 @@ def parse_rows(
     파싱하면 '소계'/'총계'가 금형번호로 읽힌다.
 
     표가 하나도 없으면(성적서형) 키-값 블록만으로 한 행을 만든다.
+
+    `sheet_name` 은 **워크북의 실제 시트명**이다. layout.sheet_name 을 쓰지
+    않는 이유: 그 값은 LLM 이 적어낸 것이고, 캐시된 레이아웃이 다른 시트에
+    재사용되면 남의 시트 이름이 들어 있다. 관리대장은 시트 이름이 곧
+    금형번호라 그대로 믿으면 모든 금형이 한 시트로 뭉친다.
     """
     defaults = _key_value_defaults(grid, top_left, layout)
     detail_tables = [t for t in layout.tables if t.role == "detail"]
@@ -111,7 +121,7 @@ def parse_rows(
         return [
             Row(
                 source_file=source_file,
-                sheet=layout.sheet_name,
+                sheet=sheet_name,
                 row_no=1,
                 values=defaults,
             )
@@ -120,6 +130,8 @@ def parse_rows(
     rows: list[Row] = []
     for table in detail_tables:
         rows.extend(
-            _table_rows(grid, top_left, table, defaults, layout, source_file)
+            _table_rows(
+                grid, top_left, table, defaults, layout, source_file, sheet_name
+            )
         )
     return rows
