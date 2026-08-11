@@ -1,0 +1,1657 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>금형 수집 시스템 전체 동작 원리 — 특히 Excel Agent</title>
+<style>
+:root{
+  --bg:#faf9f7;
+  --panel:#ffffff;
+  --ink:#23262b;
+  --ink-soft:#5b6068;
+  --line:#e3e0da;
+  --line-strong:#c9c4bb;
+
+  /* 문서 종류별 색 — 이 페이지의 모든 그림에서 같은 뜻으로 재사용한다 */
+  --ees:#3b6fd4;        /* JIG 관리대장 */
+  --ees-bg:#eaf0fc;
+  --jig:#7c5cbf;        /* JIG 기준정보 */
+  --jig-bg:#f1ecfa;
+  --mes:#2f8f5b;        /* MES */
+  --mes-bg:#e8f5ee;
+  --iqc:#c07d1a;        /* IQC */
+  --iqc-bg:#fbf1de;
+
+  /* 역할별 색 */
+  --agent:#b4436c;      /* LLM / 에이전트가 관여하는 곳 */
+  --agent-bg:#fceef3;
+  --pure:#1f7a7a;       /* 순수 파이썬(LLM✗ Excel✗ DB✗) */
+  --pure-bg:#e5f4f4;
+  --db:#4a5568;
+  --db-bg:#edf0f4;
+  --warn:#b7791f;
+  --danger:#c05621;
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16.5px;
+  line-height:1.75;
+  padding-bottom:96px;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:900px;margin:0 auto;padding:0 20px;}
+header.page{
+  background:linear-gradient(160deg,#2b3340,#3d4a5c);
+  color:#fff;padding:44px 0 36px;margin-bottom:8px;
+}
+header.page .wrap{max-width:900px;}
+header.page h1{margin:0 0 10px;font-size:1.95rem;line-height:1.35;letter-spacing:-.01em;}
+header.page p{margin:0;color:#d7dde6;font-size:.98rem;}
+header.page .meta{margin-top:16px;font-size:.82rem;color:#aeb8c6;}
+
+h2{
+  margin:56px 0 4px;font-size:1.42rem;line-height:1.4;letter-spacing:-.01em;
+  padding-bottom:8px;border-bottom:2px solid var(--line-strong);
+}
+h3{margin:34px 0 6px;font-size:1.14rem;letter-spacing:-.01em;}
+h4{margin:24px 0 4px;font-size:1rem;color:var(--ink-soft);}
+p{margin:12px 0;}
+ul,ol{margin:12px 0;padding-left:1.35em;}
+li{margin:6px 0;}
+code{
+  font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;
+  font-size:.86em;background:#f0eeea;padding:1px 5px;border-radius:4px;
+  border:1px solid #e2ded7;
+}
+a{color:#2b6cb0;}
+strong{font-weight:700;}
+.small{font-size:.88rem;color:var(--ink-soft);}
+
+pre{
+  background:#282c34;color:#e6e6e6;padding:16px 18px;border-radius:8px;
+  overflow-x:auto;font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;
+  font-size:.82rem;line-height:1.6;white-space:pre;margin:16px 0;
+}
+pre .c{color:#8a93a5;}
+pre .k{color:#c678dd;}
+pre .s{color:#98c379;}
+pre .f{color:#61afef;}
+pre.plain{background:#fff;color:var(--ink);border:1px solid var(--line);}
+
+/* ── 콜아웃 ── */
+.callout{
+  border-left:4px solid var(--line-strong);background:var(--panel);
+  padding:14px 18px;margin:20px 0;border-radius:0 8px 8px 0;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+.callout .tag{
+  display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.04em;
+  text-transform:uppercase;margin-bottom:6px;color:var(--ink-soft);
+}
+.callout p:first-of-type{margin-top:0;}
+.callout p:last-child{margin-bottom:0;}
+.callout.key{border-left-color:var(--pure);background:var(--pure-bg);}
+.callout.key .tag{color:var(--pure);}
+.callout.warn{border-left-color:var(--warn);background:#fdf6e7;}
+.callout.warn .tag{color:var(--warn);}
+.callout.trap{border-left-color:var(--danger);background:#fdefe7;}
+.callout.trap .tag{color:var(--danger);}
+.callout.def{border-left-color:var(--ees);background:var(--ees-bg);}
+.callout.def .tag{color:var(--ees);}
+
+/* ── 목차 ── */
+nav.toc{
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:18px 22px;margin:28px 0;
+}
+nav.toc h2{margin:0 0 8px;font-size:1rem;border:0;padding:0;}
+nav.toc ol{margin:0;padding-left:1.2em;font-size:.94rem;}
+nav.toc ol ol{padding-left:1.1em;font-size:.9rem;color:var(--ink-soft);}
+nav.toc a{text-decoration:none;}
+nav.toc a:hover{text-decoration:underline;}
+
+/* ── 그림 공통 ── */
+figure{margin:26px 0;}
+figure .frame{
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:20px 18px;overflow-x:auto;
+}
+figcaption{
+  font-size:.85rem;color:var(--ink-soft);margin-top:8px;padding-left:2px;
+}
+svg{display:block;max-width:100%;height:auto;}
+
+/* 엑셀 격자 */
+table.grid{
+  border-collapse:collapse;font-family:"JetBrains Mono",Consolas,monospace;
+  font-size:.76rem;background:#fff;min-width:max-content;
+}
+table.grid th,table.grid td{
+  border:1px solid #d7d3cc;padding:3px 8px;text-align:left;white-space:nowrap;
+}
+table.grid th{background:#eeebe6;color:#6a6a6a;font-weight:600;text-align:center;}
+table.grid td.rownum{background:#eeebe6;color:#6a6a6a;text-align:center;font-weight:600;}
+table.grid td.hdr{background:#f6f2ea;font-weight:700;}
+table.grid td.anchor{background:#ffe9a8;outline:2px solid #d69e2e;outline-offset:-2px;}
+table.grid td.pick{background:#dcefe4;}
+table.grid td.pick2{background:#e7e0f7;}
+table.grid td.empty{color:#c3bfb8;}
+table.grid td.sum{background:#f6e3e3;color:#8a4b4b;}
+
+/* 일반 표 */
+table.data{
+  border-collapse:collapse;width:100%;font-size:.9rem;margin:18px 0;
+  background:var(--panel);
+}
+table.data th,table.data td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top;}
+table.data th{background:#f2efeb;font-weight:700;font-size:.85rem;}
+table.data td code{font-size:.82em;}
+.tablewrap{overflow-x:auto;}
+
+/* 박스 다이어그램 */
+.flow{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch;}
+.node{
+  border:1.5px solid var(--line-strong);background:var(--panel);border-radius:8px;
+  padding:10px 13px;font-size:.85rem;min-width:140px;flex:1 1 150px;
+}
+.node .t{font-weight:700;display:block;margin-bottom:2px;font-size:.86rem;}
+.node .d{color:var(--ink-soft);font-size:.79rem;line-height:1.5;}
+.node.ees{border-color:var(--ees);background:var(--ees-bg);}
+.node.jig{border-color:var(--jig);background:var(--jig-bg);}
+.node.mes{border-color:var(--mes);background:var(--mes-bg);}
+.node.iqc{border-color:var(--iqc);background:var(--iqc-bg);}
+.node.agent{border-color:var(--agent);background:var(--agent-bg);}
+.node.pure{border-color:var(--pure);background:var(--pure-bg);}
+.node.db{border-color:var(--db);background:var(--db-bg);}
+.arrowdown{text-align:center;color:var(--line-strong);font-size:1.3rem;line-height:1;margin:6px 0;}
+
+/* 도구 시퀀스 */
+.seq{list-style:none;padding:0;margin:0;counter-reset:seq;}
+.seq>li{
+  position:relative;padding:0 0 0 40px;margin:0 0 14px;
+}
+.seq>li:before{
+  counter-increment:seq;content:counter(seq);
+  position:absolute;left:0;top:2px;width:26px;height:26px;border-radius:50%;
+  background:var(--agent);color:#fff;font-size:.78rem;font-weight:700;
+  display:flex;align-items:center;justify-content:center;
+}
+.seq .call{
+  font-family:"JetBrains Mono",Consolas,monospace;font-size:.83rem;
+  background:var(--agent-bg);border:1px solid #edc6d6;color:#8c2f52;
+  padding:5px 9px;border-radius:6px;display:inline-block;margin-bottom:5px;
+}
+.seq .ret{
+  font-family:"JetBrains Mono",Consolas,monospace;font-size:.78rem;
+  background:#f4f2ee;border:1px solid var(--line);padding:7px 10px;
+  border-radius:6px;white-space:pre-wrap;color:#3a3f47;margin:0 0 4px;
+}
+.seq .why{font-size:.84rem;color:var(--ink-soft);margin:2px 0 0;}
+
+/* io 계약 */
+.io{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0;}
+.io>div{flex:1 1 260px;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:12px 14px;}
+.io h5{margin:0 0 6px;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);}
+.io pre{margin:0;font-size:.76rem;padding:11px 12px;}
+
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.82rem;margin:12px 0 0;color:var(--ink-soft);}
+.legend span{display:inline-flex;align-items:center;gap:6px;}
+.legend i{width:13px;height:13px;border-radius:3px;display:inline-block;border:1.5px solid;}
+
+/* ── 질문 메모 ── */
+.qmemo{
+  border:2px dashed #c9c4bb;background:#f4f2ed;border-radius:10px;
+  padding:14px 16px;margin:26px 0;
+}
+.qmemo-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:8px;}
+.qmemo-label{
+  font-size:.74rem;font-weight:800;letter-spacing:.06em;color:#7a736a;
+  background:#e6e2da;padding:2px 8px;border-radius:20px;
+}
+.qmemo-hint{font-size:.78rem;color:#8b857c;}
+.qmemo-question{
+  min-height:2.6em;background:#fff;border:1px solid var(--line);border-radius:6px;
+  padding:9px 12px;font-size:.92rem;outline:none;
+}
+.qmemo-question:focus{border-color:var(--ees);box-shadow:0 0 0 3px rgba(59,111,212,.12);}
+.qmemo-question:empty:before{content:attr(data-placeholder);color:#b3ada4;}
+.qmemo-answer{
+  margin-top:10px;background:#fff;border-left:3px solid var(--pure);
+  padding:10px 14px;border-radius:0 6px 6px 0;font-size:.92rem;
+}
+.qmemo[data-status="answered"]{border:2px solid var(--pure);background:var(--pure-bg);}
+.qmemo[data-status="answered"] .qmemo-label{background:var(--pure);color:#fff;}
+
+#qmemo-bar{
+  position:fixed;left:0;right:0;bottom:0;z-index:50;
+  background:rgba(43,51,64,.97);color:#fff;padding:11px 20px;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  box-shadow:0 -2px 12px rgba(0,0,0,.18);
+}
+#qmemo-save-btn{
+  background:#f5c14e;color:#2b3340;border:0;border-radius:6px;
+  padding:9px 18px;font-size:.9rem;font-weight:700;cursor:pointer;
+  font-family:inherit;
+}
+#qmemo-save-btn:hover{background:#ffd370;}
+#qmemo-saymsg{font-size:.78rem;color:#cdd5df;word-break:break-all;}
+
+/* ── 퀴즈 ── */
+.quiz{
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:18px 20px;margin:22px 0;
+}
+.quiz .q{font-weight:700;margin:0 0 12px;}
+.quiz .opts{display:flex;flex-direction:column;gap:8px;}
+.quiz button.opt{
+  text-align:left;font-family:inherit;font-size:.92rem;line-height:1.5;
+  background:#f7f5f2;border:1.5px solid var(--line);border-radius:8px;
+  padding:10px 13px;cursor:pointer;color:var(--ink);transition:.12s;
+}
+.quiz button.opt:hover:not(:disabled){border-color:var(--ees);background:#eef3fc;}
+.quiz button.opt:disabled{cursor:default;}
+.quiz button.opt.right{border-color:#2f8f5b;background:#e8f5ee;}
+.quiz button.opt.wrong{border-color:#c05621;background:#fdefe7;}
+.quiz .fb{
+  margin-top:12px;font-size:.9rem;padding:11px 14px;border-radius:8px;display:none;
+  line-height:1.65;
+}
+.quiz .fb.show{display:block;}
+.quiz .fb.ok{background:#e8f5ee;border-left:3px solid #2f8f5b;}
+.quiz .fb.no{background:#fdefe7;border-left:3px solid #c05621;}
+
+hr.sep{border:0;border-top:1px solid var(--line);margin:40px 0;}
+
+@media (max-width:640px){
+  body{font-size:16px;}
+  header.page h1{font-size:1.5rem;}
+  h2{font-size:1.24rem;}
+  .wrap{padding:0 15px;}
+  figure .frame{padding:14px 12px;}
+}
+</style>
+</head>
+<body>
+
+<header class="page">
+  <div class="wrap">
+    <h1>부서가 올린 엑셀 한 장이<br>대시보드의 숫자가 되기까지</h1>
+    <p>TestProject 전체 동작 원리 — 특히 <strong>Excel Agent</strong> 가 무엇을 입력받아 무엇을 내놓는가</p>
+    <div class="meta">2026-08-11 · 브랜치 <code style="background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.2);color:#fff">feat/ingest-phase1</code> 기준 · 읽는 데 25~35분</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<p>이 문서는 <strong>지금 이 저장소의 코드가 실제로 무엇을 하는가</strong>를 처음 보는 사람에게 설명한다.
+설계 의도(왜 이렇게 정했나)는 <code>docs/superpowers/specs/</code> 에 있고, 여기서는 “그래서 어떻게 도는가”를 다룬다.</p>
+
+<div class="callout def">
+  <span class="tag">이 페이지 쓰는 법</span>
+  <p>읽다가 궁금한 게 생기면 <strong>“질문 메모”</strong> 상자에 그대로 적으면 된다. 적는 즉시 이 브라우저에 자동 저장되고,
+  맨 아래 <strong>질문 저장</strong> 버튼을 누르면 <em>같은 파일 이름</em>으로 질문이 박힌 사본이 다운로드된다.
+  그 파일로 원본을 덮어쓴 뒤 Claude 에게 “질문 답해줘”라고 하면, 답이 그 자리에 채워진 상태로 이 문서가 갱신된다.</p>
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#bg">배경 — 이 시스템이 풀려는 문제</a>
+      <ol>
+        <li><a href="#bg-basics">완전 기초 (아는 사람은 건너뛰어도 좋다)</a></li>
+        <li><a href="#bg-project">이 프로젝트의 지도</a></li>
+        <li><a href="#bg-docs">네 종류의 엑셀과 그 관계</a></li>
+      </ol>
+    </li>
+    <li><a href="#intuition">직관 — 핵심 아이디어 한 줄</a>
+      <ol>
+        <li><a href="#in-split">LLM 은 “어디”만, 코드는 “얼마”만</a></li>
+        <li><a href="#in-agent">Excel Agent 가 시트를 더듬는 방식</a></li>
+        <li><a href="#in-anchor">앵커 — 두 번째부터는 LLM 을 안 부른다</a></li>
+        <li><a href="#in-join">세 문서를 건너 불량율에 닿기</a></li>
+      </ol>
+    </li>
+    <li><a href="#impl">구현 — 코드 walkthrough</a>
+      <ol>
+        <li><a href="#im-excel">app/excel — Excel Agent 4층</a></li>
+        <li><a href="#im-tools">도구 6종의 입력·출력 계약</a></li>
+        <li><a href="#im-agent">두 에이전트: 분석용과 발견용</a></li>
+        <li><a href="#im-discover">discover.py — 레이아웃을 캐내는 에이전트</a></li>
+        <li><a href="#im-pipeline">pipeline.py — 유일한 조립 지점</a></li>
+        <li><a href="#im-pure">순수 계층 — parser · join · assemble</a></li>
+        <li><a href="#im-store">저장과 화면, 그리고 채팅 그래프</a></li>
+      </ol>
+    </li>
+    <li><a href="#e2e">엔드투엔드 한 바퀴 — RX39513 을 따라가기</a></li>
+    <li><a href="#quiz">이해도 점검 퀴즈 5문항</a></li>
+    <li><a href="#more">더 읽을거리</a></li>
+  </ol>
+</nav>
+
+<hr class="sep">
+
+<h2 id="bg">1. 배경 — 이 시스템이 풀려는 문제</h2>
+
+<p>공장에는 <strong>금형(JIG)</strong> 이 있다. 배터리 셀을 찍어내는 금속 틀이고, 하나에 수천만 원 하며,
+어느 설비에 언제 들어갔고 그동안 불량이 얼마나 났는지를 관리해야 한다.</p>
+
+<p>문제는 그 정보가 <strong>한 군데 있지 않다</strong>는 것이다. 관리 부서는 금형 이동 이력을 엑셀에 적고,
+설비 부서는 금형–설비 매핑표를 따로 관리하고, 생산 시스템(MES)은 날짜별 생산·불량 실적을 하루 한 파일씩 뱉고,
+입고 검사(IQC)는 또 다른 양식으로 치수를 잰다. 넷 다 <strong>사람이 보라고 만든 엑셀</strong>이라 기계가 읽기에는 최악이다.</p>
+
+<p>이 프로젝트는 그 엑셀 네 종류를 읽어 하나의 대시보드로 합친다. 그리고 그 “읽기”의 가장 어려운 부분 —
+<em>이 시트의 어디에 무엇이 있는지 알아내는 일</em> — 을 LLM 에이전트에게 맡긴다.</p>
+
+<h3 id="bg-basics">1.1 완전 기초 (아는 사람은 건너뛰어도 좋다)</h3>
+
+<h4>엑셀 파일이 왜 “읽기 어려운 데이터”인가</h4>
+
+<p>CSV 는 쉽다. 첫 줄이 헤더, 나머지가 데이터, 끝. 하지만 실무 엑셀은 이렇게 생겼다.</p>
+
+<figure>
+  <div class="frame">
+    <table class="grid">
+      <tr><th></th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th><th>F</th></tr>
+      <tr><td class="rownum">1</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td></tr>
+      <tr><td class="rownum">2</td><td class="empty">·</td><td class="hdr">날짜</td><td>2026.07.08-2026.07.08</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td></tr>
+      <tr><td class="rownum">3</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td></tr>
+      <tr><td class="rownum">4</td><td class="empty">·</td><td class="hdr">공장</td><td class="hdr">라인</td><td class="hdr">설비코드</td><td class="hdr" colspan="2" style="text-align:center">종합</td></tr>
+      <tr><td class="rownum">5</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="hdr">이탈율</td><td class="hdr">불량율</td></tr>
+      <tr><td class="rownum">6</td><td class="empty">·</td><td>천안 소형 CELL</td><td>톈진 Pouch #10(S)</td><td>21004780</td><td>3153</td><td>2766</td></tr>
+      <tr><td class="rownum">7</td><td class="empty">·</td><td>천안 소형 CELL</td><td>톈진 Pouch #10(S)</td><td>21004781</td><td>2871</td><td>2519</td></tr>
+      <tr><td class="rownum">8</td><td class="sum">TOTAL</td><td class="sum">·</td><td class="sum">·</td><td class="sum">·</td><td class="sum">2989</td><td class="sum">2622</td></tr>
+    </table>
+  </div>
+  <figcaption>실제 MES 파일의 축약판. 표가 A1 에서 시작하지 않고, 날짜는 표 밖의 라벨에 있고, 헤더는 2단이며, 맨 아래 TOTAL 은 데이터가 아니다.</figcaption>
+</figure>
+
+<p>여기서 “불량율 열이 어디냐”는 질문의 답은 <code>F</code> 이지만, 그걸 알려면
+①표가 4행부터라는 것 ②헤더가 4~5행 두 줄이라는 것 ③‘종합’이라는 상위 그룹 아래의 ‘불량율’이지
+‘조립라인’ 아래의 것이 아니라는 것을 <strong>먼저</strong> 알아야 한다. 이게 이 프로젝트의 핵심 난제다.</p>
+
+<div class="callout def">
+  <span class="tag">용어</span>
+  <p><strong>격자(grid)</strong> = 시트의 값을 2차원 파이썬 리스트로 읽은 것. <strong>used_range</strong> = 엑셀이 “값이 있다”고 보는 최소 사각형 영역.
+  이 영역은 <strong>A1 에서 시작하지 않을 수 있다</strong>(위 그림은 B2 부터). 그래서 코드는 격자와 함께
+  <code>top_left</code>(예 <code>"B2"</code>)를 항상 같이 들고 다닌다 — 이 오프셋을 잊으면 모든 셀 주소가 어긋난다.</p>
+</div>
+
+<h4>ReAct 에이전트란</h4>
+
+<p>LLM 에게 “이 엑셀 분석해줘” 하고 파일을 통째로 넣을 수는 없다. 시트 하나가 수천 행이면 컨텍스트를 넘긴다.
+대신 <strong>도구(tool)</strong> 를 쥐어주고 스스로 조금씩 들여다보게 한다. 이 반복 구조를 ReAct(Reason + Act)라 한다.</p>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 700 220" role="img" aria-label="ReAct 루프: LLM이 도구를 호출하고 결과를 받아 다시 판단하는 순환">
+      <defs>
+        <marker id="ah" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#8a8479"/>
+        </marker>
+      </defs>
+      <rect x="30" y="70" width="180" height="80" rx="10" fill="#fceef3" stroke="#b4436c" stroke-width="1.8"/>
+      <text x="120" y="100" text-anchor="middle" font-size="15" font-weight="700" fill="#8c2f52">LLM</text>
+      <text x="120" y="122" text-anchor="middle" font-size="12" fill="#8c2f52">“다음에 뭘 볼까?”</text>
+
+      <rect x="470" y="70" width="200" height="80" rx="10" fill="#e5f4f4" stroke="#1f7a7a" stroke-width="1.8"/>
+      <text x="570" y="100" text-anchor="middle" font-size="15" font-weight="700" fill="#155f5f">도구 6종</text>
+      <text x="570" y="122" text-anchor="middle" font-size="12" fill="#155f5f">엑셀 값을 실제로 읽는다</text>
+
+      <path d="M215,95 C310,60 380,60 465,95" fill="none" stroke="#8a8479" stroke-width="1.6" marker-end="url(#ah)"/>
+      <text x="340" y="62" text-anchor="middle" font-size="12.5" fill="#5b6068">호출: read_range("Sheet1","B4:U9")</text>
+
+      <path d="M465,128 C380,163 310,163 215,128" fill="none" stroke="#8a8479" stroke-width="1.6" marker-end="url(#ah)"/>
+      <text x="340" y="183" text-anchor="middle" font-size="12.5" fill="#5b6068">관찰: 열문자·행번호가 붙은 표 문자열</text>
+
+      <text x="350" y="205" text-anchor="middle" font-size="11.5" fill="#9a948a">이 왕복을 스스로 멈출 때까지(최대 40스텝) 반복한다</text>
+    </svg>
+  </div>
+  <figcaption>ReAct 루프. LangGraph 의 <code>create_react_agent</code> 가 이 순환을 대신 돌려준다 — 우리는 도구와 프롬프트만 준다.</figcaption>
+</figure>
+
+<h4>xlwings / COM 이 뭔가</h4>
+
+<p>보통은 <code>openpyxl</code> 로 엑셀을 읽지만, 이 환경에서는 못 쓴다. 그래서 <strong>진짜 Excel 프로그램을 숨김으로 띄워서</strong>
+그 안의 값을 꺼내는 <code>xlwings</code> 를 쓴다. Windows COM 이라는 오래된 프로세스 간 통신 규격 위에서 도는데,
+이게 “한 스레드에서 만든 객체는 그 스레드에서만 만질 수 있다”는 까다로운 제약을 건다.
+<a href="#im-excel"><code>workbook.py</code></a> 의 절반이 이 제약과 싸운 흔적이다.</p>
+
+<h3 id="bg-project">1.2 이 프로젝트의 지도</h3>
+
+<figure>
+  <div class="frame">
+    <div class="flow">
+      <div class="node"><span class="t">frontend/</span><span class="d">React + Vite. 대시보드 탭과 채팅 탭.</span></div>
+      <div class="node"><span class="t">backend/app/api/</span><span class="d">FastAPI 라우터 5개 (chat · sessions · molds · ingest · health)</span></div>
+      <div class="node agent"><span class="t">backend/app/excel/</span><span class="d">엑셀을 읽는 도구와 에이전트. <strong>이 문서의 주인공</strong></span></div>
+    </div>
+    <div class="arrowdown">▼</div>
+    <div class="flow">
+      <div class="node pure"><span class="t">backend/app/ingest/</span><span class="d">수집 파이프라인 12모듈. 스캔→발견→파싱→조인→저장</span></div>
+      <div class="node"><span class="t">backend/app/molds/</span><span class="d">대시보드용 조회(molds.db 를 읽어 화면 객체로)</span></div>
+      <div class="node"><span class="t">backend/app/graph/</span><span class="d">LangGraph 채팅 그래프 (START→chat→END)</span></div>
+    </div>
+    <div class="arrowdown">▼</div>
+    <div class="flow">
+      <div class="node db"><span class="t">molds.db</span><span class="d">금형 데이터 + 레이아웃 캐시 + 배치 이력</span></div>
+      <div class="node db"><span class="t">app.db</span><span class="d">채팅 세션과 대화 메모리(LangGraph 체크포인터)</span></div>
+      <div class="node"><span class="t">data/uploads/</span><span class="d">부서가 엑셀을 올리는 폴더. 종류별 하위 폴더</span></div>
+    </div>
+  </div>
+  <figcaption>디렉터리 지도. 색은 이 문서 전체에서 같은 뜻이다 — <span style="color:var(--agent)">■ LLM 이 관여</span>,
+  <span style="color:var(--pure)">■ 순수 파이썬</span>, <span style="color:var(--db)">■ 저장소</span>.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="tag">왜 DB 가 둘인가</span>
+  <p><code>app.db</code> 는 채팅 턴마다 LangGraph 체크포인터가 쓴다. 같은 파일에 수집 배치가 쓰면
+  SQLite 쓰기 락을 두고 경합해 <code>database is locked</code> 가 난다. 그래서 <code>molds.db</code> 를 따로 뒀다
+  (<code>app/ingest/db.py</code> 모듈 docstring).</p>
+</div>
+
+<h3 id="bg-docs">1.3 네 종류의 엑셀과 그 관계</h3>
+
+<p>이게 이 시스템 전체에서 가장 중요한 그림이다. <strong>금형번호를 아는 문서와 불량율을 아는 문서가 다르고,
+둘을 잇는 다리가 또 다른 문서</strong>라는 구조다.</p>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 760 400" role="img" aria-label="네 문서의 관계도: 관리대장이 시트명으로 금형을 확정하고, 기준정보가 설비코드를 내주고, MES가 그 설비코드로 실적을 준다">
+      <defs>
+        <marker id="a2" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#8a8479"/></marker>
+      </defs>
+
+      <!-- EES -->
+      <rect x="20" y="30" width="215" height="120" rx="10" fill="#eaf0fc" stroke="#3b6fd4" stroke-width="2"/>
+      <text x="34" y="54" font-size="13.5" font-weight="700" fill="#264a8f">JIG 관리대장 (ees)</text>
+      <text x="34" y="76" font-size="11.5" fill="#31508c">시트 하나 = 금형 하나</text>
+      <text x="34" y="94" font-size="11.5" fill="#31508c">시트명 “#RX39513” = 금형번호</text>
+      <text x="34" y="112" font-size="11.5" fill="#31508c">한 행 = 이동 이벤트</text>
+      <text x="34" y="130" font-size="11.5" fill="#31508c">열: 이벤트시간 · 위치 · 설비명</text>
+      <text x="34" y="146" font-size="11" fill="#7a8bb5">★ 마스터 — 여기 있는 금형만 화면에 나온다</text>
+
+      <!-- JIG master -->
+      <rect x="285" y="30" width="215" height="120" rx="10" fill="#f1ecfa" stroke="#7c5cbf" stroke-width="2"/>
+      <text x="299" y="54" font-size="13.5" font-weight="700" fill="#5b3f96">JIG 기준정보 (jig_master)</text>
+      <text x="299" y="76" font-size="11.5" fill="#63499c">한 행 = 금형 하나</text>
+      <text x="299" y="94" font-size="11.5" fill="#63499c">JIG ID → 설비코드 · Line명</text>
+      <text x="299" y="112" font-size="11.5" fill="#63499c">설비명 → 설비코드 · Line명</text>
+      <text x="299" y="146" font-size="11" fill="#9282b8">다리 역할. 이게 없으면 불량율이 통째로 끊긴다</text>
+
+      <!-- MES -->
+      <rect x="545" y="30" width="195" height="120" rx="10" fill="#e8f5ee" stroke="#2f8f5b" stroke-width="2"/>
+      <text x="559" y="54" font-size="13.5" font-weight="700" fill="#1f6b41">MES (mes)</text>
+      <text x="559" y="76" font-size="11.5" fill="#26794b">하루 한 파일</text>
+      <text x="559" y="94" font-size="11.5" fill="#26794b">한 행 = (라인, 설비코드)</text>
+      <text x="559" y="112" font-size="11.5" fill="#26794b">투입수량 · 불량수량</text>
+      <text x="559" y="146" font-size="11" fill="#79a891">★ 금형번호를 모른다</text>
+
+      <!-- arrows -->
+      <path d="M235,72 L281,72" stroke="#8a8479" stroke-width="1.6" marker-end="url(#a2)"/>
+      <text x="258" y="64" text-anchor="middle" font-size="10.5" fill="#5b6068">시트명</text>
+      <path d="M235,104 L281,104" stroke="#8a8479" stroke-width="1.6" marker-end="url(#a2)" stroke-dasharray="4 3"/>
+      <text x="258" y="122" text-anchor="middle" font-size="10.5" fill="#5b6068">설비명</text>
+      <path d="M500,88 L541,88" stroke="#8a8479" stroke-width="1.6" marker-end="url(#a2)"/>
+      <text x="520" y="80" text-anchor="middle" font-size="10.5" fill="#5b6068">설비코드</text>
+
+      <!-- IQC -->
+      <rect x="20" y="200" width="215" height="86" rx="10" fill="#fbf1de" stroke="#c07d1a" stroke-width="2"/>
+      <text x="34" y="224" font-size="13.5" font-weight="700" fill="#8a5910">IQC 입고검사 (iqc)</text>
+      <text x="34" y="246" font-size="11.5" fill="#96631a">한 행 = 검사 한 건</text>
+      <text x="34" y="264" font-size="11.5" fill="#96631a">금형번호 <tspan font-weight="700">열이 있다</tspan> → 직접 귀속</text>
+      <text x="34" y="280" font-size="11" fill="#b99154">이미 존재하는 금형에 항목만 덧붙인다</text>
+
+      <!-- result -->
+      <rect x="285" y="200" width="455" height="86" rx="10" fill="#edf0f4" stroke="#4a5568" stroke-width="2"/>
+      <text x="299" y="224" font-size="13.5" font-weight="700" fill="#37404f">MoldRecord (금형 하나)</text>
+      <text x="299" y="246" font-size="11.5" fill="#4a5568">mold_no=RX39513 · status=in_use · line=톈진 Pouch #10(S)</text>
+      <text x="299" y="264" font-size="11.5" fill="#4a5568">total_installs=3 · total_production=41,200 · latest_defect_rate=0.0154</text>
+      <text x="299" y="280" font-size="11.5" fill="#4a5568">runs=[사용구간 3개] · iqc_items=[PUNCH 12.03, DIE 12.05 …]</text>
+
+      <path d="M127,290 L127,318 L455,318 L455,292" fill="none" stroke="#8a8479" stroke-width="1.6" marker-end="url(#a2)"/>
+      <path d="M127,155 L127,196" stroke="#8a8479" stroke-width="1.6" marker-end="url(#a2)" opacity="0"/>
+      <text x="290" y="336" text-anchor="middle" font-size="11" fill="#5b6068">금형번호가 일치하는 것만 붙는다 · 없으면 orphan_mold_nos 로 보고</text>
+
+      <path d="M512,155 L512,196" stroke="#8a8479" stroke-width="1.6" marker-end="url(#a2)"/>
+      <text x="512" y="176" text-anchor="start" font-size="10.5" fill="#5b6068" dx="6">조립</text>
+      <path d="M128,155 L128,180 L280,180 L280,196" fill="none" stroke="#8a8479" stroke-width="1.6" marker-end="url(#a2)" opacity="0"/>
+
+      <text x="380" y="378" text-anchor="middle" font-size="11.5" fill="#9a948a">라인 문자열로는 조인하지 않는다 — 관리대장은 “Pouch #10(S)”, 기준정보는 “톈진 Pouch #10(S)” 이다</text>
+    </svg>
+  </div>
+  <figcaption>네 문서의 역할. 금형을 <em>확정</em>하는 것은 관리대장의 <strong>시트 이름</strong>이고,
+  설비명은 “이 구간에 어느 설비의 실적을 붙일까”만 고른다 (<code>app/ingest/join.py</code> 모듈 docstring).</figcaption>
+</figure>
+
+<div class="callout key">
+  <span class="tag">핵심</span>
+  <p><strong>관리대장이 마스터다.</strong> 관리대장에 이력이 있는 금형만 대시보드에 나온다.
+  기준정보에만 있고 관리대장에 없는 JIG 는 “아직 들어온 적 없는 금형”이고,
+  IQC 에만 있고 관리대장에 없는 금형은 버려지되 <code>orphan_mold_nos</code> 로 화면에 보고된다.</p>
+</div>
+
+<div class="qmemo" data-qid="bg-overview" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="intuition">2. 직관 — 핵심 아이디어 한 줄</h2>
+
+<h3 id="in-split">2.1 LLM 은 “어디”만, 코드는 “얼마”만</h3>
+
+<p>이 시스템 전체가 이 한 문장 위에 서 있다.</p>
+
+<div class="callout key">
+  <span class="tag">이 문서에서 하나만 기억한다면</span>
+  <p><strong>LLM 은 “어디에 무엇이 있는지”만 판단하고, “값이 얼마인지”는 코드가 정한다.</strong><br>
+  그래서 같은 파일을 몇 번 돌려도 숫자가 절대 흔들리지 않는다.</p>
+</div>
+
+<p>왜 이렇게 나눴는지는 반대 경우를 상상하면 안다. 값 추출까지 LLM 에 맡기면,
+같은 대장을 어제 읽었을 때 8,412 였던 합계가 오늘 8,142 가 될 수 있다. 그런 시스템은 아무도 못 믿는다.
+반대로 구조 파악까지 코드로 하려면 양식이 조금만 달라져도 사람이 코드를 고쳐야 한다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="flow" style="align-items:stretch">
+      <div class="node agent" style="flex:1 1 300px">
+        <span class="t">유연성이 필요한 곳 → LLM</span>
+        <span class="d">
+          “헤더가 몇 행인가”, “금형번호 열이 D 인가 I 인가”, “이 표는 데이터인가 소계인가”.<br>
+          <strong>출력은 좌표뿐이다.</strong> 숫자를 만들지 않는다.
+        </span>
+      </div>
+      <div class="node pure" style="flex:1 1 300px">
+        <span class="t">일관성이 필요한 곳 → 순수 파이썬</span>
+        <span class="d">
+          그 좌표에서 값을 꺼내고, 정규화하고, 조인하고, 합산한다.<br>
+          <strong>같은 격자 + 같은 좌표 = 항상 같은 결과.</strong>
+        </span>
+      </div>
+    </div>
+  </div>
+  <figcaption>이 경계는 코드에도 물리적으로 새겨져 있다. <code>parser.py</code>·<code>join.py</code>·<code>normalize.py</code>·<code>layout.py</code> 는
+  Excel 도 LLM 도 DB 도 import 하지 않는다 — 격자 리터럴만으로 전부 테스트된다.</figcaption>
+</figure>
+
+<p>같은 원칙이 <strong>계산</strong>에도 적용된다. 사용자가 “라인별 합계 알려줘”라고 물어도
+LLM 은 셀 값을 눈으로 더하지 않는다. <code>aggregate</code> 도구를 불러 파이썬이 계산한 값을 받아 쓴다
+(<code>app/excel/agent.py</code> 의 시스템 프롬프트: <em>“셀 값을 눈으로 더하지 마라”</em>).</p>
+
+<div class="qmemo" data-qid="in-split-principle" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“그럼 LLM이 좌표를 틀리면?” 같은 의문이 들었다면 여기에 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="in-agent">2.2 Excel Agent 가 시트를 더듬는 방식</h3>
+
+<p>이제 주인공이다. 에이전트에게 주어지는 것은 <strong>열려 있는 워크북 하나</strong>와 <strong>도구 6종</strong>,
+그리고 <strong>절차를 안내하는 시스템 프롬프트</strong>뿐이다. 시트 내용은 처음에 하나도 주지 않는다.</p>
+
+<p>토이 예제로 따라가 보자. MES 파일 하나가 있고, 시트 이름은 <code>불량현황</code>, 내용은 위의 축약 격자와 같다고 하자.</p>
+
+<ol class="seq">
+  <li>
+    <div class="call">list_sheets()</div>
+    <div class="ret">시트 목록: 불량현황</div>
+    <p class="why">첫 수는 항상 이것. 시트가 몇 개인지 모르면 아무것도 못 한다.</p>
+  </li>
+  <li>
+    <div class="call">sheet_outline("불량현황")</div>
+    <div class="ret">      2   2칸  B~C  B=날짜 · C=2026.07.08-2026.07.08
+      3   0칸       (빈 행)
+      4   9칸  B~U  B=공장 · C=대표라인 · D=라인 · E=설비코드
+      5  12칸  H~U  H=이탈율(PPM) · I=불량율(PPM) · J=Loss율(PPM)
+   6-11  20칸  B~U  B=천안 소형 CELL · C=POUCH 조립 · D=톈진 Pouch #10(S)
+     12  16칸  B~U  B=TOTAL · G=52000 · H=51100 · I=900</div>
+    <p class="why"><strong>이 도구가 이 시스템의 숨은 주역이다.</strong> 값을 다 보여주는 대신 <em>모양만</em> 보여주면
+    94행짜리 시트가 여섯 줄이 된다. 표가 어디서 시작해 어디서 끝나는지, 헤더가 몇 행인지,
+    <strong>표가 U 열까지 있다는 것</strong>이 한눈에 들어온다.</p>
+  </li>
+  <li>
+    <div class="call">read_range("불량현황", "B4:U9")</div>
+    <div class="ret">	B	C	D	E	F	G	H	I …
+4	공장	대표라인	라인	설비코드	설비명	투입수량	·	· …
+5	·	·	·	·	·	·	이탈율(PPM)	불량율(PPM) …
+6	천안 소형 CELL	POUCH 조립	톈진 Pouch #10(S)	21004780	POU WND10…</div>
+    <p class="why">윤곽이 알려준 <strong>열 범위 B~U 를 그대로</strong> 써서 읽는다. 여기서 오른쪽 끝을 찍어 좁게 자르면,
+    잘려 나간 열은 있는 줄도 모르고 지나간다 — 실제로 그렇게 PUNCH·DIE·차이·간극이 통째로 빠진 적이 있다.</p>
+  </li>
+  <li>
+    <div class="call">column_profile("불량현황", "E")</div>
+    <div class="ret">불량현황!E열 프로파일: {"count": 12, "nonnull": 7, "nulls": 5,
+ "unique": 7, "types": {"str": 1, "float": 6}, "samples": ["설비코드", 21004780.0, …]}</div>
+    <p class="why">“이 열이 정말 설비코드인가”를 값의 <em>생김새</em>로 검증한다. 고유값이 많고 형태가 일정하면 식별자다.</p>
+  </li>
+  <li>
+    <div class="call">find_value("불량현황", "TOTAL")</div>
+    <div class="ret">'TOTAL' 1건: B12=TOTAL</div>
+    <p class="why">12행이 합계행이라는 확증. 이 행을 데이터에 섞으면 이중 계산이 된다.</p>
+  </li>
+  <li>
+    <div class="call">submit_layout(sheet_name="불량현황", key_values=[…], tables=[…], anchors=[…])</div>
+    <div class="ret">레이아웃을 접수했다. 더 이상 도구를 호출하지 말고 '완료'라고만 답하라.</div>
+    <p class="why">최종 산출물. 텍스트 JSON 이 아니라 <strong>도구 인자</strong>로 받는다 — Pydantic 이 검증하고,
+    형식이 틀리면 에러가 에이전트에게 되돌아가 스스로 고쳐 다시 낸다.</p>
+  </li>
+</ol>
+
+<div class="callout def">
+  <span class="tag">에이전트의 최종 출력</span>
+  <p>이 여섯 수의 결과물은 딱 하나, <code>SheetLayout</code> 객체다. 값은 하나도 들어 있지 않고 <strong>좌표만</strong> 있다.</p>
+</div>
+
+<figure>
+  <div class="frame">
+<pre>SheetLayout(
+  sheet_name=<span class="s">"불량현황"</span>,
+  key_values=[
+    KeyValueItem(field=<span class="s">"run_date"</span>, value_cell=<span class="s">"C2"</span>, label_cell=<span class="s">"B2"</span>),   <span class="c"># 표 밖의 날짜</span>
+  ],
+  tables=[
+    TableBlock(
+      name=<span class="s">"일자별 불량현황"</span>, role=<span class="s">"detail"</span>,
+      header_rows=[<span class="k">4</span>, <span class="k">5</span>],              <span class="c"># 2단 병합 헤더</span>
+      data_start_row=<span class="k">6</span>, data_end_row=<span class="k">None</span>,  <span class="c"># None = 빈 행에서 자동으로 멈춤</span>
+      columns=[
+        ColumnMap(field=<span class="s">"line"</span>,           column=<span class="s">"D"</span>),
+        ColumnMap(field=<span class="s">"equipment_code"</span>, column=<span class="s">"E"</span>),
+        ColumnMap(field=<span class="s">"produced"</span>,       column=<span class="s">"G"</span>),
+        ColumnMap(field=<span class="s">"defects"</span>,        column=<span class="s">"I"</span>),
+        ColumnMap(field=<span class="s">"종합/불량율(PPM)"</span>, column=<span class="s">"M"</span>),  <span class="c"># 고정 어휘 밖은 헤더 텍스트 그대로</span>
+        <span class="c"># … 표의 첫 열부터 마지막 열까지 하나도 빠짐없이</span>
+      ],
+    ),
+  ],
+  anchors=[                                <span class="c"># "여기 이 텍스트가 있으면 같은 양식이다"</span>
+    AnchorCheck(cell=<span class="s">"B4"</span>, text=<span class="s">"공장"</span>),
+    AnchorCheck(cell=<span class="s">"E4"</span>, text=<span class="s">"설비코드"</span>),
+    AnchorCheck(cell=<span class="s">"I5"</span>, text=<span class="s">"불량율(PPM)"</span>),
+  ],
+  notes=<span class="k">None</span>,
+)</pre>
+  </div>
+  <figcaption>이것이 “어디에 무엇이 있는지”의 전부다. 이제 파이썬이 이 좌표를 따라가 값을 꺼내면 된다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="in-agent-sequence" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">도구 호출 순서·출력 형식에 대해 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="in-anchor">2.3 앵커 — 두 번째부터는 LLM 을 안 부른다</h3>
+
+<p>LLM 호출은 느리고 비싸다. MES 는 하루 한 파일이라 한 달이면 25개가 넘는데, 양식은 매일 똑같다.
+매번 에이전트를 돌릴 이유가 없다.</p>
+
+<p>그래서 에이전트에게 <strong>“이 시트가 지난번과 같은 양식인지 판정할 근거 셀을 3개 이상 지목하라”</strong>고 시킨다.
+그게 앵커다. 다음 파일을 열었을 때 그 세 칸의 텍스트가 그대로면 저장해둔 레이아웃을 재사용한다.</p>
+
+<figure>
+  <div class="frame" style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+    <div>
+      <div style="font-size:.82rem;color:#5b6068;margin-bottom:6px;font-weight:700">07-08 파일 (레이아웃을 만든 파일)</div>
+      <table class="grid">
+        <tr><th></th><th>B</th><th>C</th><th>D</th><th>E</th><th>…</th><th>I</th></tr>
+        <tr><td class="rownum">4</td><td class="anchor">공장</td><td class="hdr">대표라인</td><td class="hdr">라인</td><td class="anchor">설비코드</td><td class="hdr">…</td><td class="hdr">종합</td></tr>
+        <tr><td class="rownum">5</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="hdr">…</td><td class="anchor">불량율(PPM)</td></tr>
+        <tr><td class="rownum">6</td><td>천안 소형 CELL</td><td>POUCH 조립</td><td>톈진 #10</td><td>21004780</td><td>…</td><td>2766</td></tr>
+      </table>
+    </div>
+    <div>
+      <div style="font-size:.82rem;color:#5b6068;margin-bottom:6px;font-weight:700">07-09 파일 (다음 날)</div>
+      <table class="grid">
+        <tr><th></th><th>B</th><th>C</th><th>D</th><th>E</th><th>…</th><th>I</th></tr>
+        <tr><td class="rownum">4</td><td class="anchor">공장 ✓</td><td class="hdr">대표라인</td><td class="hdr">라인</td><td class="anchor">설비코드 ✓</td><td class="hdr">…</td><td class="hdr">종합</td></tr>
+        <tr><td class="rownum">5</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="empty">·</td><td class="hdr">…</td><td class="anchor">불량율(PPM) ✓</td></tr>
+        <tr><td class="rownum">6</td><td>천안 소형 CELL</td><td>POUCH 조립</td><td>톈진 #10</td><td>21004780</td><td>…</td><td>2519</td></tr>
+      </table>
+      <div style="margin-top:8px;font-size:.85rem;color:#1f6b41;font-weight:700">→ 3/3 일치 · 캐시 재사용 · LLM 호출 0회</div>
+    </div>
+  </div>
+  <figcaption>앵커 대조(<code>app/ingest/layout.py</code> <code>anchors_match</code>). 데이터 값이 아니라 <strong>헤더 텍스트</strong>를 고르게 시킨 이유가 여기 있다 — 행이 늘어도 헤더는 안 움직인다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="tag">왜 “헤더 행을 해시”가 아닌가</span>
+  <p>설계 중 두 번 무너졌다. (a) 헤더가 몇 번째 행인지 <em>모르는 상태</em>에서 헤더를 해시할 수 없다(닭과 달걀).
+  (b) 한 시트에 표가 여러 개면 헤더도 여러 개다. 양식을 이해한 주체(에이전트)가 “무엇이 같으면 같은 양식인가”를 가장 잘 안다.</p>
+</div>
+
+<p>이 캐시 덕분에 실제 배치는 이렇게 돈다. 관리대장 워크북에는 금형마다 시트가 하나씩, 총 7개가 들어 있는데
+양식은 전부 같다. <strong>첫 시트에서 한 번 발견하고, 나머지 6개는 앵커가 맞아 그냥 통과한다.</strong>
+그래서 <code>registry.load_layouts</code> 는 캐시를 시트 이름으로 거르지 <em>않는다</em> — 종류(<code>kind</code>)로만 거른다.</p>
+
+<h3 id="in-join">2.4 세 문서를 건너 불량율에 닿기</h3>
+
+<p>파싱이 끝나면 진짜 문제가 남는다. <strong>MES 는 금형번호를 모른다.</strong> 어떻게 “RX39513 의 불량율”을 구할까?</p>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 760 330" role="img" aria-label="관리대장 이벤트에서 사용구간을 뽑고, 기준정보로 설비코드를 얻어, MES에서 날짜별 실적을 합산하는 흐름">
+      <defs><marker id="a3" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#8a8479"/></marker></defs>
+
+      <text x="20" y="24" font-size="12.5" font-weight="700" fill="#264a8f">① 관리대장 시트 “#RX39513” 의 이벤트 (시간순)</text>
+      <line x1="30" y1="60" x2="700" y2="60" stroke="#c9c4bb" stroke-width="1.5"/>
+      <g font-size="10.5" fill="#5b6068" text-anchor="middle">
+        <circle cx="70"  cy="60" r="5" fill="#b9c4dd"/><text x="70"  y="82">07-01 09:00</text><text x="70"  y="96" fill="#8a8479">보관함</text>
+        <circle cx="240" cy="60" r="6.5" fill="#3b6fd4"/><text x="240" y="82" font-weight="700" fill="#264a8f">07-02 08:00</text><text x="240" y="96" font-weight="700" fill="#264a8f">설비 ★</text>
+        <circle cx="430" cy="60" r="5" fill="#b9c4dd"/><text x="430" y="82">07-04 08:00</text><text x="430" y="96" fill="#8a8479">내부 수리</text>
+        <circle cx="620" cy="60" r="5" fill="#b9c4dd"/><text x="620" y="82">07-05 10:00</text><text x="620" y="96" fill="#8a8479">보관함</text>
+      </g>
+      <rect x="240" y="46" width="190" height="28" fill="#3b6fd4" opacity=".13"/>
+      <text x="335" y="40" text-anchor="middle" font-size="11" fill="#264a8f">사용구간 = ‘설비’ 진입 ~ 바로 다음 이벤트</text>
+
+      <text x="20" y="132" font-size="12.5" font-weight="700" fill="#5b3f96">② 기준정보에서 MES 조회 키를 얻는다</text>
+      <rect x="30" y="144" width="300" height="52" rx="7" fill="#f1ecfa" stroke="#7c5cbf" stroke-width="1.6"/>
+      <text x="44" y="164" font-size="11.5" fill="#5b3f96">그 이벤트의 설비명 “POU WND10_Stack(1차)_01”</text>
+      <text x="44" y="184" font-size="11.5" fill="#5b3f96">→ 설비코드 <tspan font-weight="700">21004780</tspan> · Line명 “톈진 Pouch #10(S)”</text>
+      <text x="344" y="166" font-size="10.5" fill="#8a8479">설비명이 기준정보에 없으면</text>
+      <text x="344" y="182" font-size="10.5" fill="#8a8479">JIG ID 행으로 폴백 + unknown_equipment 로 보고</text>
+
+      <text x="20" y="228" font-size="12.5" font-weight="700" fill="#1f6b41">③ 구간이 덮는 날짜마다 MES 를 조회해 raw 수량을 합산</text>
+      <g font-size="11">
+        <rect x="30"  y="240" width="150" height="46" rx="7" fill="#e8f5ee" stroke="#2f8f5b" stroke-width="1.5"/>
+        <text x="44" y="258" fill="#1f6b41">(07-02, 21004780)</text>
+        <text x="44" y="276" fill="#26794b">투입 9,183 · 불량 141</text>
+
+        <rect x="196" y="240" width="150" height="46" rx="7" fill="#e8f5ee" stroke="#2f8f5b" stroke-width="1.5"/>
+        <text x="210" y="258" fill="#1f6b41">(07-03, 21004780)</text>
+        <text x="210" y="276" fill="#26794b">투입 8,701 · 불량 96</text>
+
+        <text x="366" y="268" font-size="17" fill="#8a8479">⇒</text>
+
+        <rect x="392" y="234" width="330" height="58" rx="7" fill="#edf0f4" stroke="#4a5568" stroke-width="1.6"/>
+        <text x="406" y="254" fill="#37404f" font-weight="700">defect_rate = (141+96) / (9183+8701) = 0.01325</text>
+        <text x="406" y="274" fill="#4a5568" font-size="10.5">비율의 평균이 아니라 raw 를 합쳐 다시 계산한다</text>
+      </g>
+
+      <text x="380" y="318" text-anchor="middle" font-size="11" fill="#9a948a">구간이 24시간을 넘으면 그만큼 날짜가 늘어난다 — 자정이 아니라 <tspan font-weight="700">투입 시각 기준 24시간</tspan>으로 끊는다</text>
+    </svg>
+  </div>
+  <figcaption>“왜 이 금형에 이 불량율이 붙었지”를 되짚을 수 있어야 하므로, 날짜별 원값(<code>daily</code>)도 함께 남긴다.</figcaption>
+</figure>
+
+<div class="callout trap">
+  <span class="tag">놓치기 쉬운 함정</span>
+  <p>날짜별 <strong>비율의 평균</strong>을 내면 틀린다. 1,000개 만든 날의 3% 와 10개 만든 날의 1% 는 같은 무게일 수 없다.
+  그래서 <code>attach_defect_rates</code> 는 투입수량·불량수량을 각각 합친 뒤 <em>다시</em> 나눈다.
+  투입이 0 이면 <code>0.0</code> 이 아니라 <code>None</code> 이다 — 0.0 은 “불량 없음”이라는 거짓말이 된다.</p>
+</div>
+
+<div class="qmemo" data-qid="in-join-flow" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">위 3단계 조인 그림에서 헷갈리는 부분이 있으면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="impl">3. 구현 — 코드 walkthrough</h2>
+
+<h3 id="im-excel">3.1 app/excel — Excel Agent 4층</h3>
+
+<p>엑셀을 다루는 코드는 네 개 파일이고, 각 층이 <strong>딱 한 가지 걱정만</strong> 한다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="flow" style="flex-direction:column">
+      <div class="node agent"><span class="t">agent.py (75줄) — 무엇을 물을 것인가</span>
+        <span class="d">시스템 프롬프트 + <code>create_react_agent</code>. 답변과 사용한 도구 목록을 돌려준다.</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node"><span class="t">tools.py (113줄) — 무엇을 보여줄 것인가</span>
+        <span class="d">도구 6종. workbook(읽기)과 grid(계산)를 <strong>조합만</strong> 한다. 항상 짧은 문자열로 잘라서 돌려준다.</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="flow">
+        <div class="node pure"><span class="t">grid.py (257줄) — 순수 로직</span>
+          <span class="d">좌표 계산 · 렌더 · 검색 · 프로파일 · 집계. <strong>xlwings 를 import 하지 않는다</strong> → Excel 없이 테스트된다.</span></div>
+        <div class="node db"><span class="t">workbook.py (507줄) — COM 과 싸우는 층</span>
+          <span class="d">Excel 프로세스를 숨김으로 띄우고 값만 읽는다. 507줄 중 대부분이 스레드/정리 주석이다.</span></div>
+      </div>
+    </div>
+  </div>
+  <figcaption>층이 나뉜 이유는 테스트다. <code>grid.py</code> 가 순수하면 “집계가 맞나”를 Excel 없이 확인할 수 있다.
+  <code>__init__.py</code> 가 <a href="https://peps.python.org/pep-0562/">PEP 562 지연 import</a> 를 쓰는 것도 같은 이유 —
+  <code>import app.excel.grid</code> 한 줄이 xlwings 를 끌고 오면 그 분리가 무의미해진다.</figcaption>
+</figure>
+
+<h4>grid.py — LLM 을 위한 두 가지 세심함</h4>
+
+<p>이 파일에는 “실패해 보고 나서야 알게 된” 두 가지 장치가 있다.</p>
+
+<p><strong>(1) 빈 셀은 빈 문자열이 아니라 <code>·</code> 다.</strong> 탭 구분 표에서 빈 칸을 빈 문자열로 두면
+<code>"4\t\tNo"</code> 처럼 구분자가 연달아 붙는데, LLM 은 그 빈 자리를 세지 못하고 <strong>이후 모든 열 문자가 한 칸씩 밀린다.</strong>
+실제로 A 열이 빈 시트에서 모델이 필드 11개를 이름으로는 전부 맞히고도 열 문자는 11개 전부 왼쪽으로 지목했다(mold_no 를 I 가 아니라 H 로).
+모델 크기 문제가 아니라 렌더링 문제였다.</p>
+
+<p><strong>(2) <code>outline_grid</code> 는 같은 모양의 행을 접는다.</strong> <code>read_range</code> 는 컨텍스트를 지키려고
+30행까지만 보여준다. 그런데 실물 IQC 시트는 40행이고 정작 필요한 표가 33행부터라, 한 번 읽어서는 그 표가 아예 안 보였다.
+값 대신 <em>모양</em>(어느 칸이 어떤 타입으로 채워졌나)만 보여주고 같은 모양이 이어지는 행을 한 줄로 접으면,
+94행짜리 시트가 네 줄이 된다.</p>
+
+<figure>
+  <div class="frame">
+<pre class="plain"><span style="color:#8a8479"># _shape() 가 열 위치뿐 아니라 <b>타입</b>까지 보는 이유</span>
+헤더 행:  ("B","s") ("C","s") ("D","s") ("E","s")   ← 전부 문자열
+데이터 행: ("B","n") ("C","d") ("D","s") ("E","s")   ← 숫자·날짜가 섞임
+                    ↑ 모양이 다르므로 접히지 않는다 = 헤더 경계가 저절로 드러난다</pre>
+  </div>
+  <figcaption>열 위치만 봤다면 헤더와 데이터가 같은 모양이 되어 한 줄로 접히고, 정작 필요한 “헤더가 몇 행인가”가 사라진다.</figcaption>
+</figure>
+
+<h4>workbook.py — 왜 507줄인가</h4>
+
+<p>이 파일이 큰 이유는 기능이 많아서가 아니라 <strong>Windows COM 의 스레드 규칙</strong> 때문이다. 요약하면:</p>
+
+<ul>
+  <li>COM 객체는 <strong>만든 스레드에서만</strong> 만질 수 있다. 다른 스레드에서 쓰면 <code>RPC_E_WRONG_THREAD</code>.</li>
+  <li>그런데 LangGraph 는 도구를 <strong>별도 워커 스레드</strong>에서 실행한다. 워크북을 연 스레드와 값을 읽는 스레드가 다른 게 정상 경로다.</li>
+  <li>해결: <code>open_workbook</code> 이 <strong>이 컨텍스트 전용 스레드 하나</strong>(<code>max_workers=1</code>)를 만들고,
+  App/Book 의 생성·조회·정리를 전부 거기 고정한다. 호출자는 자기가 어느 스레드인지 신경 쓸 필요가 없다.</li>
+  <li>더 미묘한 것: <strong>예외 객체도 스레드를 넘으면 안 된다.</strong> 예외의 traceback 프레임에는 xlwings COM 프록시가 살아 있어서,
+  그게 호출자 스레드로 넘어가면 거기서 파이널라이즈되며 크래시가 난다. 그래서 모든 실패 경로가
+  “원본 예외를 <em>문자열로만</em> 렌더링해서 담고, <code>except</code> 블록 <em>밖</em>에서 완전히 새 예외를 던진다”는 패턴을 쓴다.</li>
+</ul>
+
+<div class="callout warn">
+  <span class="tag">실무 시사점</span>
+  <p>파일 하나 열 때마다 EXCEL.EXE 가 뜬다(수 초). 그래서 <code>pipeline._read_file</code> 은 <strong>파일당 딱 한 번</strong> 열고
+  그 안에서 모든 시트를 순회한다. MES 25개 파일이면 Excel 이 25번 뜬다 — 배치가 느린 진짜 이유다.
+  그리고 COM 은 병렬화가 안 되므로 순차 처리다.</p>
+</div>
+
+<h3 id="im-tools">3.2 도구 6종의 입력·출력 계약</h3>
+
+<p><strong>이 표가 “Excel Agent 의 인풋/아웃풋”에 대한 가장 직접적인 답이다.</strong>
+모든 도구는 <code>@tool</code> 데코레이터로 만들어지고, docstring 이 그대로 LLM 이 읽는 설명서가 된다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:18%">도구</th><th style="width:26%">입력</th><th style="width:34%">출력 (항상 짧은 문자열)</th><th>언제 쓰나</th></tr>
+  <tr>
+    <td><code>list_sheets</code></td>
+    <td>없음</td>
+    <td><code>시트 목록: 불량현황, Sheet2</code></td>
+    <td>맨 처음. 항상.</td>
+  </tr>
+  <tr>
+    <td><code>sheet_outline</code> ★</td>
+    <td><code>sheet</code></td>
+    <td>행 묶음마다 <code>행번호 · 칸수 · 열범위 · 앞 4칸 미리보기</code></td>
+    <td><strong>무엇을 읽을지 정하기 전에.</strong> 표 경계와 열 끝을 알려준다.</td>
+  </tr>
+  <tr>
+    <td><code>read_range</code></td>
+    <td><code>sheet</code>, <code>address</code>(예 <code>B4:U9</code>)</td>
+    <td>열문자 헤더 + 행번호가 붙은 탭 구분 표.<br>30행·30열 초과 시 잘림 경고를 붙인다.</td>
+    <td>구조 확인. 헤더가 어디인지, 어느 열이 날짜인지.</td>
+  </tr>
+  <tr>
+    <td><code>find_value</code></td>
+    <td><code>sheet</code>, <code>query</code>(부분일치)</td>
+    <td><code>'소계' 3건: B31=소계, B44=소계, …</code><br>200건 초과면 잘림 경고.</td>
+    <td>‘소계/합계/TOTAL’ 위치를 찾아 집계행을 식별.</td>
+  </tr>
+  <tr>
+    <td><code>column_profile</code></td>
+    <td><code>sheet</code>, <code>column</code>(예 <code>"E"</code>)</td>
+    <td>JSON: <code>count/nonnull/nulls/unique/types/samples</code></td>
+    <td>“이 열이 금형번호 맞나”를 값의 생김새로 검증.</td>
+  </tr>
+  <tr>
+    <td><code>aggregate</code></td>
+    <td><code>sheet</code>, <code>address</code>, <code>op</code><br>(<code>sum|mean|min|max|count</code>)</td>
+    <td><code>불량현황!E2:J20 sum = 41200.0 (숫자셀 114개)</code></td>
+    <td><strong>숫자 계산은 무조건 이것으로.</strong> 여러 열에 걸친 사각형 범위를 한 번에.</td>
+  </tr>
+</table>
+</div>
+
+<div class="callout key">
+  <span class="tag">설계 디테일 두 가지</span>
+  <p><strong>“숫자셀 114개”가 왜 붙나:</strong> 결과 숫자만 주면 좁은 열 하나만 집계했는지 의도한 사각형을 전부 집계했는지
+  LLM 도, 이 답을 보는 사람도 판단할 근거가 없다. 개수를 함께 보여주면 검산이 된다
+  (<code>numeric_count</code> 는 세기만 하므로 “도구 자체에도 산수를 시키지 않는다”는 계약은 그대로다).</p>
+  <p><strong>도구 목록의 순서:</strong> <code>sheet_outline</code> 을 두 번째에 둔 것은 의도적이다 —
+  목록 순서가 모델의 선택에 영향을 준다(<code>tools.py</code> 마지막 주석).</p>
+</div>
+
+<h3 id="im-agent">3.3 두 에이전트: 분석용과 발견용</h3>
+
+<p>같은 도구 6종을 쓰지만 <strong>목적이 다른 에이전트가 둘</strong> 있다. 헷갈리기 쉬우니 나란히 놓고 보자.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:16%"></th><th style="width:42%">분석 에이전트<br><code>app/excel/agent.py</code></th><th>발견 에이전트<br><code>app/ingest/discover.py</code></th></tr>
+  <tr><td><strong>목적</strong></td><td>사람의 질문에 답한다</td><td>시트 구조를 기계가 읽을 좌표로 옮긴다</td></tr>
+  <tr><td><strong>입력</strong></td><td><code>model</code>, 열린 <code>wb</code>, <code>question</code>(자연어)</td><td><code>model</code>, 열린 <code>wb</code>, <code>kind</code>, <code>sheet_name</code></td></tr>
+  <tr><td><strong>도구</strong></td><td>6종</td><td>6종 + <code>submit_layout</code></td></tr>
+  <tr><td><strong>출력</strong></td><td><code>{"answer": "...", "tool_calls": ["list_sheets", …]}</code></td><td><code>SheetLayout</code> (Pydantic 객체)</td></tr>
+  <tr><td><strong>전달 경로</strong></td><td>그래프 반환값의 마지막 메시지</td><td><strong>도구 클로저의 <code>holder</code> dict</strong> — 검증된 시점의 인스턴스를 그대로 붙잡는다</td></tr>
+  <tr><td><strong>호출 빈도</strong></td><td>사람이 물을 때마다</td><td><strong>캐시 미스에만.</strong> 양식이 안정적이면 평생 몇 번</td></tr>
+  <tr><td><strong>진입점</strong></td><td><code>examples/analyze_excel.py</code> (CLI)</td><td><code>pipeline.run_ingest</code> → <code>POST /api/ingest/run</code></td></tr>
+</table>
+</div>
+
+<div class="io">
+  <div>
+    <h5>분석 에이전트 — 입력</h5>
+<pre>run_excel_agent(
+  model, wb,
+  <span class="s">"라인별 JC 소계를 요약해줘"</span>,
+  config=debug_run_config(...),
+)</pre>
+  </div>
+  <div>
+    <h5>분석 에이전트 — 출력</h5>
+<pre>{
+  <span class="s">"answer"</span>: <span class="s">"톈진 Pouch #10(S) 는 …"</span>,
+  <span class="s">"tool_calls"</span>: [
+    <span class="s">"list_sheets"</span>, <span class="s">"sheet_outline"</span>,
+    <span class="s">"read_range"</span>, <span class="s">"aggregate"</span>,
+  ],
+}</pre>
+  </div>
+</div>
+
+<div class="callout warn">
+  <span class="tag">recursion_limit = 40</span>
+  <p>두 에이전트 모두 스텝 상한을 명시한다. 약한 모델이 도구 호출만 반복하며 수렴하지 못하면
+  <code>GraphRecursionError</code> 로 <em>끝나야</em> 호출자가 명확히 처리할 수 있다 —
+  조용히 잘리는 것보다 시끄럽게 실패하는 편이 낫다. CLI 는 이 예외를 잡아 안내 메시지를 낸다.</p>
+</div>
+
+<div class="qmemo" data-qid="im-agent-two" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">두 에이전트의 차이 중 헷갈리는 점이 있으면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="im-discover">3.4 discover.py — 레이아웃을 캐내는 에이전트</h3>
+
+<p>발견 에이전트의 프롬프트는 두 조각을 이어 붙여 만든다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="flow" style="flex-direction:column">
+      <div class="node"><span class="t">_BASE_PROMPT — 모든 종류에 공통</span>
+        <span class="d">권장 절차 5단계(윤곽 → 범위 읽기 → 윤곽과 대조 → 프로파일 검증 → 소계 찾기),
+        레이아웃 작성 규칙(summary 표 표시, 2단 헤더는 <code>상단/하단</code> 결합, <strong>컬럼을 하나도 빠뜨리지 마라</strong>,
+        <code>data_end_row</code> 는 웬만하면 null, 앵커 3개 이상)</span></div>
+      <div class="arrowdown">＋</div>
+      <div class="node"><span class="t">FIELD_GUIDE[kind] — 종류마다 다른 필드 어휘</span>
+        <span class="d">“이 시트는 무엇이고, 어떤 영문 필드명을 써야 하는가”. 실물 헤더 문구까지 짝지어 알려준다.</span></div>
+    </div>
+  </div>
+  <figcaption><code>FIELD_GUIDE</code> 에 없는 종류로 부르면 즉시 <code>ValueError</code> —
+  어휘 안내 없이 돌리면 에이전트가 필드명을 지어내고, <code>assemble</code> 이 그 이름을 모르니
+  <strong>파싱은 되고 쓰이지는 않는</strong> 조용한 실패가 된다.</figcaption>
+</figure>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:14%">kind</th><th style="width:30%">고정 필드 어휘</th><th>가이드가 강조하는 것</th></tr>
+  <tr><td><code>jig_master</code></td>
+      <td><code>mold_no</code> <code>jig_name</code> <code>equipment</code> <code>equipment_code</code> <code>line</code></td>
+      <td>“<code>mold_no</code> 와 <code>equipment_code</code> 는 반드시 찾아야 한다 — 둘 중 하나만 없어도 불량율이 통째로 빈다”</td></tr>
+  <tr><td><code>ees</code></td>
+      <td><code>event_at</code> <code>location</code> <code>equipment</code> <code>line</code> <code>process</code></td>
+      <td>“<strong>시트 안에 JIG ID 열은 없다. 찾지 마라.</strong> 어느 금형인지는 시트 이름이 정한다”</td></tr>
+  <tr><td><code>mes</code></td>
+      <td><code>run_date</code> <code>line</code> <code>equipment_code</code> <code>produced</code> <code>good</code> <code>defects</code> <code>defect_ppm</code></td>
+      <td>“날짜는 표가 아니라 상단 라벨에 있을 수 있다 → <code>key_values</code> 로 잡아라”, “‘종합’ 것을 골라라”</td></tr>
+  <tr><td><code>iqc</code></td>
+      <td><code>mold_no</code>(필수) + <code>punch</code> <code>die</code> <code>diff</code> <code>gap</code><br><strong>나머지는 헤더 텍스트 그대로</strong></td>
+      <td>“헤더 문구가 아니라 <strong>값의 생김새</strong>로 판단하라 — RX28312 처럼 영문+숫자가 반복되고 고유값이 많은 열이 금형번호다”</td></tr>
+</table>
+</div>
+
+<p>마지막 줄이 이 설계의 묘미다. 측정자·조립자·연마자·NG사진 같은 열은 미리 예측할 수 없으므로,
+<strong>헤더 텍스트가 그대로 화면 라벨이 된다.</strong> 고정 스키마와 유연 스키마를 섞은 이유가 이것이다.</p>
+
+<h4>submit_layout — 제출을 되돌려보내는 장치</h4>
+
+<p>에이전트가 <code>submit_layout</code> 을 부르면 바로 접수되지 않는다. 격자와 대조해 <strong>덮지 못한 곳</strong>을 찾는다.</p>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 720 250" role="img" aria-label="submit_layout 호출 시 gaps 검증을 거쳐 되돌려보내거나 접수하는 흐름">
+      <defs><marker id="a4" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#8a8479"/></marker></defs>
+
+      <rect x="20" y="20" width="160" height="46" rx="8" fill="#fceef3" stroke="#b4436c" stroke-width="1.6"/>
+      <text x="100" y="41" text-anchor="middle" font-size="12.5" font-weight="700" fill="#8c2f52">submit_layout(...)</text>
+      <text x="100" y="58" text-anchor="middle" font-size="10.5" fill="#8c2f52">Pydantic 이 먼저 검증</text>
+
+      <path d="M182,43 L232,43" stroke="#8a8479" stroke-width="1.6" marker-end="url(#a4)"/>
+
+      <rect x="234" y="14" width="200" height="58" rx="8" fill="#e5f4f4" stroke="#1f7a7a" stroke-width="1.6"/>
+      <text x="334" y="34" text-anchor="middle" font-size="12.5" font-weight="700" fill="#155f5f">find_layout_gaps</text>
+      <text x="334" y="51" text-anchor="middle" font-size="10.5" fill="#155f5f">① 값이 있는데 안 잡힌 열</text>
+      <text x="334" y="65" text-anchor="middle" font-size="10.5" fill="#155f5f">② 어느 표에도 안 들어간 행</text>
+
+      <path d="M334,74 L334,104" stroke="#8a8479" stroke-width="1.6" marker-end="url(#a4)"/>
+      <polygon points="334,106 424,140 334,174 244,140" fill="#fff" stroke="#c9c4bb" stroke-width="1.5"/>
+      <text x="334" y="136" text-anchor="middle" font-size="11.5" fill="#4a5568">빈틈이 있고</text>
+      <text x="334" y="152" text-anchor="middle" font-size="11.5" fill="#4a5568">되돌린 횟수 &lt; 2?</text>
+
+      <path d="M244,140 L120,140 L120,96" fill="none" stroke="#b4436c" stroke-width="1.6" marker-end="url(#a4)"/>
+      <text x="176" y="132" text-anchor="middle" font-size="11" fill="#8c2f52">예 → 문자열로 되돌려보냄</text>
+      <rect x="20" y="96" width="200" height="0" fill="none"/>
+      <text x="120" y="196" text-anchor="middle" font-size="10.5" fill="#8c2f52">“표 ‘대장 상세’ 에서 값이 있는데</text>
+      <text x="120" y="211" text-anchor="middle" font-size="10.5" fill="#8c2f52">columns 에 없는 열: R(측정자), S(조립자)”</text>
+      <path d="M120,186 L120,150" fill="none" stroke="#edc6d6" stroke-width="1.4"/>
+
+      <path d="M424,140 L520,140" stroke="#2f8f5b" stroke-width="1.6" marker-end="url(#a4)"/>
+      <rect x="522" y="112" width="180" height="56" rx="8" fill="#e8f5ee" stroke="#2f8f5b" stroke-width="1.6"/>
+      <text x="612" y="134" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f6b41">접수</text>
+      <text x="612" y="152" text-anchor="middle" font-size="10.5" fill="#26794b">holder["layout"] 에 담겨 나간다</text>
+      <text x="470" y="132" text-anchor="middle" font-size="11" fill="#1f6b41">아니오</text>
+    </svg>
+  </div>
+  <figcaption>되돌려보내기는 <strong>최대 2회</strong>. 무제한이면 못 맞추는 모델이 걸렸을 때 왕복만 하다 recursion_limit 에 걸려
+  레이아웃을 하나도 못 얻는다 — 몇 열 빠진 레이아웃이 그것보다 낫다.</figcaption>
+</figure>
+
+<div class="callout trap">
+  <span class="tag">실측으로 배운 것</span>
+  <p>되돌려보낼 때 <code>ToolException</code> 을 던지면 안 된다. 그 예외는 <code>ToolNode</code> 를 <em>그대로 통과해</em>
+  그래프 밖으로 나가버려서, 되돌려보내려던 제출이 <strong>파일 전체의 실패</strong>가 된다. 그래서 평범한 문자열을 돌려준다.</p>
+  <p>또 하나: <code>_gaps</code> 는 시트를 <strong>호출자가 준 실제 이름</strong>으로 연다. <code>layout.sheet_name</code> 은 에이전트가 적은 값이라
+  오기가 나면 검증이 조용히 건너뛰어진다.</p>
+</div>
+
+<h3 id="im-pipeline">3.5 pipeline.py — 유일한 조립 지점</h3>
+
+<p>여기서만 파일·COM·LLM·DB 가 함께 등장한다. 나머지 모듈은 각자 한 가지만 알고 있어서 순수 함수로 테스트된다.</p>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 700 620" role="img" aria-label="배치 실행 흐름: 스캔, 잠금 파일 검사, 변경 검사, 필수 파일 검사, 파일별 읽기, 조립, 트랜잭션 저장">
+      <defs><marker id="a5" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#8a8479"/></marker></defs>
+      <style>
+        .bx{fill:#fff;stroke:#c9c4bb;stroke-width:1.5}
+        .lb{font-size:12.5px;fill:#23262b;font-weight:700}
+        .sb{font-size:10.5px;fill:#5b6068}
+        .ex{font-size:11px;fill:#c05621;font-weight:700}
+      </style>
+
+      <rect class="bx" x="180" y="14" width="300" height="44" rx="8"/>
+      <text class="lb" x="196" y="34">① scan() — 폴더 훑기 + sha256</text>
+      <text class="sb" x="196" y="50">~$잠금파일 · 비엑셀 · 매핑 안 된 폴더는 제외</text>
+      <path d="M330,60 L330,84" stroke="#8a8479" stroke-width="1.5" marker-end="url(#a5)"/>
+
+      <polygon points="330,86 470,116 330,146 190,116" fill="#fdf6e7" stroke="#b7791f" stroke-width="1.5"/>
+      <text class="lb" x="330" y="112" text-anchor="middle">못 읽은 파일이 있나?</text>
+      <text class="sb" x="330" y="130" text-anchor="middle">사람이 엑셀을 열어둔 경우</text>
+      <path d="M470,116 L560,116" stroke="#b7791f" stroke-width="1.5" marker-end="url(#a5)"/>
+      <text class="ex" x="565" y="112">예 → status="skipped"</text>
+      <text class="sb" x="565" y="128">DB 를 안 건드린다</text>
+      <path d="M330,148 L330,172" stroke="#8a8479" stroke-width="1.5" marker-end="url(#a5)"/>
+
+      <polygon points="330,174 470,204 330,234 190,204" fill="#fdf6e7" stroke="#b7791f" stroke-width="1.5"/>
+      <text class="lb" x="330" y="200" text-anchor="middle">해시가 바뀐 파일이 있나?</text>
+      <text class="sb" x="330" y="218" text-anchor="middle">또는 사라진 파일이 있나?</text>
+      <path d="M470,204 L560,204" stroke="#b7791f" stroke-width="1.5" marker-end="url(#a5)"/>
+      <text class="ex" x="565" y="200">아니오 → "skipped"</text>
+      <text class="sb" x="565" y="216">“변경된 파일이 없습니다”</text>
+      <path d="M330,236 L330,260" stroke="#8a8479" stroke-width="1.5" marker-end="url(#a5)"/>
+
+      <polygon points="330,262 470,292 330,322 190,292" fill="#fdefe7" stroke="#c05621" stroke-width="1.5"/>
+      <text class="lb" x="330" y="288" text-anchor="middle">기준정보·관리대장이 있나?</text>
+      <text class="sb" x="330" y="306" text-anchor="middle">둘 다 필수</text>
+      <path d="M470,292 L560,292" stroke="#c05621" stroke-width="1.5" marker-end="url(#a5)"/>
+      <text class="ex" x="565" y="288">없으면 → "error"</text>
+      <text class="sb" x="565" y="304">금형을 식별할 수 없다</text>
+      <path d="M330,324 L330,348" stroke="#8a8479" stroke-width="1.5" marker-end="url(#a5)"/>
+
+      <rect class="bx" x="120" y="350" width="420" height="112" rx="8" fill="#fdfcfa"/>
+      <text class="lb" x="136" y="372">② 종류 순서대로 파일마다 _read_file()</text>
+      <text class="sb" x="136" y="390">jig_master → ees → mes → iqc  (순서가 곧 의존성)</text>
+      <rect x="136" y="398" width="180" height="50" rx="6" fill="#f1ecfa" stroke="#7c5cbf" stroke-width="1.3"/>
+      <text class="sb" x="146" y="416" fill="#5b3f96" font-weight="700">jig_master · ees</text>
+      <text class="sb" x="146" y="432" fill="#63499c">실패하면 배치 전체 중단</text>
+      <rect x="330" y="398" width="196" height="50" rx="6" fill="#e8f5ee" stroke="#2f8f5b" stroke-width="1.3"/>
+      <text class="sb" x="342" y="416" fill="#1f6b41" font-weight="700">mes · iqc</text>
+      <text class="sb" x="342" y="432" fill="#26794b">파일 단위 격리 → failed_files 로 보고</text>
+      <path d="M330,464 L330,488" stroke="#8a8479" stroke-width="1.5" marker-end="url(#a5)"/>
+
+      <rect class="bx" x="180" y="490" width="300" height="44" rx="8" fill="#e5f4f4" stroke="#1f7a7a"/>
+      <text class="lb" x="196" y="510" fill="#155f5f">③ assemble() — 순수 조립</text>
+      <text class="sb" x="196" y="526" fill="#155f5f">MoldRecord 목록 + 손실 계량</text>
+      <path d="M330,536 L330,560" stroke="#8a8479" stroke-width="1.5" marker-end="url(#a5)"/>
+
+      <rect class="bx" x="150" y="562" width="360" height="48" rx="8" fill="#edf0f4" stroke="#4a5568"/>
+      <text class="lb" x="166" y="582" fill="#37404f">④ 한 트랜잭션: replace_all + record_files + 삭제 이력 정리</text>
+      <text class="sb" x="166" y="599" fill="#4a5568">따로 커밋하면 mold 는 새 상태, ingested_file 은 옛 상태로 갈라진다</text>
+    </svg>
+  </div>
+  <figcaption><code>run_ingest</code> 의 실제 제어 흐름. 어떤 경로로 끝나든 <code>RunSummary</code> 를 <code>ingest_run</code> 테이블에 남긴다.</figcaption>
+</figure>
+
+<h4>실패를 다루는 세 등급</h4>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:22%">등급</th><th style="width:34%">언제</th><th>왜 그렇게</th></tr>
+  <tr><td><strong>배치를 건너뛴다</strong><br><code>status="skipped"</code></td>
+      <td>파일을 열지도 못했을 때(잠김) / 바뀐 게 없을 때</td>
+      <td>배치는 DB 를 <strong>전체 교체</strong>하므로, 그냥 진행하면 못 읽은 파일의 데이터가 화면에서 조용히 사라진다</td></tr>
+  <tr><td><strong>배치를 중단한다</strong><br><code>status="error"</code></td>
+      <td>기준정보/관리대장이 없거나 읽기 실패</td>
+      <td>금형 목록 자체를 만들 수 없다. 부분 갱신은 옛 금형과 새 부속정보가 섞인 상태를 만든다</td></tr>
+  <tr><td><strong>그 파일만 건너뛴다</strong><br><code>failed_files</code></td>
+      <td>MES/IQC 파일 하나가 파싱 실패</td>
+      <td>하루치가 깨졌다고 금형 목록까지 버리면, 관리대장은 멀쩡히 읽혔는데 화면이 통째로 옛 상태로 남는다</td></tr>
+</table>
+</div>
+
+<h4>캐시가 나쁠 때의 자가 치유</h4>
+
+<p><code>_read_file</code> 안의 이 열 줄이 파이프라인에서 가장 미묘한 부분이다.</p>
+
+<figure>
+  <div class="frame">
+<pre>cached = pick_layout(grid, top_left, registry.load_layouts(conn, found.kind))
+layout = cached
+<span class="k">if</span> layout <span class="k">is</span> <span class="k">None</span>:
+    layout = discover_layout(model, wb, found.kind, sheet_name, config=config)
+<span class="k">try</span>:
+    parsed = parse_rows(grid, top_left, layout, found.path, sheet_name)
+<span class="k">except</span> Exception:
+    <span class="c"># 캐시된 레이아웃으로 실패했다면 양식이 앵커 밖에서 바뀐 것이다.</span>
+    <span class="c"># 한 번만 다시 해석해본다 — 이게 없으면 나쁜 캐시에 걸린 파일이 영구히 실패한다.</span>
+    <span class="k">if</span> cached <span class="k">is</span> <span class="k">None</span>:
+        <span class="k">raise</span>
+    layout = discover_layout(model, wb, found.kind, sheet_name, config=config)
+    parsed = parse_rows(grid, top_left, layout, found.path, sheet_name)
+<span class="k">if</span> layout <span class="k">is not</span> cached:
+    <span class="c"># 파싱에 <b>성공한</b> 레이아웃만 캐시에 남긴다.</span>
+    registry.save_layout(conn, found.kind, layout, found.path)</pre>
+  </div>
+  <figcaption>저장을 파싱보다 앞에 두면 파싱을 못 하는 레이아웃이 캐시에 박혀 영구 실패한다 —
+  <code>save_layout</code> 은 즉시 커밋하므로 배치 롤백으로도 못 지운다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="im-pipeline-flow" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">배치 흐름도나 실패 등급에 대해 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="im-pure">3.6 순수 계층 — parser · join · assemble</h3>
+
+<p>여기부터는 LLM 도 Excel 도 DB 도 등장하지 않는다. <strong>격자 리터럴만 있으면 결과가 재현된다</strong> —
+“왜 이 값이 이렇게 나왔지”를 나중에 반드시 되짚을 수 있다는 뜻이다.</p>
+
+<h4>parser.py — 좌표를 값으로</h4>
+
+<ul>
+  <li><code>role="summary"</code> 표는 <strong>건너뛴다.</strong> 안 그러면 ‘소계’·‘총계’가 금형번호로 읽힌다.</li>
+  <li><code>data_end_row</code> 가 <code>None</code> 이면 <strong>매핑된 칸이 전부 빈 행</strong>에서 멈춘다.
+  표 아래의 비고·서명란이 금형인 척 딸려오는 걸 막는다.</li>
+  <li>컬럼 매핑이 없는 detail 표는 <code>ValueError</code>. 조용히 0행을 돌려주면 “표는 있는데 행이 없다”는
+  추적 불가능한 상태가 된다.</li>
+  <li>여기서 나오는 <code>Row</code> 는 <strong>아직 어느 금형 것인지 모른다.</strong> 귀속 방식이 문서마다 다르기 때문이다
+  (IQC 는 금형번호 열, 관리대장은 시트 이름).</li>
+</ul>
+
+<div class="callout trap">
+  <span class="tag">시트 이름을 어디서 가져오나</span>
+  <p><code>parse_rows</code> 는 <code>layout.sheet_name</code> 을 <strong>쓰지 않는다.</strong> 그 값은 LLM 이 적어낸 것이고,
+  캐시된 레이아웃이 다른 시트에 재사용되면 남의 시트 이름이 들어 있다. 관리대장은 시트 이름이 곧 금형번호라
+  그대로 믿으면 <strong>모든 금형이 한 시트로 뭉친다.</strong> 그래서 워크북의 실제 이름을 인자로 받는다.</p>
+</div>
+
+<h4>normalize.py — 정규화는 한 곳에만</h4>
+
+<figure>
+  <div class="frame">
+<pre class="plain">normalize_mold_no(<span style="color:#2f8f5b">"#RX41194"</span>) → <span style="color:#2f8f5b">"RX41194"</span>   <span style="color:#8a8479"># 이력표의 # 접두사 제거</span>
+normalize_mold_no(<span style="color:#2f8f5b">" rx28312 "</span>) → <span style="color:#2f8f5b">"RX28312"</span>
+normalize_mold_no(<span style="color:#2f8f5b">"소계"</span>)      → None        <span style="color:#8a8479"># 금형이 아님</span>
+status_from_location(<span style="color:#2f8f5b">"설비"</span>)   → <span style="color:#2f8f5b">"in_use"</span>
+status_from_location(<span style="color:#2f8f5b">"통합 Jig Room"</span>) → <span style="color:#2f8f5b">"standby"</span>  <span style="color:#8a8479"># 보관함 이름은 무한하다</span>
+cell_to_text(28312.0)          → <span style="color:#2f8f5b">"28312"</span>      <span style="color:#8a8479"># xlwings 는 정수도 float 로 준다</span>
+cell_to_text(True)             → <span style="color:#2f8f5b">"TRUE"</span>       <span style="color:#8a8479"># bool 은 int 의 하위 타입 → 숫자보다 먼저</span>
+to_float(<span style="color:#2f8f5b">"0.8%"</span>)              → 0.008       <span style="color:#8a8479"># 퍼센트는 비율로</span>
+to_datetime(<span style="color:#2f8f5b">"2026.07.08 14:00"</span>) → datetime(...)</pre>
+  </div>
+  <figcaption>정규화가 여러 곳에 흩어지면 대장의 <code>RX28312</code> 와 이력표의 <code>#RX41194</code> 가 다른 금형이 되어
+  이후 <em>어떤</em> 조인도 안 맞는다. 그래서 이 파일 하나에만 둔다.</figcaption>
+</figure>
+
+<p><strong>위치가 곧 상태다.</strong> 관리대장에는 상태 열이 없다. 대신 마지막 이벤트의 위치를 본다 —
+‘설비’면 가동중, ‘수리’가 들어가면 수리중, ‘폐기’면 폐기, <strong>나머지는 전부 대기</strong>.
+보관함 이름은 공장마다 다르고 계속 늘어나므로(입고 대기 보관함 · 통합 Jig Room · 사용 대기 보관함 · 반납 대기 보관함…)
+하나씩 나열하지 않는다 — 이름이 하나 늘 때마다 금형이 화면에서 사라지면 안 되기 때문이다.</p>
+
+<h4>join.py — 이벤트를 사용구간으로</h4>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:26%">함수</th><th>하는 일</th></tr>
+  <tr><td><code>build_jig_index</code></td><td>기준정보 → <code>{JIG ID: JigInfo}</code>. 금형을 확정하는 조회</td></tr>
+  <tr><td><code>build_equipment_index</code></td><td>기준정보 → <code>{설비명: JigInfo}</code>. <strong>MES 조회 키를 고르는 데만</strong> 쓴다.
+    여기서 나오는 <code>mold_no</code> 는 “그 설비에 등록된 금형”이지 조회 중인 금형이 아니다 — 가져다 쓰면 금형이 설비를 옮긴 순간 남의 번호가 붙는다</td></tr>
+  <tr><td><code>extract_runs</code></td><td>이벤트 → <code>UsageRun</code>. 위치가 ‘설비’인 이벤트가 투입, <strong>바로 다음 이벤트</strong>가 종료.
+    엑셀 행 순서가 시간순이라는 보장이 없어 반드시 정렬한다</td></tr>
+  <tr><td><code>covered_dates</code></td><td>구간이 덮는 날짜들. <strong>자정이 아니라 투입 시각 기준 24시간</strong>으로 끊는다 —
+    22:00 에 투입해 다음날 03:00 에 끝난 5시간짜리가 이틀로 세어지면 안 된다</td></tr>
+  <tr><td><code>attach_defect_rates</code></td><td>구간마다 MES 를 조회해 raw 를 합산하고 다시 나눈다</td></tr>
+</table>
+</div>
+
+<div class="callout def">
+  <span class="tag">유령 금형 방지</span>
+  <p>관리대장의 시트 이름이 곧 금형번호이므로, “Sheet1”이나 “RX39513 복사본” 같은 이름이 통과하면 유령 금형이 생긴다.
+  그래서 <code>_JIG_ID_SHAPE = ^#?[A-Za-z]{1,3}\d{4,}$</code> 로 <strong>모양까지</strong> 확인한다.
+  안 맞으면 <code>bad_sheet_names</code> 로 보고 — 이건 <em>관리대장 시트 이름</em>을 고쳐야 하는 사고이고,
+  <code>unknown_jig_id</code>(기준정보가 낡음)와는 고쳐야 할 파일이 다르다.</p>
+</div>
+
+<h4>assemble.py — 무엇이 마스터인가</h4>
+
+<p>관리대장에는 상태 열도, 사용타수도, 총생산수량도 없다. 그래서 이렇게 채운다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:24%">필드</th><th>어디서 오나</th></tr>
+  <tr><td><code>status</code></td><td>마지막 이벤트의 <strong>위치</strong></td></tr>
+  <tr><td><code>line</code></td><td>마지막 사용구간이 조회한 <strong>기준정보</strong>의 Line명 (관리대장 라인은 공장 접두사가 없어 못 쓴다)</td></tr>
+  <tr><td><code>machine</code></td><td>마지막 사용구간의 설비명</td></tr>
+  <tr><td><code>total_installs</code></td><td>사용구간의 개수 — 그것이 곧 설치 횟수</td></tr>
+  <tr><td><code>total_production</code></td><td>MES 투입수량의 합</td></tr>
+  <tr><td><code>latest_defect_rate</code></td><td>가장 최근 구간의 불량율. 없으면 그 앞 구간으로 거슬러 올라간다(마지막 구간이 가동 중이면 비어 있으므로)</td></tr>
+  <tr><td><code>shot_count</code></td><td><strong>미상(None).</strong> 어느 문서에도 없다. 0 으로 두면 ‘신품’이라는 거짓말이 된다</td></tr>
+</table>
+</div>
+
+<div class="callout key">
+  <span class="tag">설계 원칙 — null 과 0 을 구분한다</span>
+  <p>모르는 값을 <code>0</code>/<code>""</code> 으로 채우면 “0회(신품)”와 “미상(추출 실패)”이 화면에서 구분되지 않는다.
+  프론트의 <code>fmtNumber</code> 는 <code>null</code> 을 <code>—</code> 로 그린다. 이 원칙 때문에 수량 필드 5개가 전부 nullable 이다.</p>
+</div>
+
+<h4>손실은 전부 셈해서 돌려준다</h4>
+
+<p>“조용히 빠지는 데이터가 없어야 한다”가 이 파이프라인의 두 번째 원칙이다. <code>RunSummary</code> 에는
+버려진 것마다 이름이 붙어 있고, 전부 화면까지 도달한다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:26%">필드</th><th style="width:38%">뜻</th><th>무엇을 고쳐야 하나</th></tr>
+  <tr><td><code>unknown_jig_id</code></td><td>관리대장엔 있는데 기준정보에 없는 JIG ID</td><td><strong>그 금형이 통째로 빠진다.</strong> 기준정보가 낡았다</td></tr>
+  <tr><td><code>unknown_equipment</code></td><td>기준정보에 없는 설비명</td><td>금형은 나온다. 다만 실적이 ‘현재 등록된 설비’ 기준이라 값을 그대로 믿으면 안 된다</td></tr>
+  <tr><td><code>bad_sheet_names</code></td><td>이름이 JIG ID 모양이 아닌 관리대장 시트</td><td>관리대장의 <em>시트 이름</em></td></tr>
+  <tr><td><code>missing_mes_days</code></td><td>구간이 덮는 날인데 MES 파일이 없는 날짜</td><td>그 날짜의 MES 파일을 올린다</td></tr>
+  <tr><td><code>unmatched_runs</code></td><td>MES 는 있는데 그 (날짜, 설비코드) 행이 없음</td><td>라인/설비코드 표기 확인</td></tr>
+  <tr><td><code>open_runs</code></td><td>아직 설비에 있어 종료가 없는 구간 수</td><td><strong>손실이 아니다.</strong> 불량율이 빈 이유가 ‘가동 중’인지 ‘조인 실패’인지 구분하려고 따로 센다</td></tr>
+  <tr><td><code>orphan_mold_nos</code></td><td>IQC 에 있는데 관리대장에 없는 금형</td><td>오타이거나 진짜 누락</td></tr>
+  <tr><td><code>failed_files</code> / <code>unreadable_files</code></td><td>파싱 실패 / 열지도 못함</td><td>엑셀을 닫거나 파일을 고친다</td></tr>
+</table>
+</div>
+
+<div class="qmemo" data-qid="im-pure-layer" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">순수 계층(parser/join/assemble)에 대해 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="im-store">3.7 저장과 화면, 그리고 채팅 그래프</h3>
+
+<h4>store.py — upsert 가 아니라 전체 교체</h4>
+
+<p>배치마다 <code>mold</code> · <code>mold_design</code> · <code>mold_stage</code> · <code>production_run</code> 네 테이블을 <strong>지우고 다시 넣는다.</strong>
+관리대장이 마스터이고 매번 전체를 다시 읽으므로, 관리대장에서 사라진 금형은 대시보드에서도 사라져야 한다.
+upsert 만 하면 유령 금형이 영원히 남는다.</p>
+
+<p>DB 에는 “행이 추가됐다”는 개념이 아예 없다. 엑셀에 행을 추가하면 → 파일 해시가 바뀌고 → 배치가 돌고 →
+<code>used_range</code> 가 자란 만큼 격자가 커지고 → <code>data_end_row=None</code> 이라 파서가 끝까지 따라가고 →
+DELETE 후 INSERT. <strong>앵커는 그대로이므로 LLM 호출은 0회다.</strong></p>
+
+<h4>API 와 화면</h4>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:30%">엔드포인트</th><th>하는 일</th></tr>
+  <tr><td><code>POST /api/ingest/run</code></td><td>배치 실행. <code>asyncio.to_thread</code> 로 워커 스레드에 넘긴다 —
+    Excel COM 은 파일당 수 초라 이벤트 루프에서 돌리면 서버 전체가 멈춘다</td></tr>
+  <tr><td><code>GET /api/ingest/status</code></td><td>마지막 <code>RunSummary</code></td></tr>
+  <tr><td><code>GET /api/molds</code> · <code>/{mold_no}</code> · <code>/filters</code></td><td>대시보드 조회.
+    <code>/molds/filters</code> 를 <code>/molds/{mold_no}</code> 보다 <strong>먼저</strong> 선언해야 한다 — FastAPI 는 선언 순서로 매칭한다</td></tr>
+  <tr><td><code>POST /api/sessions/{id}/chat</code></td><td>채팅 SSE 스트림</td></tr>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="tag">실패도 200 으로 돌려준다</span>
+  <p><code>/ingest/run</code> 은 실패해도 500 을 던지지 않고 <code>200 + status="error"</code> 를 준다.
+  예외로 던지면 화면이 사유를 못 보여주고 “알 수 없는 오류”만 남는다.
+  LLM 설정이 덜 채워진 경우(<code>.env</code> 의 <code>INTERNAL_LLM_*</code> 누락)조차 이 경로로 처리된다.</p>
+</div>
+
+<h4>곁가지: 채팅 그래프</h4>
+
+<p>이 저장소에는 대시보드 말고 채팅 탭도 있는데, 지금은 아주 단순하다 —
+<code>START → chat → END</code> 노드 하나짜리 LangGraph 이고, 세션별 대화 메모리는 SQLite 체크포인터가
+<code>thread_id=session_id</code> 로 자동 저장/로드한다. 엑셀 에이전트와는 <strong>아직 연결돼 있지 않다</strong>
+(수집은 <code>/api/ingest/run</code> 이 직접 부른다).</p>
+
+<div class="callout def">
+  <span class="tag">설정은 항상 .env 하나</span>
+  <p>LLM 백엔드(<code>ollama</code> / <code>internal</code>), 모델명, 포트, 로그 경로, 업로드 루트, 폴더↔종류 매핑까지
+  전부 <code>backend/.env</code> 에서 읽는다. <code>Settings</code> 는 cwd 와 무관하게 절대경로로 그 파일을 고정하므로
+  어디서 실행하든 같은 설정을 본다. 런타임에 바꿔야 하면 <code>settings.model_copy(update={...})</code> 로 복제한다 —
+  원본과 <code>.env</code> 는 건드리지 않는다.</p>
+</div>
+
+<div class="qmemo" data-qid="im-store-ui" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">저장·API·화면 쪽에서 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="e2e">4. 엔드투엔드 한 바퀴 — RX39513 을 따라가기</h2>
+
+<p>지금까지의 조각을 하나로 붙여, 금형 <code>RX39513</code> 이 화면의 한 줄이 되기까지를 순서대로 본다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="flow" style="flex-direction:column;gap:0">
+      <div class="node"><span class="t">0 · 사람</span><span class="d">부서가 <code>backend/data/uploads/EES/JIG_관리대장.xlsx</code> 를 갱신해 올린다. 대시보드에서 <strong>수집 실행</strong> 클릭.</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node"><span class="t">1 · scanner.py</span><span class="d">네 폴더를 훑어 파일 28개 발견. 각각 sha256 계산 → 관리대장 해시가 바뀌었다 → 배치 실행.</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node db"><span class="t">2 · workbook.py</span><span class="d">전용 스레드에서 EXCEL.EXE 기동 → <code>JIG_관리대장.xlsx</code> 를 읽기 전용으로 연다. 시트 7개.</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node pure"><span class="t">3 · layout.py — 시트 “#RX39513”</span><span class="d"><code>pick_layout</code> 이 캐시된 ees 레이아웃들의 앵커를 대조. <strong>B2=“이벤트시간”, E2=“위치”, G2=“설비명”</strong> 전부 일치 → 캐시 히트. <span style="color:var(--agent);font-weight:700">LLM 호출 0회</span></span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node pure"><span class="t">4 · parser.py</span><span class="d">B3 부터 빈 행까지 훑어 <code>Row</code> 12개. 각 행은 <code>{event_at, location, equipment, line, process}</code>. <strong>아직 어느 금형인지 모른다.</strong></span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node pure"><span class="t">5 · join.extract_runs</span><span class="d">시트 이름 “#RX39513” → <code>normalize_mold_no</code> → <code>RX39513</code>. 시간순 정렬 후 위치=‘설비’인 이벤트 3개 → 사용구간 3개.</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node jig"><span class="t">6 · 기준정보 조회</span><span class="d">각 구간의 설비명으로 <code>equip_index</code> 조회 → 설비코드 <code>21004780</code>, Line명 “톈진 Pouch #10(S)”. 3번째 구간은 설비를 옮겼으므로 다른 코드가 붙는다.</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node mes"><span class="t">7 · join.attach_defect_rates</span><span class="d">구간마다 <code>covered_dates</code> 로 날짜를 뽑아 <code>{(날짜, 설비코드)}</code> 색인 조회. 투입·불량을 합산 → <code>defect_rate</code>. 날짜별 원값은 <code>daily</code> 에 남긴다.</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node pure"><span class="t">8 · assemble</span><span class="d">마지막 이벤트 위치 ‘설비’ → <code>status="in_use"</code>. <code>total_installs=3</code>, <code>total_production=</code>투입 합, <code>latest_defect_rate=</code>마지막 구간. IQC 행 중 <code>mold_no=RX39513</code> 인 것의 항목을 붙인다.</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node db"><span class="t">9 · store.replace_all</span><span class="d">한 트랜잭션 안에서 네 테이블 DELETE → INSERT. 파일 이력 갱신과 삭제 이력 정리까지 묶어 마지막에 한 번만 커밋.</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node"><span class="t">10 · molds/query.py → 화면</span><span class="d"><code>GET /api/molds</code> 가 <code>MoldSummary</code> 목록을 준다. <code>mold_stage</code> 에 행이 <em>없는</em> 것이 곧 <code>missing</code> 이라, IQC 만 적재된 지금은 나머지 탭에 <code>·</code> 배지가 뜬다.</span></div>
+    </div>
+  </div>
+  <figcaption>이 한 바퀴에서 LLM 이 등장하는 곳은 3단계뿐이고, 그마저 캐시가 맞으면 0회다.</figcaption>
+</figure>
+
+<div class="callout trap">
+  <span class="tag">조용히 틀릴 수 있는 곳</span>
+  <p><strong>① <code>data_end_row</code> 에 숫자가 박히면</strong> 그 아래 새 행이 영원히 안 읽힌다. 화면은 정상으로 보이고 새 데이터만 없다.
+  프롬프트와 스키마 description 양쪽에서 “null 로 두라”고 요구하지만, 실제로 지키는지는
+  <code>backend/logs/llm_calls.log</code> 의 <code>submit_layout</code> 인자로 확인해야 한다.</p>
+  <p><strong>② 세로로 쌓인 표에서 위쪽 표에 행이 추가되면</strong> 아래 표가 밀려 앵커가 어긋난다.
+  동작 자체는 옳지만(레이아웃이 실제로 바뀌었으니) “LLM 호출은 평생 몇 번”이라는 기대는 그 시트 형태엔 안 맞는다.</p>
+  <p><strong>③ 워크북의 모든 시트마다</strong> 캐시 미스면 에이전트가 1회씩 돈다 — 잡시트(목차·사본)까지 포함해서.</p>
+</div>
+
+<div class="qmemo" data-qid="e2e-walkthrough" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">엔드투엔드 흐름에서 “이 단계가 왜 필요하지?” 싶은 곳을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="quiz">5. 이해도 점검 퀴즈 5문항</h2>
+
+<p>객관식이고, 답을 누르면 바로 채점과 해설이 나온다. 외워서 푸는 문제가 아니라
+“왜 그렇게 만들었는지”를 이해했는지 보는 문제들이다.</p>
+
+<div class="quiz" data-answer="1">
+  <p class="q">Q1. <code>format_grid</code> 는 빈 셀을 빈 문자열이 아니라 <code>·</code> 로 채운다. 왜인가?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">시트에 빈 칸이 몇 개인지 사람이 세기 편하라고</button>
+    <button class="opt" data-i="1">빈 문자열이면 탭 구분자가 연달아 붙어, LLM 이 그 빈 자리를 세지 못하고 이후 열 문자를 전부 한 칸씩 밀어서 지목하기 때문</button>
+    <button class="opt" data-i="2">엑셀의 <code>None</code> 을 JSON 으로 직렬화할 수 없기 때문</button>
+    <button class="opt" data-i="3">빈 셀과 값이 <code>0</code> 인 셀을 구분하기 위해</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>실제로 A 열이 빈 시트에서 모델이 필드 이름 11개를 전부 맞히고도 열 문자는 11개 전부 왼쪽으로 지목했다(mold_no 를 I 가 아니라 H 로). 4B 모델도 26B 모델도 같은 패턴이라 모델 크기가 아니라 <b>렌더링</b>이 원인이었다. 같은 이유로 <code>format_grid</code> 는 짧은 행을 가장 긴 행에 맞춰 패딩도 한다. 참고로 ④번의 “빈 셀과 0 구분”은 <code>cell_to_text</code> 가 담당하는 다른 층의 문제다.</div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q2. <code>submit_layout</code> 이 “덮지 못한 열이 있다”고 판단했을 때, 예외(<code>ToolException</code>)가 아니라 <strong>평범한 문자열</strong>을 돌려주는 이유는?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">예외를 던지면 Pydantic 검증이 두 번 돌아 느려지기 때문</button>
+    <button class="opt" data-i="1">문자열이 토큰을 덜 쓰기 때문</button>
+    <button class="opt" data-i="2"><code>ToolException</code> 은 <code>ToolNode</code> 를 그대로 통과해 그래프 밖으로 나가버려서, 되돌려보내려던 제출이 오히려 파일 전체의 실패가 되기 때문</button>
+    <button class="opt" data-i="3">LangGraph 가 예외를 던진 도구를 자동으로 목록에서 제외하기 때문</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>실측으로 확인된 동작이다(<code>discover.py</code> 주석). 검증이 막으려던 것보다 나쁜 결과가 나오므로 문자열로 되돌린다. 덧붙여 되돌려보내기는 <b>최대 2회</b>다 — 무제한이면 못 맞추는 모델이 걸렸을 때 왕복만 하다 <code>recursion_limit</code> 에 걸려 레이아웃을 하나도 못 얻는데, 몇 열 빠진 레이아웃이 그것보다는 낫다.</div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="q">Q3. 캐시에 저장된 어떤 레이아웃의 <code>anchors</code> 가 2개뿐이라면 무슨 일이 일어나는가?</p>
+  <div class="opts">
+    <button class="opt" data-i="0"><code>SheetLayout</code> 역직렬화가 <code>ValidationError</code> 로 실패해 레이아웃 로딩 전체가 죽는다</button>
+    <button class="opt" data-i="1"><code>anchors_match</code> 가 무조건 <code>False</code> 를 돌려주므로 캐시 미스로 취급되어, 그 시트는 에이전트가 다시 발견한다</button>
+    <button class="opt" data-i="2">2개만 대조해서 통과하면 재사용한다</button>
+    <button class="opt" data-i="3">저장 시점에 거부되므로 그런 레이아웃은 캐시에 존재할 수 없다</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>①번이 함정이다. 이 최소 개수를 Pydantic 제약(<code>min_length=3</code>)으로 걸지 <b>않은</b> 이유가 바로 그것 — 그 모델은 에이전트 제출 검증뿐 아니라 <code>registry.load_layouts</code> 의 역직렬화도 겸하므로, 제약을 걸면 이미 저장된 옛 캐시 행을 읽다가 로딩 전체가 죽는다. 판정부에서만 거르면 “그냥 캐시 미스”로 안전하게 퇴화한다. 캐시가 <code>(kind, sheet_name)</code> 이 아니라 <code>kind</code> 로만 좁혀진 지금은 이 판정이 그 종류의 <b>모든 시트</b>에 대한 유일한 문지기다.</div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q">Q4. 관리대장에 이력이 잔뜩 있는 금형 <code>RX77777</code> 이 기준정보 표에는 없다. 결과는?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">설비코드 없이 금형만 목록에 나오고, 불량율 칸이 <code>—</code> 로 표시된다</button>
+    <button class="opt" data-i="1">배치가 <code>status="error"</code> 로 중단된다</button>
+    <button class="opt" data-i="2"><code>bad_sheet_names</code> 에 기록되고 그 시트의 행은 버려진다</button>
+    <button class="opt" data-i="3">그 금형이 대시보드에서 통째로 빠지고, <code>unknown_jig_id</code> 목록에 <code>RX77777</code> 이 뜬다</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>MES 조회 키(설비코드)를 어디서도 얻을 수 없으므로 <code>extract_runs</code> 가 그 금형을 통째로 건너뛴다. 다만 <b>조용히</b> 버리지 않는다 — <code>unknown_jig_id</code> 로 화면까지 보고되고, 그 신호가 가리키는 조치는 “기준정보를 갱신하라”다. ②번의 <code>bad_sheet_names</code> 는 시트 <i>이름</i>이 JIG ID 모양이 아닐 때(“Sheet1” 등) 쓰는 다른 사고이고, 고쳐야 할 파일도 다르다.</div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <p class="q">Q5. 한 사용구간이 3일에 걸쳐 있다. 불량율을 “날짜별 불량율 3개의 평균”으로 계산하면 왜 틀리는가?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">생산량이 다른 날을 같은 무게로 세기 때문. 1,000개 만든 날의 3% 와 10개 만든 날의 1% 는 같은 무게일 수 없다</button>
+    <button class="opt" data-i="1">MES 의 불량율이 PPM 단위라 백분율로 바꾸면 반올림 오차가 누적되기 때문</button>
+    <button class="opt" data-i="2">구간이 자정을 넘으면 날짜가 하나 더 늘어 평균의 분모가 틀리기 때문</button>
+    <button class="opt" data-i="3">하루라도 MES 파일이 없으면 평균이 <code>None</code> 이 되기 때문</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>그래서 <code>attach_defect_rates</code> 는 투입수량과 불량수량을 각각 합친 뒤 <b>다시</b> 나눈다. 관련해서 두 가지 더: 투입이 0 이면 <code>0.0</code> 이 아니라 <code>None</code> 이다(0.0 은 “불량 없음”이라는 거짓말이 된다). 그리고 어느 날짜를 덮는지는 자정이 아니라 <b>투입 시각 기준 24시간</b>으로 끊는다 — ②번이 말하는 상황은 <code>covered_dates</code> 가 이미 처리하고 있어서 평균이 틀리는 <i>이유</i>는 아니다.</div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제나 해설이 이해 안 되는 부분을 적어두면 다음 패스에서 더 깊이 설명합니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="more">6. 더 읽을거리</h2>
+
+<h3>코드를 직접 읽는다면 이 순서로</h3>
+
+<p>의존성이 없는 순수 함수부터 보는 게 빠르다. 각 모듈의 테스트(<code>backend/tests/test_ingest_*.py</code>)를 함께 보면
+명세서처럼 읽힌다 — 특히 <code>test_ingest_parser.py</code> 는 멀티헤더·summary 표·소계 행·빈 행·오프셋을
+격자 리터럴로 미리 겪어둔 것이다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:8%">순서</th><th style="width:32%">파일</th><th>왜 여기부터</th></tr>
+  <tr><td>1</td><td><code>app/ingest/schemas.py</code></td><td>나머지 전부가 이 이름들을 쓴다</td></tr>
+  <tr><td>2</td><td><code>app/excel/grid.py</code></td><td>Excel 없이 도는 순수 계층. 렌더링 세심함이 재밌다</td></tr>
+  <tr><td>3</td><td><code>app/excel/tools.py</code></td><td>에이전트가 보는 세계의 전부</td></tr>
+  <tr><td>4</td><td><code>app/ingest/normalize.py</code></td><td>가장 작고 독립적. 타입 분기가 미묘하다</td></tr>
+  <tr><td>5</td><td><code>app/ingest/layout.py</code></td><td>앵커 개념 + <code>used_range</code> 오프셋 처리</td></tr>
+  <tr><td>6</td><td><code>app/ingest/parser.py</code></td><td>핵심. 여기가 틀리면 모든 숫자가 틀린다</td></tr>
+  <tr><td>7</td><td><code>app/ingest/join.py</code></td><td>세 문서를 잇는 조인. 모듈 docstring 이 설계 문서다</td></tr>
+  <tr><td>8</td><td><code>app/ingest/discover.py</code></td><td>프롬프트와 <code>submit_layout</code> 도구</td></tr>
+  <tr><td>9</td><td><code>app/ingest/pipeline.py</code></td><td><strong>마지막에.</strong> 위 전부가 여기서 조립된다</td></tr>
+</table>
+</div>
+
+<h3>직접 돌려보기</h3>
+
+<figure>
+  <div class="frame">
+<pre><span class="c"># 1) 샘플 엑셀 만들기 (실물이 없어도 파이프라인을 끝까지 돌려볼 수 있다)</span>
+cd backend
+.venv/Scripts/python.exe examples/make_sample_uploads.py
+
+<span class="c"># 2) 서버 + 프론트 기동</span>
+python dev.py
+<span class="c">#    → http://localhost:5173/dashboard → 좌측 "데이터 수집" 패널 → 수집 실행</span>
+
+<span class="c"># 3) 분석 에이전트만 따로 (CLI)</span>
+python examples/analyze_excel.py data/uploads/MES/2026-07-01_불량현황.xlsx <span class="s">"라인별 투입수량 합계는?"</span>
+
+<span class="c"># 4) 에이전트가 실제로 무엇을 부르고 무엇을 받았는지</span>
+type logs\llm_calls.log</pre>
+  </div>
+  <figcaption>프롬프트를 다듬을 때는 <code>logs/llm_calls.log</code> 가 유일한 근거다 —
+  도구 호출 순서와 <code>submit_layout</code> 인자가 그대로 남는다.</figcaption>
+</figure>
+
+<h3>관련 문서</h3>
+<ul>
+  <li><code>docs/superpowers/specs/2026-07-28-금형-데이터-수집-파이프라인-design.md</code> — 설계 의도와 결정 근거</li>
+  <li><code>docs/superpowers/specs/2026-07-29-ees-mes-조인-design.md</code> — 세 문서 조인 설계</li>
+  <li><code>docs/superpowers/specs/2026-07-30-관리대장-시트-금형-귀속-design.md</code> — 시트 이름이 금형이 된 경위</li>
+  <li><code>docs/교육자료/04_금형수집_파이프라인_동작원리.md</code> — 이전 버전의 파이프라인 설명
+    <span class="small">(주의: MES 를 마스터로 보던 시절의 문서라 지금 코드와 어긋나는 서술이 있다)</span></li>
+</ul>
+
+<div class="qmemo" data-qid="more-reading" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">문서 전체를 읽고 남은 질문을 여기에 모아 적어도 좋습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<p class="small" style="margin:40px 0 20px">
+이 문서는 <code>feat/ingest-phase1</code> 브랜치의 코드를 읽고 작성했다.
+코드가 바뀌면 이 문서도 낡는다 — 어긋나는 곳을 발견하면 질문 메모에 적어두면 된다.
+</p>
+
+</div>
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+/* ── 질문 메모: 자동 저장 + 파일로 내보내기 ── */
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-11-explanation-mold-ingest-excel-agent.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\TestProject\\docs\\understanding\\2026-08-11-explanation-mold-ingest-excel-agent.html';
+  });
+})();
+
+/* ── 퀴즈 채점 ── */
+(function () {
+  document.querySelectorAll('.quiz').forEach(function (quiz) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var fb = quiz.querySelector('.fb');
+    var fbtext = quiz.querySelector('.fbtext');
+    var buttons = quiz.querySelectorAll('button.opt');
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (quiz.dataset.done === '1') return;
+        quiz.dataset.done = '1';
+        var picked = parseInt(btn.dataset.i, 10);
+        var ok = picked === answer;
+        buttons.forEach(function (b) {
+          b.disabled = true;
+          var i = parseInt(b.dataset.i, 10);
+          if (i === answer) b.classList.add('right');
+          else if (i === picked) b.classList.add('wrong');
+        });
+        fb.className = 'fb show ' + (ok ? 'ok' : 'no');
+        fb.innerHTML = (ok ? '<strong>정답입니다.</strong> ' : '<strong>아쉽습니다.</strong> 정답은 위에 초록으로 표시된 항목입니다. ')
+                     + fbtext.innerHTML;
+      });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
