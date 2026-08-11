@@ -1,0 +1,1323 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>엑셀 한 줄이 DB 한 행이 되기까지 — 저장 프로세스와 행 변경의 파급</title>
+<style>
+:root{
+  --bg:#faf9f7; --panel:#ffffff; --ink:#23262b; --ink-soft:#5b6068;
+  --line:#e3e0da; --line-strong:#c9c4bb;
+
+  /* 문서 종류별 색 — 선행 문서와 동일한 뜻으로 재사용 */
+  --ees:#3b6fd4;  --ees-bg:#eaf0fc;
+  --jig:#7c5cbf;  --jig-bg:#f1ecfa;
+  --mes:#2f8f5b;  --mes-bg:#e8f5ee;
+  --iqc:#c07d1a;  --iqc-bg:#fbf1de;
+
+  /* 역할별 색 */
+  --agent:#b4436c; --agent-bg:#fceef3;   /* LLM 이 관여 */
+  --pure:#1f7a7a;  --pure-bg:#e5f4f4;    /* 순수 파이썬 */
+  --db:#4a5568;    --db-bg:#edf0f4;      /* 저장소 */
+  --keep:#2f6f8f;  --keep-bg:#e6f1f7;    /* 기억 테이블(누적) */
+  --wipe:#a1443a;  --wipe-bg:#fbeae7;    /* 결과 테이블(전멸/재생성) */
+  --warn:#b7791f;  --danger:#c05621;
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16.5px;line-height:1.75;padding-bottom:96px;-webkit-text-size-adjust:100%;
+}
+.wrap{max-width:920px;margin:0 auto;padding:0 20px;}
+header.page{background:linear-gradient(160deg,#2f3a33,#43535c);color:#fff;padding:44px 0 36px;margin-bottom:8px;}
+header.page h1{margin:0 0 10px;font-size:1.9rem;line-height:1.35;letter-spacing:-.01em;}
+header.page p{margin:0;color:#d7dde6;font-size:.98rem;}
+header.page .meta{margin-top:16px;font-size:.82rem;color:#aeb8c6;}
+header.page code{background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.2);color:#fff;}
+
+h2{margin:56px 0 4px;font-size:1.42rem;line-height:1.4;letter-spacing:-.01em;padding-bottom:8px;border-bottom:2px solid var(--line-strong);}
+h3{margin:34px 0 6px;font-size:1.14rem;letter-spacing:-.01em;}
+h4{margin:24px 0 4px;font-size:1rem;color:var(--ink-soft);}
+p{margin:12px 0;} ul,ol{margin:12px 0;padding-left:1.35em;} li{margin:6px 0;}
+code{font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;font-size:.86em;background:#f0eeea;padding:1px 5px;border-radius:4px;border:1px solid #e2ded7;}
+a{color:#2b6cb0;} strong{font-weight:700;}
+.small{font-size:.88rem;color:var(--ink-soft);}
+
+pre{background:#282c34;color:#e6e6e6;padding:16px 18px;border-radius:8px;overflow-x:auto;
+    font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;font-size:.81rem;line-height:1.6;
+    white-space:pre;margin:16px 0;}
+pre.plain{background:#fff;color:var(--ink);border:1px solid var(--line);}
+pre .c{color:#8a93a5;} pre .k{color:#c678dd;} pre .s{color:#98c379;} pre .n{color:#d19a66;}
+pre .add{color:#98c379;} pre .del{color:#e06c75;}
+
+.callout{border-left:4px solid var(--line-strong);background:var(--panel);padding:14px 18px;margin:20px 0;border-radius:0 8px 8px 0;box-shadow:0 1px 2px rgba(0,0,0,.04);}
+.callout .tag{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;color:var(--ink-soft);}
+.callout p:first-of-type{margin-top:0;} .callout p:last-child{margin-bottom:0;}
+.callout.key{border-left-color:var(--pure);background:var(--pure-bg);} .callout.key .tag{color:var(--pure);}
+.callout.warn{border-left-color:var(--warn);background:#fdf6e7;} .callout.warn .tag{color:var(--warn);}
+.callout.trap{border-left-color:var(--danger);background:#fdefe7;} .callout.trap .tag{color:var(--danger);}
+.callout.def{border-left-color:var(--ees);background:var(--ees-bg);} .callout.def .tag{color:var(--ees);}
+.callout.real{border-left-color:var(--db);background:var(--db-bg);} .callout.real .tag{color:var(--db);}
+
+nav.toc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 22px;margin:28px 0;}
+nav.toc h2{margin:0 0 8px;font-size:1rem;border:0;padding:0;}
+nav.toc ol{margin:0;padding-left:1.2em;font-size:.94rem;}
+nav.toc ol ol{padding-left:1.1em;font-size:.9rem;color:var(--ink-soft);}
+nav.toc a{text-decoration:none;} nav.toc a:hover{text-decoration:underline;}
+
+figure{margin:26px 0;}
+figure .frame{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 18px;overflow-x:auto;}
+figcaption{font-size:.85rem;color:var(--ink-soft);margin-top:8px;padding-left:2px;}
+svg{display:block;max-width:100%;height:auto;}
+
+/* 엑셀 격자 */
+table.grid{border-collapse:collapse;font-family:"JetBrains Mono",Consolas,monospace;font-size:.75rem;background:#fff;min-width:max-content;}
+table.grid th,table.grid td{border:1px solid #d7d3cc;padding:3px 8px;text-align:left;white-space:nowrap;}
+table.grid th{background:#eeebe6;color:#6a6a6a;font-weight:600;text-align:center;}
+table.grid td.rownum{background:#eeebe6;color:#6a6a6a;text-align:center;font-weight:600;}
+table.grid td.hdr{background:#f6f2ea;font-weight:700;}
+table.grid td.anchor{background:#ffe9a8;outline:2px solid #d69e2e;outline-offset:-2px;}
+table.grid td.newrow{background:#dcf0e3;outline:2px solid #2f8f5b;outline-offset:-2px;}
+table.grid td.chg{background:#fbdcd6;outline:2px solid #c05621;outline-offset:-2px;font-weight:700;}
+table.grid td.empty{color:#c3bfb8;}
+
+table.data{border-collapse:collapse;width:100%;font-size:.89rem;margin:18px 0;background:var(--panel);}
+table.data th,table.data td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top;}
+table.data th{background:#f2efeb;font-weight:700;font-size:.84rem;}
+table.data td code{font-size:.82em;}
+table.data tr.hl td{background:#fffaf0;}
+.tablewrap{overflow-x:auto;}
+
+/* 테이블 카드 (기억 vs 결과) */
+.cards{display:flex;gap:12px;flex-wrap:wrap;}
+.card{flex:1 1 210px;border:1.5px solid var(--line-strong);border-radius:9px;background:var(--panel);padding:12px 14px;}
+.card.keep{border-color:var(--keep);background:var(--keep-bg);}
+.card.wipe{border-color:var(--wipe);background:var(--wipe-bg);}
+.card .nm{font-family:"JetBrains Mono",Consolas,monospace;font-weight:700;font-size:.88rem;display:block;}
+.card .ds{font-size:.79rem;color:var(--ink-soft);line-height:1.5;display:block;margin-top:3px;}
+.badge{display:inline-block;font-size:.68rem;font-weight:700;padding:1px 7px;border-radius:20px;margin-top:6px;letter-spacing:.02em;}
+.badge.keep{background:var(--keep);color:#fff;}
+.badge.wipe{background:var(--wipe);color:#fff;}
+
+/* 박스 흐름 */
+.flow{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch;}
+.node{border:1.5px solid var(--line-strong);background:var(--panel);border-radius:8px;padding:10px 13px;font-size:.85rem;min-width:140px;flex:1 1 150px;}
+.node .t{font-weight:700;display:block;margin-bottom:2px;font-size:.86rem;}
+.node .d{color:var(--ink-soft);font-size:.79rem;line-height:1.5;}
+.node.ees{border-color:var(--ees);background:var(--ees-bg);}
+.node.jig{border-color:var(--jig);background:var(--jig-bg);}
+.node.mes{border-color:var(--mes);background:var(--mes-bg);}
+.node.iqc{border-color:var(--iqc);background:var(--iqc-bg);}
+.node.agent{border-color:var(--agent);background:var(--agent-bg);}
+.node.pure{border-color:var(--pure);background:var(--pure-bg);}
+.node.db{border-color:var(--db);background:var(--db-bg);}
+.arrowdown{text-align:center;color:var(--line-strong);font-size:1.3rem;line-height:1;margin:6px 0;}
+
+/* 값 변환 체인 */
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-family:"JetBrains Mono",Consolas,monospace;font-size:.78rem;}
+.chain .step{border:1.5px solid var(--line-strong);border-radius:7px;padding:7px 10px;background:#fff;flex:0 1 auto;}
+.chain .step b{display:block;font-family:inherit;font-size:.68rem;color:var(--ink-soft);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;}
+.chain .arr{color:var(--line-strong);font-size:1.1rem;}
+.chain .step.x{border-color:var(--pure);background:var(--pure-bg);}
+.chain .step.d{border-color:var(--db);background:var(--db-bg);}
+
+/* 트리거 매트릭스 배지 */
+.trg{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:5px;white-space:nowrap;}
+.trg.yes{background:#e8f5ee;color:#1f6b41;border:1px solid #9ccdb2;}
+.trg.no{background:#f1efec;color:#8a8479;border:1px solid #ddd8d0;}
+.trg.llm{background:var(--agent-bg);color:#8c2f52;border:1px solid #edc6d6;}
+
+/* before/after */
+.ba{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0;}
+.ba>div{flex:1 1 280px;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:12px 14px;}
+.ba h5{margin:0 0 8px;font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);}
+.ba.b4>div:first-child{border-color:var(--line-strong);}
+.ba>div.after{border-color:var(--mes);background:#f4fbf7;}
+.ba table{border-collapse:collapse;width:100%;font-size:.8rem;font-family:"JetBrains Mono",Consolas,monospace;}
+.ba table td{padding:2px 4px;border:0;}
+.ba table td:first-child{color:var(--ink-soft);white-space:nowrap;padding-right:10px;}
+.ba .chgv{background:#dcf0e3;font-weight:700;padding:0 4px;border-radius:3px;}
+
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.82rem;margin:12px 0 0;color:var(--ink-soft);}
+.legend span{display:inline-flex;align-items:center;gap:6px;}
+.legend i{width:13px;height:13px;border-radius:3px;display:inline-block;border:1.5px solid;}
+
+/* 질문 메모 */
+.qmemo{border:2px dashed #c9c4bb;background:#f4f2ed;border-radius:10px;padding:14px 16px;margin:26px 0;}
+.qmemo-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:8px;}
+.qmemo-label{font-size:.74rem;font-weight:800;letter-spacing:.06em;color:#7a736a;background:#e6e2da;padding:2px 8px;border-radius:20px;}
+.qmemo-hint{font-size:.78rem;color:#8b857c;}
+.qmemo-question{min-height:2.6em;background:#fff;border:1px solid var(--line);border-radius:6px;padding:9px 12px;font-size:.92rem;outline:none;}
+.qmemo-question:focus{border-color:var(--ees);box-shadow:0 0 0 3px rgba(59,111,212,.12);}
+.qmemo-question:empty:before{content:attr(data-placeholder);color:#b3ada4;}
+.qmemo-answer{margin-top:10px;background:#fff;border-left:3px solid var(--pure);padding:10px 14px;border-radius:0 6px 6px 0;font-size:.92rem;}
+.qmemo[data-status="answered"]{border:2px solid var(--pure);background:var(--pure-bg);}
+.qmemo[data-status="answered"] .qmemo-label{background:var(--pure);color:#fff;}
+
+#qmemo-bar{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(47,58,51,.97);color:#fff;padding:11px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;box-shadow:0 -2px 12px rgba(0,0,0,.18);}
+#qmemo-save-btn{background:#f5c14e;color:#2f3a33;border:0;border-radius:6px;padding:9px 18px;font-size:.9rem;font-weight:700;cursor:pointer;font-family:inherit;}
+#qmemo-save-btn:hover{background:#ffd370;}
+#qmemo-saymsg{font-size:.78rem;color:#cdd5df;word-break:break-all;}
+
+.quiz{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:22px 0;}
+.quiz .q{font-weight:700;margin:0 0 12px;}
+.quiz .opts{display:flex;flex-direction:column;gap:8px;}
+.quiz button.opt{text-align:left;font-family:inherit;font-size:.92rem;line-height:1.5;background:#f7f5f2;border:1.5px solid var(--line);border-radius:8px;padding:10px 13px;cursor:pointer;color:var(--ink);transition:.12s;}
+.quiz button.opt:hover:not(:disabled){border-color:var(--ees);background:#eef3fc;}
+.quiz button.opt:disabled{cursor:default;}
+.quiz button.opt.right{border-color:#2f8f5b;background:#e8f5ee;}
+.quiz button.opt.wrong{border-color:#c05621;background:#fdefe7;}
+.quiz .fb{margin-top:12px;font-size:.9rem;padding:11px 14px;border-radius:8px;display:none;line-height:1.65;}
+.quiz .fb.show{display:block;}
+.quiz .fb.ok{background:#e8f5ee;border-left:3px solid #2f8f5b;}
+.quiz .fb.no{background:#fdefe7;border-left:3px solid #c05621;}
+
+hr.sep{border:0;border-top:1px solid var(--line);margin:40px 0;}
+
+@media (max-width:640px){
+  body{font-size:16px;} header.page h1{font-size:1.45rem;} h2{font-size:1.22rem;}
+  .wrap{padding:0 15px;} figure .frame{padding:14px 12px;}
+}
+</style>
+</head>
+<body>
+
+<header class="page">
+  <div class="wrap">
+    <h1>엑셀 한 줄이 DB 한 행이 되기까지</h1>
+    <p>언제 · 어떤 파일을 · 어떻게 읽어 저장하는가, 그리고 <strong>행 하나가 바뀌면 무슨 일이 벌어지는가</strong></p>
+    <div class="meta">
+      2026-08-11 · <code>feat/ingest-phase1</code> · 이 문서의 예시는 전부 실제 <code>backend/molds.db</code> 에서 뽑은 값이다
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<p>이 문서는 <a href="2026-08-11-explanation-mold-ingest-excel-agent.html">앞선 설명(전체 동작 원리와 Excel Agent)</a>의
+후속편이다. 앞 문서가 “구조를 어떻게 알아내는가”에 초점을 뒀다면, 이번에는 <strong>그렇게 알아낸 구조로 값을 꺼내
+데이터베이스에 어떻게 눕히는가</strong>, 그리고 <strong>엑셀에서 한 줄을 고쳤을 때 그 변화가 DB 어디까지 번지는가</strong>를 다룬다.
+앞 문서를 안 읽었어도 따라올 수 있게 필요한 배경은 다시 깔았다.</p>
+
+<div class="callout def">
+  <span class="tag">이 페이지 쓰는 법</span>
+  <p>읽다가 궁금한 게 생기면 <strong>“질문 메모”</strong> 상자에 적으면 된다. 적는 즉시 이 브라우저에 자동 저장되고,
+  맨 아래 <strong>질문 저장</strong> 버튼을 누르면 <em>같은 파일 이름</em>으로 질문이 박힌 사본이 다운로드된다.
+  그 파일로 원본을 덮어쓴 뒤 Claude 에게 “질문 답해줘”라고 하면 답이 그 자리에 채워진다.</p>
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#bg">배경 — 엑셀은 왜 그냥 DB 가 될 수 없나</a>
+      <ol>
+        <li><a href="#bg-basics">완전 기초 (아는 사람은 건너뛰어도 좋다)</a></li>
+        <li><a href="#bg-tables">molds.db 의 8개 테이블 = 두 가족</a></li>
+      </ol>
+    </li>
+    <li><a href="#intuition">직관 — 언제 · 무엇을 · 어떻게</a>
+      <ol>
+        <li><a href="#in-when">언제 도는가</a></li>
+        <li><a href="#in-what">어떤 파일을 어떤 순서로</a></li>
+        <li><a href="#in-how">값 하나가 DB 한 칸이 되는 여정</a></li>
+        <li><a href="#in-real">실제로 저장된 모습 (진짜 덤프)</a></li>
+      </ol>
+    </li>
+    <li><a href="#impl">구현 — 읽기 경로와 쓰기 경로</a>
+      <ol>
+        <li><a href="#im-read">한 파일의 일생: <code>_read_file</code></a></li>
+        <li><a href="#im-cache">레이아웃 캐시의 수명 (실제 5건 분석)</a></li>
+        <li><a href="#im-write">쓰기 경로: 하나의 트랜잭션</a></li>
+        <li><a href="#im-schema">테이블 8개 레퍼런스</a></li>
+        <li><a href="#im-query">읽기(조회) 경로: DB → 화면</a></li>
+      </ol>
+    </li>
+    <li><a href="#change">엑셀 행이 바뀌면 — 시나리오 5개</a>
+      <ol>
+        <li><a href="#s1">S1. 관리대장 맨 아래에 이벤트 추가</a></li>
+        <li><a href="#s2">S2. MES 셀 값 하나 수정</a></li>
+        <li><a href="#s3">S3. 표 구조가 바뀜 (앵커가 깨짐)</a></li>
+        <li><a href="#s4">S4. 파일 삭제</a></li>
+        <li><a href="#s5">S5. 조용히 반영되지 않는 경우</a></li>
+      </ol>
+    </li>
+    <li><a href="#quiz">이해도 점검 퀴즈 5문항</a></li>
+    <li><a href="#appendix">부록 — 직접 확인하는 명령어</a></li>
+  </ol>
+</nav>
+
+<hr class="sep">
+
+<h2 id="bg">1. 배경 — 엑셀은 왜 그냥 DB 가 될 수 없나</h2>
+
+<h3 id="bg-basics">1.1 완전 기초 (아는 사람은 건너뛰어도 좋다)</h3>
+
+<p>엑셀 파일도 표이고 데이터베이스 테이블도 표인데, 왜 옮겨 담는 수고를 할까? 세 가지가 다르다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:16%"></th><th style="width:42%">엑셀 시트</th><th>DB 테이블</th></tr>
+  <tr><td><strong>모양</strong></td><td>한 장에 표가 여러 개, 헤더 2단, 소계행 섞임, 표 밖에 라벨</td><td>한 테이블 = 한 표. 컬럼이 고정</td></tr>
+  <tr><td><strong>타입</strong></td><td>같은 열에 숫자·문자·날짜가 섞임. 정수도 <code>28312.0</code> 으로 옴</td><td>컬럼마다 타입이 정해짐</td></tr>
+  <tr><td><strong>질문</strong></td><td>“불량율 1% 넘는 금형만 보여줘”를 하려면 사람이 눈으로 훑어야 함</td><td><code>WHERE latest_defect_rate &gt; 0.01</code> 한 줄</td></tr>
+</table>
+</div>
+
+<p>대시보드는 필터·검색·정렬을 밀리초 안에 해야 한다. 그래서 엑셀을 <strong>미리 한 번</strong> 읽어
+질문하기 좋은 모양으로 눕혀두는 것이다. 이 “미리 한 번”이 <strong>배치(batch)</strong> 이고, 이 문서의 주제다.</p>
+
+<div class="callout def">
+  <span class="tag">알아둘 용어 넷</span>
+  <p><strong>SQLite</strong> — 서버가 없는 파일 하나짜리 데이터베이스. 이 프로젝트의 <code>molds.db</code> 가 그 파일이다.<br>
+  <strong>트랜잭션</strong> — “전부 되거나 전부 안 되거나”를 보장하는 묶음. 중간에 실패하면 시작 전으로 되돌아간다(롤백).<br>
+  <strong>해시(sha256)</strong> — 파일 내용을 64자리 지문으로 요약한 값. 내용이 1바이트만 달라도 지문이 완전히 바뀐다.<br>
+  <strong>스냅샷</strong> — 어느 시점의 전체 상태를 통째로 뜬 사진. 이 시스템의 DB 는 “변경 내역”이 아니라 스냅샷이다.</p>
+</div>
+
+<h3 id="bg-tables">1.2 molds.db 의 8개 테이블 = 두 가족</h3>
+
+<p>이 문서를 관통하는 가장 중요한 구분이다. <code>molds.db</code> 안의 테이블은 <strong>성격이 정반대인 두 무리</strong>로 나뉜다.</p>
+
+<figure>
+  <div class="frame">
+    <div style="font-size:.82rem;font-weight:700;color:var(--keep);margin-bottom:8px">기억 테이블 — 배치를 넘어 살아남는다. 지우지 않는다.</div>
+    <div class="cards">
+      <div class="card keep"><span class="nm">ingested_file</span>
+        <span class="ds">경로 → 마지막으로 본 내용 해시. <strong>“이 파일을 이미 읽었나”</strong>를 판정</span>
+        <span class="badge keep">배치마다 갱신(UPSERT)</span></div>
+      <div class="card keep"><span class="nm">sheet_mapping</span>
+        <span class="ds">에이전트가 알아낸 레이아웃(JSON). <strong>“LLM 을 다시 부를까”</strong>를 판정</span>
+        <span class="badge keep">쌓기만 함 (INSERT only)</span></div>
+      <div class="card keep"><span class="nm">ingest_run</span>
+        <span class="ds">배치 한 번의 결과 요약과 손실 계량. 화면의 수집 패널이 이걸 읽는다</span>
+        <span class="badge keep">쌓기만 함 (INSERT only)</span></div>
+    </div>
+
+    <div style="font-size:.82rem;font-weight:700;color:var(--wipe);margin:22px 0 8px">결과 테이블 — 배치마다 전멸하고 다시 태어난다.</div>
+    <div class="cards">
+      <div class="card wipe"><span class="nm">mold</span>
+        <span class="ds">금형 하나 = 한 행. 대시보드 목록의 재료</span>
+        <span class="badge wipe">DELETE → INSERT</span></div>
+      <div class="card wipe"><span class="nm">production_run</span>
+        <span class="ds">설비 사용구간 하나 = 한 행. 날짜별 원값은 JSON 으로</span>
+        <span class="badge wipe">DELETE → INSERT</span></div>
+      <div class="card wipe"><span class="nm">mold_stage</span>
+        <span class="ds">IQC 등 단계별 항목 묶음(JSON). 행이 없는 것이 곧 “미수집”</span>
+        <span class="badge wipe">DELETE → INSERT</span></div>
+      <div class="card wipe"><span class="nm">mold_design</span>
+        <span class="ds">설계 치수. 1단계에서는 항상 비어 있다</span>
+        <span class="badge wipe">DELETE → INSERT</span></div>
+    </div>
+    <div class="legend">
+      <span><i style="border-color:var(--keep);background:var(--keep-bg)"></i> 기억 — 지우면 판정 근거를 잃는다</span>
+      <span><i style="border-color:var(--wipe);background:var(--wipe-bg)"></i> 결과 — 언제든 엑셀에서 다시 만들 수 있다</span>
+    </div>
+  </div>
+  <figcaption>이 두 색은 문서 끝까지 같은 뜻으로 쓴다. “결과 테이블은 파생물이므로 지워도 안전하고,
+  기억 테이블은 지우면 배치가 처음부터 다시 도는 원인이 된다”가 핵심이다.</figcaption>
+</figure>
+
+<div class="callout key">
+  <span class="tag">이 문서에서 하나만 기억한다면</span>
+  <p><strong>결과 테이블에는 “수정”이 없다. 배치마다 전부 지우고 새로 넣는다.</strong><br>
+  엑셀이 원본(source of truth)이고 DB 는 그 사진일 뿐이라, 사진을 고치는 게 아니라 다시 찍는다.</p>
+</div>
+
+<p>왜 <code>UPDATE</code>/<code>UPSERT</code> 가 아니라 전멸-재생성일까? 관리대장이 마스터이고 매번 전체를 다시 읽으므로,
+<strong>관리대장에서 사라진 금형은 대시보드에서도 사라져야 하기 때문</strong>이다. upsert 만 하면 한 번 들어온 금형이
+영원히 남는다 — 유령 금형이다.</p>
+
+<div class="qmemo" data-qid="bg-two-families" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“기억/결과” 구분에서 헷갈리는 점이 있으면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="intuition">2. 직관 — 언제 · 무엇을 · 어떻게</h2>
+
+<h3 id="in-when">2.1 언제 도는가</h3>
+
+<p>자동으로 돌지 않는다. <code>INGEST_POLL_SECONDS</code> 기본값이 <code>0</code> 이라 <strong>사람이 대시보드에서
+“수집 실행”을 누를 때만</strong> 돈다. 눌렀다고 항상 읽는 것도 아니다 — 세 개의 문지기를 차례로 통과해야 한다.</p>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 720 300" role="img" aria-label="수집 실행 클릭 후 세 문지기를 통과해야 배치가 도는 흐름">
+      <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#8a8479"/></marker></defs>
+      <rect x="255" y="10" width="200" height="38" rx="8" fill="#edf0f4" stroke="#4a5568" stroke-width="1.6"/>
+      <text x="355" y="34" text-anchor="middle" font-size="13" font-weight="700" fill="#37404f">“수집 실행” 클릭</text>
+      <path d="M355,50 L355,68" stroke="#8a8479" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <polygon points="355,70 500,100 355,130 210,100" fill="#fdf6e7" stroke="#b7791f" stroke-width="1.5"/>
+      <text x="355" y="97" text-anchor="middle" font-size="12" fill="#4a5568">문지기 ① 못 읽은 파일이 있나?</text>
+      <text x="355" y="115" text-anchor="middle" font-size="10.5" fill="#8a8479">사람이 엑셀을 열어둔 경우</text>
+      <path d="M500,100 L590,100" stroke="#b7791f" stroke-width="1.5" marker-end="url(#ar)"/>
+      <text x="596" y="96" font-size="11" font-weight="700" fill="#b7791f">skipped</text>
+      <text x="596" y="111" font-size="10" fill="#8a8479">DB 안 건드림</text>
+      <path d="M355,132 L355,150" stroke="#8a8479" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <polygon points="355,152 500,182 355,212 210,182" fill="#fdf6e7" stroke="#b7791f" stroke-width="1.5"/>
+      <text x="355" y="179" text-anchor="middle" font-size="12" fill="#4a5568">문지기 ② 해시가 바뀌었나?</text>
+      <text x="355" y="197" text-anchor="middle" font-size="10.5" fill="#8a8479">또는 사라진 파일이 있나</text>
+      <path d="M500,182 L590,182" stroke="#b7791f" stroke-width="1.5" marker-end="url(#ar)"/>
+      <text x="596" y="178" font-size="11" font-weight="700" fill="#b7791f">skipped</text>
+      <text x="596" y="193" font-size="10" fill="#8a8479">“변경된 파일이 없어…”</text>
+      <path d="M355,214 L355,232" stroke="#8a8479" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <polygon points="355,234 500,264 355,294 210,264" fill="#fdefe7" stroke="#c05621" stroke-width="1.5"/>
+      <text x="355" y="261" text-anchor="middle" font-size="12" fill="#4a5568">문지기 ③ 기준정보·관리대장이 있나?</text>
+      <text x="355" y="279" text-anchor="middle" font-size="10.5" fill="#8a8479">둘 다 필수</text>
+      <path d="M500,264 L590,264" stroke="#c05621" stroke-width="1.5" marker-end="url(#ar)"/>
+      <text x="596" y="260" font-size="11" font-weight="700" fill="#c05621">error</text>
+      <text x="596" y="275" font-size="10" fill="#8a8479">“…파일이 없다”</text>
+
+      <path d="M205,264 L120,264 L120,120" fill="none" stroke="#2f8f5b" stroke-width="1.8" marker-end="url(#ar)"/>
+      <text x="112" y="110" text-anchor="end" font-size="12" font-weight="700" fill="#1f6b41">배치 실행</text>
+      <text x="112" y="126" text-anchor="end" font-size="10.5" fill="#26794b">모든 파일을 다시 읽는다</text>
+    </svg>
+  </div>
+  <figcaption>순서가 중요하다. 예를 들어 기준정보 파일을 <em>엑셀로 열어둔 채</em> 실행하면
+  “파일이 없다”(error)가 아니라 “읽지 못한 파일이 있다”(skipped)로 끝난다.</figcaption>
+</figure>
+
+<p>문지기 ②를 조금 더 보자. 이것이 “변경된 파일이 없어 건너뛰었습니다”의 정체다.</p>
+
+<figure>
+  <div class="frame">
+<pre>known   = registry.known_hashes(conn)            <span class="c"># ingested_file 테이블 → {경로: 해시}</span>
+changed = [f <span class="k">for</span> f <span class="k">in</span> found <span class="k">if</span> known.get(f.path) != f.content_hash]
+removed = set(known) - found_paths               <span class="c"># 디스크에서 사라진 파일</span>
+<span class="k">if</span> <span class="k">not</span> changed <span class="k">and</span> <span class="k">not</span> removed:
+    <span class="k">return</span> RunSummary(status=<span class="s">"skipped"</span>, ...)</pre>
+  </div>
+  <figcaption><code>pipeline.py:142</code>. 파일 시각(mtime)이 아니라 <strong>내용 해시</strong>를 비교한다 —
+  복사·이동만 해도 mtime 은 바뀌는데, 파일당 Excel 프로세스가 뜨므로 거짓 변경 한 번이 수십 초다.</figcaption>
+</figure>
+
+<h3 id="in-what">2.2 어떤 파일을 어떤 순서로</h3>
+
+<p>파일 이름은 아무 상관이 없다. <strong>어느 폴더에 있느냐</strong>가 종류를 정한다.
+그리고 그 종류를 읽는 <strong>순서가 곧 의존성</strong>이다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="flow">
+      <div class="node jig"><span class="t">① jig_master</span><span class="d"><code>JIG기준정보/</code><br>먼저 읽어야 설비명→설비코드 다리가 생긴다</span></div>
+      <div class="node ees"><span class="t">② ees</span><span class="d"><code>EES/</code><br>시트 이름이 금형을 확정한다. <strong>마스터</strong></span></div>
+      <div class="node mes"><span class="t">③ mes</span><span class="d"><code>MES/</code><br>하루 한 파일. 금형번호를 모른다</span></div>
+      <div class="node iqc"><span class="t">④ iqc</span><span class="d"><code>IQC/</code><br>이미 존재하는 금형에 항목만 덧붙인다</span></div>
+    </div>
+    <div class="arrowdown">▼</div>
+    <div class="flow">
+      <div class="node" style="flex:1 1 100%"><span class="t">실패했을 때의 취급이 다르다</span>
+        <span class="d">
+          <strong>①②</strong> 가 실패하면 <span class="trg no">배치 전체 중단</span> — 금형 목록 자체를 만들 수 없다.<br>
+          <strong>③④</strong> 는 <span class="trg yes">그 파일만 건너뜀</span> — 하루치가 깨졌다고 금형 목록까지 버리면,
+          관리대장은 멀쩡히 읽혔는데 화면이 통째로 옛 상태로 남는다. 사유는 <code>failed_files</code> 로 화면에 뜬다.
+        </span></div>
+    </div>
+  </div>
+  <figcaption><code>pipeline.py</code> 의 <code>_PROCESSED_KINDS = ("jig_master", "ees", "mes", "iqc")</code> —
+  이 튜플의 순서가 그대로 처리 순서다. <code>PQC</code>·<code>설계</code> 폴더는 매핑에는 있지만 아직 이 목록에 없어 읽지 않는다.</figcaption>
+</figure>
+
+<h3 id="in-how">2.3 값 하나가 DB 한 칸이 되는 여정</h3>
+
+<p>추상적으로 설명하는 대신 <strong>실제 셀 하나를 끝까지 따라가 보자.</strong>
+관리대장 워크북, 시트 이름 <code>#RX39513</code>, 셀 <code>B5</code> 에 들어 있는 날짜 하나다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="chain">
+      <div class="step"><b>① 엑셀 셀</b>B5 = datetime(2026,7,1,7,0)</div>
+      <span class="arr">→</span>
+      <div class="step"><b>② 격자</b>grid[3][0]</div>
+      <span class="arr">→</span>
+      <div class="step x"><b>③ Row.values</b>{"event_at": "2026-07-01T07:00:00"}</div>
+    </div>
+    <div style="height:10px"></div>
+    <div class="chain">
+      <div class="step x"><b>④ UsageRun</b>started_at = "2026-07-01T07:00:00"</div>
+      <span class="arr">→</span>
+      <div class="step x"><b>⑤ MoldRecord.runs[0]</b>같은 값</div>
+      <span class="arr">→</span>
+      <div class="step d"><b>⑥ DB 컬럼</b>production_run.started_at</div>
+    </div>
+    <div style="height:14px"></div>
+    <div class="legend">
+      <span><i style="border-color:var(--line-strong);background:#fff"></i> 엑셀/격자</span>
+      <span><i style="border-color:var(--pure);background:var(--pure-bg)"></i> 순수 파이썬 객체</span>
+      <span><i style="border-color:var(--db);background:var(--db-bg)"></i> SQLite 컬럼</span>
+    </div>
+  </div>
+  <figcaption>단계마다 누가 무엇을 하는지: ②는 <code>workbook.used_values</code>, ③은 <code>parser.parse_rows</code> +
+  <code>normalize.cell_to_text</code>, ④는 <code>join.extract_runs</code>, ⑤는 <code>assemble</code>, ⑥은 <code>store.replace_all</code>.</figcaption>
+</figure>
+
+<p>같은 여정을 “숫자”로 한 번 더 보면 정규화가 왜 필요한지 드러난다. MES 시트의 설비코드 칸이다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="chain">
+      <div class="step"><b>엑셀 셀</b>E6 = 21004780.0 <span style="color:#c05621">(float!)</span></div>
+      <span class="arr">→</span>
+      <div class="step x"><b>cell_to_text</b>"21004780"</div>
+      <span class="arr">→</span>
+      <div class="step x"><b>조인 키</b>(date(2026,7,1), "21004780")</div>
+      <span class="arr">→</span>
+      <div class="step d"><b>결과</b>투입 9480 · 불량 120</div>
+    </div>
+  </div>
+  <figcaption>xlwings 는 정수 셀도 <code>float</code> 로 준다. 그냥 <code>str()</code> 하면 <code>"21004780.0"</code> 이 되어
+  기준정보 쪽 문자열과 <strong>영원히 안 맞는다.</strong> 그래서 정규화는 <code>normalize.py</code> 한 곳에만 둔다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="in-value-chain" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">값 변환 체인에서 “이 단계는 왜 필요하지?” 싶은 곳을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="in-real">2.4 실제로 저장된 모습 (진짜 덤프)</h3>
+
+<p>여기부터는 지어낸 예가 아니다. 지금 이 저장소의 <code>backend/molds.db</code> 에서 그대로 뽑은 값이다.</p>
+
+<h4>mold — 금형 하나가 한 행</h4>
+
+<figure>
+  <div class="frame">
+<pre class="plain">mold_no            <span style="color:#2f8f5b">RX39513</span>
+status             <span style="color:#2f8f5b">standby</span>        <span style="color:#8a8479"># 마지막 이벤트의 '위치'에서 유도</span>
+line               <span style="color:#8a8479">NULL</span>           <span style="color:#8a8479"># 가동 중이 아니면 비운다 (거짓 정보 방지)</span>
+machine            <span style="color:#8a8479">NULL</span>
+shot_count         <span style="color:#8a8479">NULL</span>           <span style="color:#8a8479"># 어느 문서에도 없다. 0 은 '신품'이라는 거짓말</span>
+total_installs     <span style="color:#2f8f5b">4</span>              <span style="color:#8a8479"># 사용구간의 개수</span>
+total_production   <span style="color:#2f8f5b">60173</span>          <span style="color:#8a8479"># 구간별 투입수량의 합</span>
+latest_defect_rate <span style="color:#2f8f5b">0.007333214…</span>   <span style="color:#8a8479"># 비율(0.73%). 가장 최근 '완료된' 구간의 값</span>
+source_file        …\data\uploads\EES\JIG_관리대장.xlsx
+updated_at         2026-07-29T15:30:55.806720+00:00</pre>
+  </div>
+  <figcaption><code>line</code>/<code>machine</code> 이 <code>NULL</code> 인 것은 데이터가 없어서가 아니다 —
+  이 금형이 지금 설비에 없기 때문이다. 남겨두면 화면이 “지금 저기 걸려 있다”는 거짓말을 한다.</figcaption>
+</figure>
+
+<h4>production_run — 사용구간 하나가 한 행</h4>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th>seq</th><th>started_at</th><th>ended_at</th><th>machine</th><th>defect_rate</th><th>defects_json (날짜별 원값)</th></tr>
+  <tr class="hl"><td>1</td><td>07-01 07:00</td><td>07-05 07:00</td><td>…Stack(1차)_01</td><td>0.012534</td>
+      <td><code>[{07-01, 9480, 120}, {07-02, 10627, 157}, {07-04, 9332, 92}]</code></td></tr>
+  <tr><td>2</td><td>07-06 09:00</td><td>07-06 21:00</td><td>…Stack(1차)_01</td><td>0.003359</td><td><code>[{07-06, 8037, 27}]</code></td></tr>
+  <tr><td>3</td><td>07-09 08:00</td><td>07-10 08:00</td><td>…Stack(1차)_<strong>02</strong></td><td>0.012592</td><td><code>[{07-09, 11515, 145}]</code></td></tr>
+  <tr><td>4</td><td>07-15 06:00</td><td>07-15 18:00</td><td>…Stack(1차)_01</td><td>0.007333</td><td><code>[{07-15, 11182, 82}]</code></td></tr>
+</table>
+</div>
+
+<p>이 표에서 세 가지를 읽을 수 있다.</p>
+
+<ul>
+  <li><strong>3번 구간만 설비가 다르다</strong>(<code>_02</code>). 금형이 옮겨 다녔다는 뜻이고,
+  그래서 구간마다 “그때 그 설비”의 실적이 붙는다. 기준정보의 <em>현재</em> 설비 하나로 뭉뚱그리면 과거 구간이 틀린다.</li>
+  <li><strong><code>mold.latest_defect_rate</code>(0.007333) = 4번 구간의 값</strong>이다. 전체 평균이 아니다.</li>
+  <li><strong>1번 구간은 4일(07-01~07-04)을 덮는데 <code>defects_json</code> 에는 3일치뿐이다.</strong>
+  <code>MES/</code> 폴더에 <code>2026-07-03</code> 파일이 없기 때문이다. 이 사실은 <code>missing_mes_days</code> 로 화면에 보고된다.</li>
+</ul>
+
+<div class="callout real">
+  <span class="tag">왜 날짜별 원값을 JSON 으로 남기나</span>
+  <p>불량율 <code>0.012534</code> 하나만 저장하면 “이 수치 어디서 나왔냐”에 답할 수 없다.
+  <code>(120+157+92) ÷ (9480+10627+9332) = 369 ÷ 29439 = 0.012534</code> — 원값이 남아 있어야 이 검산이 가능하다.
+  그리고 화면은 이 배열의 길이로 <strong>“4일 중 3일치 반영됨”</strong>을 표시한다.</p>
+</div>
+
+<h4>mold_stage — 유연 항목은 JSON 한 덩어리로</h4>
+
+<figure>
+  <div class="frame">
+<pre class="plain">mold_no  RX28312   stage  iqc   status  ok   항목 26개
+
+items_json = [
+  {"label": <span style="color:#2f8f5b">"punch"</span>,     "value": <span style="color:#2f8f5b">"12.48"</span>, "judgment": null, "source": {...}},   <span style="color:#8a8479"># 고정 어휘 4개가 앞에</span>
+  {"label": <span style="color:#2f8f5b">"die"</span>,       "value": <span style="color:#2f8f5b">"12.11"</span>, ...},
+  {"label": <span style="color:#2f8f5b">"diff"</span>,      "value": <span style="color:#2f8f5b">"0.37"</span>,  ...},
+  {"label": <span style="color:#2f8f5b">"gap"</span>,       "value": <span style="color:#2f8f5b">"0.05"</span>,  ...},
+  {"label": <span style="color:#2f8f5b">"No"</span>,        "value": <span style="color:#2f8f5b">"1"</span>,     ...},          <span style="color:#8a8479"># ↓ 여기부터는 엑셀 헤더 텍스트 그대로</span>
+  {"label": <span style="color:#2f8f5b">"입고 시간"</span>,  "value": <span style="color:#2f8f5b">"2026-07-01T00:00:00"</span>, ...},
+  {"label": <span style="color:#2f8f5b">"양극 절단"</span>,  "value": <span style="color:#2f8f5b">"체크"</span>, ...},
+  … 총 26개
+]</pre>
+  </div>
+  <figcaption>측정자·조립자·연마자 같은 열은 미리 컬럼으로 잡을 수 없다. 그래서 <strong>헤더 텍스트가 그대로 화면 라벨</strong>이
+  되도록 JSON 배열로 담는다 — 고정 스키마(<code>mold</code>)와 유연 스키마(<code>mold_stage</code>)를 섞은 이유다.</figcaption>
+</figure>
+
+<h4>ingested_file — “이미 읽었다”의 근거</h4>
+
+<figure>
+  <div class="frame">
+<pre class="plain">kind        path (파일명만)              content_hash        seen_at
+─────────── ─────────────────────────── ─────────────────── ───────────────────
+ees         JIG_관리대장.xlsx            44b2f63236968769…   2026-07-29T15:30:55
+iqc         2026_금형측정대장.xlsx        146e79ab1914b9e2…   2026-07-29T15:30:55
+jig_master  JIG_기준정보.xlsx            de69da81ae81e041…   2026-07-29T15:30:55
+mes         2026-07-01_불량현황.xlsx      6cdd5b3b451247ad…   2026-07-29T15:30:55
+…                                                            (총 27행)</pre>
+  </div>
+  <figcaption>이 27행이 있기 때문에 두 번째 클릭은 “변경된 파일이 없어 건너뛰었습니다”가 된다.
+  강제로 다시 읽히려면 이 테이블을 비우면 된다(<a href="#appendix">부록</a>).</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="in-real-dump" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">실제 덤프에서 “이 값은 왜 이렇지?” 싶은 게 있으면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="impl">3. 구현 — 읽기 경로와 쓰기 경로</h2>
+
+<h3 id="im-read">3.1 한 파일의 일생: <code>_read_file</code></h3>
+
+<p>파일 하나가 행 목록이 되기까지다. <strong>Excel 기동은 여기서 파일당 딱 한 번</strong>이고, 그 안에서 모든 시트를 순회한다.</p>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 730 330" role="img" aria-label="_read_file 의 시트별 처리 흐름: 앵커 대조 후 캐시 히트면 파싱, 미스면 에이전트 발견">
+      <defs><marker id="ar2" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#8a8479"/></marker></defs>
+
+      <rect x="250" y="10" width="230" height="40" rx="8" fill="#edf0f4" stroke="#4a5568" stroke-width="1.6"/>
+      <text x="365" y="27" text-anchor="middle" font-size="12.5" font-weight="700" fill="#37404f">open_workbook(경로)</text>
+      <text x="365" y="43" text-anchor="middle" font-size="10.5" fill="#4a5568">EXCEL.EXE 기동 · 전용 스레드에 고정</text>
+      <path d="M365,52 L365,70" stroke="#8a8479" stroke-width="1.5" marker-end="url(#ar2)"/>
+
+      <rect x="200" y="72" width="330" height="34" rx="8" fill="#fff" stroke="#c9c4bb" stroke-width="1.5"/>
+      <text x="365" y="94" text-anchor="middle" font-size="12" fill="#23262b">시트마다: grid, top_left = wb.used_values(시트명)</text>
+      <path d="M365,108 L365,126" stroke="#8a8479" stroke-width="1.5" marker-end="url(#ar2)"/>
+
+      <polygon points="365,128 520,160 365,192 210,160" fill="#fdf6e7" stroke="#b7791f" stroke-width="1.5"/>
+      <text x="365" y="156" text-anchor="middle" font-size="12" fill="#4a5568">캐시된 레이아웃의 앵커가</text>
+      <text x="365" y="173" text-anchor="middle" font-size="12" fill="#4a5568">전부 일치하는가?</text>
+
+      <path d="M210,160 L120,160" stroke="#2f8f5b" stroke-width="1.6" marker-end="url(#ar2)"/>
+      <text x="165" y="152" text-anchor="middle" font-size="11" font-weight="700" fill="#1f6b41">예</text>
+      <rect x="10" y="140" width="105" height="40" rx="7" fill="#e5f4f4" stroke="#1f7a7a" stroke-width="1.5"/>
+      <text x="62" y="158" text-anchor="middle" font-size="11.5" font-weight="700" fill="#155f5f">캐시 재사용</text>
+      <text x="62" y="173" text-anchor="middle" font-size="10.5" fill="#155f5f">LLM 0회</text>
+
+      <path d="M520,160 L610,160" stroke="#b4436c" stroke-width="1.6" marker-end="url(#ar2)"/>
+      <text x="565" y="152" text-anchor="middle" font-size="11" font-weight="700" fill="#8c2f52">아니오</text>
+      <rect x="612" y="136" width="112" height="48" rx="7" fill="#fceef3" stroke="#b4436c" stroke-width="1.5"/>
+      <text x="668" y="154" text-anchor="middle" font-size="11.5" font-weight="700" fill="#8c2f52">발견 에이전트</text>
+      <text x="668" y="169" text-anchor="middle" font-size="10.5" fill="#8c2f52">도구 왕복 → submit_layout</text>
+
+      <path d="M62,182 L62,215 L300,215" fill="none" stroke="#8a8479" stroke-width="1.5"/>
+      <path d="M668,186 L668,215 L430,215" fill="none" stroke="#8a8479" stroke-width="1.5"/>
+      <path d="M365,215 L365,232" stroke="#8a8479" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <rect x="240" y="234" width="250" height="34" rx="8" fill="#e5f4f4" stroke="#1f7a7a" stroke-width="1.6"/>
+      <text x="365" y="256" text-anchor="middle" font-size="12.5" font-weight="700" fill="#155f5f">parse_rows → list[Row]</text>
+
+      <path d="M490,251 L560,251 L560,290" fill="none" stroke="#c05621" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <text x="566" y="284" font-size="10.5" fill="#c05621">실패 &amp; 캐시였다면</text>
+      <text x="566" y="298" font-size="10.5" fill="#c05621">1회만 재발견 후 재시도</text>
+
+      <path d="M240,251 L170,251 L170,290" fill="none" stroke="#2f8f5b" stroke-width="1.5" marker-end="url(#ar2)"/>
+      <text x="164" y="284" text-anchor="end" font-size="10.5" fill="#1f6b41">성공했고 새 레이아웃이면</text>
+      <text x="164" y="298" text-anchor="end" font-size="10.5" fill="#1f6b41">sheet_mapping 에 저장</text>
+    </svg>
+  </div>
+  <figcaption>저장을 파싱보다 <strong>뒤</strong>에 두는 게 중요하다. 앞에 두면 파싱을 못 하는 레이아웃이 캐시에 박히는데,
+  <code>save_layout</code> 은 즉시 커밋하므로 배치 롤백으로도 못 지운다 — 그 파일은 영구히 실패한다.</figcaption>
+</figure>
+
+<h3 id="im-cache">3.2 레이아웃 캐시의 수명 (실제 5건 분석)</h3>
+
+<p>지금 <code>sheet_mapping</code> 에는 5건이 들어 있다. 실물을 보면 이 캐시가 어떻게 늙는지가 한눈에 보인다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:5%">id</th><th style="width:11%">kind</th><th style="width:14%">sheet_name</th><th style="width:34%">저장된 앵커</th><th>표</th></tr>
+  <tr><td>1</td><td><code>jig_master</code></td><td>기준정보</td><td><code>B2="Shop명"</code> <code>G2="JIG ID"</code> <code>K2="설비명"</code></td><td>detail 1개, 10열</td></tr>
+  <tr class="hl"><td>2</td><td><code>ees</code></td><td>관리대장</td><td><code>B2="JIG ID"</code> <code>C2="이벤트시간"</code> <code>H2="설비명"</code></td><td>detail 1개, 24열</td></tr>
+  <tr class="hl"><td>3</td><td><code>mes</code></td><td>생산이벤트</td><td><code>D4="공정"</code> <code>I4="금형번호"</code> <code>F4="라인"</code></td><td>detail 1개, 13열</td></tr>
+  <tr><td>4</td><td><code>mes</code></td><td>불량현황</td><td><code>D4="라인"</code> <code>E4="설비코드"</code> <code>G4="투입수량"</code></td><td>detail 1개, 20열, 헤더 2단 <code>[4,5]</code></td></tr>
+  <tr><td>5</td><td><code>iqc</code></td><td>Sheet1</td><td><code>B33="No"</code> <code>C33="입고 시간"</code> <code>D33="금형 번호"</code></td><td><strong>표 4개</strong>, 마지막 표만 20열</td></tr>
+</table>
+</div>
+
+<p>id 2·3 이 흥미롭다. <strong>둘은 이미 죽은 캐시다.</strong></p>
+
+<ul>
+  <li><strong>id=3</strong> 은 MES 가 “생산이벤트” 양식이던 시절의 것이다. 지금 MES 파일의 시트 이름은 <code>불량현황</code> 이고
+  <code>D4</code> 에는 “라인”이 있지 “공정”이 없다 → 앵커 불일치 → 절대 안 뽑힌다.</li>
+  <li><strong>id=2</strong> 는 관리대장에 <code>JIG ID</code> 열이 있던 시절의 것이다. 지금 샘플 생성기(<code>make_sample_uploads.py</code>)가
+  만드는 관리대장은 <code>B2 = "이벤트시간"</code> 으로 시작하고 JIG ID 열이 아예 없다(시트 이름이 그 역할을 한다)
+  → <code>B2="JIG ID"</code> 앵커가 어긋난다.</li>
+</ul>
+
+<div class="callout warn">
+  <span class="tag">그래서 다음 배치는 이렇게 된다</span>
+  <p><code>jig_master</code>·<code>mes</code>·<code>iqc</code> 는 앵커가 맞아 <strong>캐시 히트</strong>(LLM 0회)지만,
+  <code>ees</code> 는 <strong>캐시 미스</strong>다. 관리대장 워크북의 시트 7개 중 <strong>첫 시트에서 에이전트가 한 번 돌고</strong>,
+  그 결과가 <code>sheet_mapping</code> 에 id=6 으로 저장되면 <strong>나머지 6개 시트는 그 새 레이아웃으로 통과</strong>한다
+  (<code>load_layouts</code> 가 <code>ORDER BY id DESC</code> 로 최신을 먼저 주기 때문이다).</p>
+  <p>즉 다음 수집은 “LLM 1회 + 나머지는 캐시”로 끝난다. 옛 id=2 는 지워지지 않고 그냥 영원히 안 맞을 뿐이다.</p>
+</div>
+
+<p>옛 행을 지우지 않는 이유는 감사(audit)다 — <strong>“언제 양식이 바뀌었고 그때 어떻게 해석했는가”</strong>가
+추출값을 의심할 때 유일한 근거다. 대신 최신순 조회로 낡은 규칙이 먼저 걸리는 일을 막는다.</p>
+
+<div class="qmemo" data-qid="im-cache-life" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">레이아웃 캐시의 수명·재사용 규칙에 대해 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="im-write">3.3 쓰기 경로: 하나의 트랜잭션</h3>
+
+<p>모든 파일을 읽고 조립이 끝나면, 저장은 <strong>단 한 번의 트랜잭션</strong>으로 일어난다.</p>
+
+<figure>
+  <div class="frame">
+<pre>BEGIN                                          <span class="c"># store.replace_all</span>
+  <span class="del">DELETE FROM mold</span>                              <span class="c"># ← 결과 테이블 4개를 통째로 비운다</span>
+  <span class="del">DELETE FROM mold_design</span>
+  <span class="del">DELETE FROM mold_stage</span>
+  <span class="del">DELETE FROM production_run</span>
+
+  <span class="add">INSERT INTO mold</span> (mold_no, status, line, machine, shot_count,
+                     total_installs, total_production, latest_defect_rate, …)
+  <span class="add">INSERT INTO production_run</span> (mold_no, install_seq, line, machine,
+                     started_at, ended_at, defect_rate, defects_json, …)
+  <span class="add">INSERT INTO mold_stage</span> (mold_no, 'iqc', 'ok', items_json, …)
+                                               <span class="c">#   IQC 항목이 있는 금형만</span>
+
+  <span class="add">UPSERT INTO ingested_file</span> (path, kind, content_hash, seen_at)   <span class="c"># registry.record_files</span>
+  <span class="del">DELETE FROM ingested_file WHERE path = ?</span>                       <span class="c"># 사라진 파일들</span>
+COMMIT                                         <span class="c"># ← 여기서 딱 한 번</span>
+
+<span class="c"># 그리고 별도로 (트랜잭션 밖)</span>
+<span class="add">INSERT INTO ingest_run</span> (status, mold_count, orphan_json, …)      <span class="c"># registry.record_run</span></pre>
+  </div>
+  <figcaption>세 가지를 한 트랜잭션에 묶은 이유: 따로 커밋하면 <code>replace_all</code> 이 커밋된 뒤
+  <code>record_files</code> 가 실패했을 때 <code>mold</code> 는 새 상태, <code>ingested_file</code> 은 옛 상태로 갈라져
+  다음 회차에 전부 재처리된다.</figcaption>
+</figure>
+
+<div class="callout key">
+  <span class="tag">실패하면</span>
+  <p>어느 단계에서든 예외가 나면 <code>rollback()</code> 으로 <strong>배치 시작 전 상태가 그대로 유지</strong>된다.
+  반쯤 교체된 DB — 옛 금형과 새 부속정보가 섞인 상태 — 는 어느 쪽도 믿을 수 없어 가장 나쁘기 때문이다.
+  그리고 실패했다는 사실 자체는 <code>ingest_run</code> 에 <code>status="error"</code> 로 남는다.</p>
+</div>
+
+<p><code>install_seq</code> 는 저장 시점에 매겨진다. <code>enumerate(r.runs, start=1)</code> 이고, <code>runs</code> 는
+이미 <code>started_at</code> 순으로 정렬돼 있으므로 <strong>1번이 가장 오래된 구간</strong>이다.
+그래서 배치를 다시 돌려도 같은 구간에는 같은 번호가 붙는다 — 앞에 구간이 하나 <em>끼어들지 않는 한</em>.</p>
+
+<h3 id="im-schema">3.4 테이블 8개 레퍼런스</h3>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:15%">테이블</th><th style="width:8%">가족</th><th style="width:28%">키 / 주요 컬럼</th><th>누가 쓰고 언제 지워지나</th></tr>
+  <tr><td><code>ingested_file</code></td><td><span class="badge keep">기억</span></td>
+      <td><code>path</code> PK · <code>kind</code> · <code>content_hash</code> · <code>seen_at</code></td>
+      <td><code>registry.record_files</code> 가 UPSERT. 디스크에서 사라진 파일의 행만 삭제</td></tr>
+  <tr><td><code>sheet_mapping</code></td><td><span class="badge keep">기억</span></td>
+      <td><code>id</code> PK · <code>kind</code> · <code>sheet_name</code> · <code>layout_json</code> · <code>source_path</code></td>
+      <td><code>registry.save_layout</code> 이 INSERT 후 <strong>즉시 커밋</strong>. 절대 삭제하지 않음</td></tr>
+  <tr><td><code>ingest_run</code></td><td><span class="badge keep">기억</span></td>
+      <td><code>id</code> PK · <code>status</code> · <code>mold_count</code> · 손실 계량 8종(JSON)</td>
+      <td><code>registry.record_run</code> 이 매 실행마다 INSERT. 화면은 <code>latest_run</code> 만 읽음</td></tr>
+  <tr><td><code>mold</code></td><td><span class="badge wipe">결과</span></td>
+      <td><code>mold_no</code> PK · <code>status</code> · <code>line</code> · <code>machine</code> · 수량 4종</td>
+      <td>배치마다 전멸/재생성</td></tr>
+  <tr><td><code>production_run</code></td><td><span class="badge wipe">결과</span></td>
+      <td><code>(mold_no, install_seq)</code> PK · <code>started_at</code> · <code>ended_at</code> · <code>defect_rate</code> · <code>defects_json</code></td>
+      <td>배치마다 전멸/재생성</td></tr>
+  <tr><td><code>mold_stage</code></td><td><span class="badge wipe">결과</span></td>
+      <td><code>(mold_no, stage)</code> PK · <code>items_json</code></td>
+      <td>배치마다 전멸/재생성. <strong>행이 없는 것이 곧 <code>missing</code></strong></td></tr>
+  <tr><td><code>mold_design</code></td><td><span class="badge wipe">결과</span></td>
+      <td><code>mold_no</code> PK · 치수 6종</td>
+      <td>배치마다 전멸/재생성. 1단계에서는 항상 빔(설계 폴더 미처리)</td></tr>
+</table>
+</div>
+
+<div class="callout trap">
+  <span class="tag">스키마를 늘릴 때의 함정</span>
+  <p><code>CREATE TABLE IF NOT EXISTS</code> 는 <strong>이미 있는 테이블에 새 컬럼을 붙여주지 않는다.</strong>
+  그래서 <code>db.py</code> 에는 <code>_ADDED_COLUMNS</code> 딕셔너리가 따로 있고, <code>init_db</code> 가
+  <code>PRAGMA table_info</code> 로 확인해 없는 컬럼만 <code>ALTER TABLE</code> 로 붙인다.
+  이걸 빼먹으면 옛 <code>molds.db</code> 를 쓰던 환경에서 <code>record_run</code> 이 “no such column”으로 터져
+  <strong>배치가 통째로 실패</strong>하는데, 화면에는 error 만 뜨고 원인을 알 수 없다.</p>
+</div>
+
+<h3 id="im-query">3.5 읽기(조회) 경로: DB → 화면</h3>
+
+<p>대시보드는 엑셀을 절대 건드리지 않는다. <code>molds.db</code> 만 읽는다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="flow">
+      <div class="node db"><span class="t">GET /api/molds</span><span class="d"><code>list_molds</code> → <code>SELECT * FROM mold WHERE …</code> + 단계 배지</span></div>
+      <div class="node db"><span class="t">GET /api/molds/{no}</span><span class="d"><code>get_mold</code> → mold + design + production_run + mold_stage 를 조립</span></div>
+      <div class="node db"><span class="t">GET /api/molds/filters</span><span class="d">실제 존재하는 (라인, 호기) 쌍만. 상태는 고정 4종</span></div>
+      <div class="node db"><span class="t">GET /api/ingest/status</span><span class="d"><code>latest_run</code> → 수집 패널의 요약·경고</span></div>
+    </div>
+  </div>
+  <figcaption>조회는 순수 SQL 이라 밀리초 단위다. 여기에 LLM 도 Excel 도 없다.</figcaption>
+</figure>
+
+<p>조회 계층이 하는 “약간의 계산”이 두 군데 있는데, 둘 다 이유가 분명하다.</p>
+
+<ul>
+  <li><strong><code>days_covered</code> vs <code>days_expected</code></strong> —
+  <code>defects_json</code> 의 길이가 실제 반영된 날 수(3), <code>covered_dates()</code> 를 다시 불러 구한 것이 덮여야 할 날 수(4).
+  <strong>24시간 올림 규칙을 조회 쪽에 다시 구현하지 않고 수집과 같은 함수를 부른다</strong> —
+  각자 계산하면 언젠가 조용히 어긋나고, 그때 화면의 “3/4일”이 무슨 뜻인지 아무도 확신할 수 없게 된다.</li>
+  <li><strong><code>install</code> 단계 배지</strong> — <code>mold_stage</code> 에는 <code>install</code> 행을 만들지 않는다(그 데이터는
+  <code>production_run</code> 에 있다). 그것을 안 보면 표에 구간이 가득한데도 탭에는 “없음” 배지가 붙어 화면이 스스로와 모순된다.
+  그래서 <code>production_run</code> 에 행이 하나라도 있으면 <code>install = ok</code> 로 채운다.</li>
+</ul>
+
+<div class="qmemo" data-qid="im-write-read" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">쓰기 트랜잭션이나 조회 계층에서 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="change">4. 엑셀 행이 바뀌면 — 시나리오 5개</h2>
+
+<p>드디어 본론이다. 각 시나리오마다 같은 형식으로 본다:
+<strong>엑셀에서 무엇이 바뀌었나 → 어떤 문지기가 열리나 → LLM 이 도나 → DB 가 어떻게 달라지나.</strong></p>
+
+<div class="callout key">
+  <span class="tag">모든 시나리오의 공통 규칙</span>
+  <p>DB 에는 “이 행만 업데이트” 같은 게 없다. 어떤 시나리오든 결과는 항상
+  <strong>“결과 테이블 4개를 전부 지우고, 방금 읽은 엑셀 전체로 다시 채운다”</strong>이다.
+  달라지는 것은 <em>LLM 이 도느냐</em>와 <em>새 스냅샷이 이전과 어디가 다르냐</em>뿐이다.</p>
+</div>
+
+<h3 id="s1">S1. 관리대장 맨 아래에 이벤트 추가 — 금형이 설비에 들어감</h3>
+
+<p>가장 흔한 변경이다. 현장에서 금형 <code>RX39513</code> 을 설비에 걸었고, 담당자가 관리대장 시트 <code>#RX39513</code> 맨 아래에
+한 줄을 적었다.</p>
+
+<figure>
+  <div class="frame">
+    <table class="grid">
+      <tr><th></th><th>B</th><th>E</th><th>G</th><th>…</th></tr>
+      <tr><td class="rownum">2</td><td class="anchor hdr">이벤트시간</td><td class="hdr">위치</td><td class="hdr">설비명</td><td class="hdr">…</td></tr>
+      <tr><td class="rownum">13</td><td>2026-07-15 06:00</td><td>설비</td><td>POU WND10_Stack(1차)_01</td><td>…</td></tr>
+      <tr><td class="rownum">14</td><td>2026-07-15 18:00</td><td>통합 Jig Room</td><td class="empty">·</td><td>…</td></tr>
+      <tr><td class="rownum newrow">15</td><td class="newrow">2026-07-26 08:00</td><td class="newrow">설비</td><td class="newrow">POU WND10_Stack(1차)_01</td><td class="newrow">…</td></tr>
+    </table>
+    <div class="legend" style="margin-top:10px">
+      <span><i style="border-color:#2f8f5b;background:#dcf0e3"></i> 새로 추가된 행</span>
+      <span><i style="border-color:#d69e2e;background:#ffe9a8"></i> 앵커 셀 (안 움직였다)</span>
+    </div>
+  </div>
+  <figcaption>표 <strong>아래쪽</strong>에 추가했으므로 헤더 행(2행)은 그대로다 → 앵커가 안 깨진다.</figcaption>
+</figure>
+
+<h4>파급 경로</h4>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:22%">단계</th><th>일어나는 일</th></tr>
+  <tr><td>파일 해시</td><td><span class="trg yes">변경</span> 파일 바이트가 달라졌다 → 배치 실행</td></tr>
+  <tr><td>앵커</td><td><span class="trg yes">일치</span> <code>B2="이벤트시간"</code> 그대로</td></tr>
+  <tr><td>LLM</td><td><span class="trg no">0회</span> 캐시된 레이아웃 재사용</td></tr>
+  <tr><td><code>used_range</code></td><td>14행 → 15행으로 자란다. <code>data_end_row=None</code> 이라 파서가 끝까지 따라간다</td></tr>
+  <tr><td><code>extract_runs</code></td><td>위치=‘설비’ 이벤트가 하나 늘었고 <strong>그 뒤에 이벤트가 없다</strong> → 종료 없는 구간(open run)</td></tr>
+  <tr><td><code>latest_locations</code></td><td>마지막 이벤트 위치가 ‘설비’ → <code>status = "in_use"</code></td></tr>
+</table>
+</div>
+
+<h4>DB before / after</h4>
+
+<div class="ba">
+  <div>
+    <h5>이전 — mold 행</h5>
+    <table>
+      <tr><td>status</td><td>standby</td></tr>
+      <tr><td>line</td><td>NULL</td></tr>
+      <tr><td>machine</td><td>NULL</td></tr>
+      <tr><td>total_installs</td><td>4</td></tr>
+      <tr><td>total_production</td><td>60173</td></tr>
+      <tr><td>latest_defect_rate</td><td>0.007333</td></tr>
+    </table>
+  </div>
+  <div class="after">
+    <h5>이후 — mold 행 (완전히 새로 INSERT 된 것)</h5>
+    <table>
+      <tr><td>status</td><td><span class="chgv">in_use</span></td></tr>
+      <tr><td>line</td><td><span class="chgv">톈진 Pouch #10(S)</span></td></tr>
+      <tr><td>machine</td><td><span class="chgv">POU WND10_Stack(1차)_01</span></td></tr>
+      <tr><td>total_installs</td><td><span class="chgv">5</span></td></tr>
+      <tr><td>total_production</td><td>60173 &nbsp;<span style="color:#8a8479">(변화 없음)</span></td></tr>
+      <tr><td>latest_defect_rate</td><td>0.007333 &nbsp;<span style="color:#8a8479">(변화 없음)</span></td></tr>
+    </table>
+  </div>
+</div>
+
+<p><code>production_run</code> 에는 5번째 행이 생긴다.</p>
+
+<figure>
+  <div class="frame">
+<pre class="plain">mold_no=RX39513  install_seq=<span style="color:#2f8f5b">5</span>
+  started_at   2026-07-26T08:00:00
+  ended_at     <span style="color:#8a8479">NULL</span>          <span style="color:#8a8479"># 아직 설비에 있다</span>
+  defect_rate  <span style="color:#8a8479">NULL</span>          <span style="color:#8a8479"># 구간이 안 끝나 조회할 날짜가 없다</span>
+  defects_json <span style="color:#2f8f5b">[]</span></pre>
+  </div>
+  <figcaption>그리고 <code>ingest_run.open_runs</code> 가 1 늘어난다.</figcaption>
+</figure>
+
+<div class="callout def">
+  <span class="tag">왜 total_production 과 최신 불량율은 안 바뀌나</span>
+  <p>새 구간은 <strong>아직 안 끝났다.</strong> <code>covered_dates(시작, None)</code> 은 빈 목록을 돌려주므로 MES 조회 자체를 하지 않는다.
+  <code>latest_defect_rate</code> 는 “가장 최근 구간”이 아니라 <strong>“불량율이 있는 가장 최근 구간”</strong>이라
+  4번 구간 값을 그대로 유지한다 — 가동 중이라 비어 있는 것을 “불량율 없음”으로 오해하지 않기 위해서다.</p>
+  <p>화면에서 이 상태는 <code>open_runs</code> 로 구분된다: “가동 중 1건(불량율 미확정)”.</p>
+</div>
+
+<div class="qmemo" data-qid="s1-event-added" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">S1 시나리오에서 헷갈리는 부분을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="s2">S2. MES 셀 값 하나 수정 — 불량수량 정정</h3>
+
+<p>이번에는 구조가 아니라 <strong>숫자 하나</strong>가 바뀐다. <code>2026-07-01_불량현황.xlsx</code> 에서
+설비코드 <code>21004780</code> 행의 불량수량을 <code>120 → 300</code> 으로 고쳤다고 하자.</p>
+
+<figure>
+  <div class="frame">
+    <table class="grid">
+      <tr><th></th><th>D</th><th>E</th><th>G</th><th>H</th><th>I</th></tr>
+      <tr><td class="rownum">4</td><td class="anchor hdr">라인</td><td class="anchor hdr">설비코드</td><td class="anchor hdr">투입수량</td><td class="hdr">양품수량</td><td class="hdr">불량수량</td></tr>
+      <tr><td class="rownum">6</td><td>톈진 Pouch #10(S)</td><td>21004780</td><td>9480</td><td>9360</td><td class="chg">120 → 300</td></tr>
+      <tr><td class="rownum">7</td><td>톈진 Pouch #10(S)</td><td>21004781</td><td>10627</td><td>10470</td><td>157</td></tr>
+    </table>
+  </div>
+  <figcaption>헤더도 행 수도 그대로 → 앵커 일치 → LLM 0회.</figcaption>
+</figure>
+
+<h4>어디까지 번지나 — 계산을 직접 해보자</h4>
+
+<p>이 값은 <code>RX39513</code> 의 <strong>1번 구간</strong>(07-01 07:00 ~ 07-05 07:00)에만 들어간다.
+그 구간이 덮는 날짜는 07-01·02·03·04 이고, 그중 MES 파일이 있는 날은 3일이다.</p>
+
+<div class="ba">
+  <div>
+    <h5>이전 — production_run seq=1</h5>
+    <table>
+      <tr><td>defects_json</td><td>[{07-01, 9480, <b>120</b>},<br>&nbsp;{07-02, 10627, 157},<br>&nbsp;{07-04, 9332, 92}]</td></tr>
+      <tr><td>합계</td><td>투입 29439 · 불량 369</td></tr>
+      <tr><td>defect_rate</td><td>369 ÷ 29439 = <b>0.012534</b></td></tr>
+    </table>
+  </div>
+  <div class="after">
+    <h5>이후 — 같은 행이 새로 INSERT 됨</h5>
+    <table>
+      <tr><td>defects_json</td><td>[{07-01, 9480, <span class="chgv">300</span>},<br>&nbsp;{07-02, 10627, 157},<br>&nbsp;{07-04, 9332, 92}]</td></tr>
+      <tr><td>합계</td><td>투입 29439 · 불량 <span class="chgv">549</span></td></tr>
+      <tr><td>defect_rate</td><td>549 ÷ 29439 = <span class="chgv">0.018649</span></td></tr>
+    </table>
+  </div>
+</div>
+
+<p>그런데 <code>mold</code> 테이블은 어떻게 될까? <strong>거의 안 바뀐다.</strong></p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:30%">mold 컬럼</th><th style="width:18%">바뀌나</th><th>이유</th></tr>
+  <tr><td><code>total_production</code></td><td><span class="trg no">그대로</span> 60173</td><td>투입수량의 합이다. 우리는 <em>불량</em>수량을 고쳤다</td></tr>
+  <tr><td><code>latest_defect_rate</code></td><td><span class="trg no">그대로</span> 0.007333</td><td><strong>4번 구간</strong>의 값이다. 우리가 고친 건 1번 구간</td></tr>
+  <tr><td><code>total_installs</code> · <code>status</code></td><td><span class="trg no">그대로</span></td><td>이벤트가 안 바뀌었다</td></tr>
+</table>
+</div>
+
+<div class="callout trap">
+  <span class="tag">여기서 오해하기 쉬운 것</span>
+  <p>“불량수량을 두 배 넘게 올렸는데 목록 화면의 불량율이 그대로다?” — 맞다.
+  목록에 보이는 <code>latest_defect_rate</code> 는 <strong>가장 최근 구간 하나</strong>의 값이지 전체 평균이 아니다.
+  바뀐 값은 금형 상세의 <strong>‘기간별 불량율’ 표 1번 행</strong>에서 확인해야 한다.</p>
+  <p>이 설계를 택한 이유는 “지금 이 금형이 어떤 상태냐”가 목록의 질문이기 때문이다.
+  한 달 전 구간의 수치를 평균에 섞으면 최근 악화가 묻힌다.</p>
+</div>
+
+<div class="qmemo" data-qid="s2-value-edit" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">S2 의 계산이나 “왜 목록 값이 안 바뀌는가”에 대해 궁금하면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="s3">S3. 표 구조가 바뀜 — 앵커가 깨지는 경우</h3>
+
+<p>지금까지는 캐시가 살아 있었다. 이번엔 <strong>헤더 위치나 문구가 달라지는</strong> 경우다. 세 가지 형태가 있다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="ba b4" style="align-items:flex-start">
+      <div>
+        <h5>이전 — 캐시가 기억하는 모양</h5>
+        <table class="grid">
+          <tr><th></th><th>B</th><th>C</th><th>D</th></tr>
+          <tr><td class="rownum">33</td><td class="anchor">No</td><td class="anchor">입고 시간</td><td class="anchor">금형 번호</td></tr>
+          <tr><td class="rownum">35</td><td>1</td><td>07-01</td><td>RX28312</td></tr>
+        </table>
+      </div>
+      <div class="after">
+        <h5>이후 — 위쪽 표에 5행이 끼어들었다</h5>
+        <table class="grid">
+          <tr><th></th><th>B</th><th>C</th><th>D</th></tr>
+          <tr><td class="rownum">33</td><td class="chg">(다른 표의 데이터)</td><td class="chg">…</td><td class="chg">…</td></tr>
+          <tr><td class="rownum">38</td><td>No</td><td>입고 시간</td><td>금형 번호</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <figcaption>헤더 문구는 그대로인데 <strong>행 번호가 밀렸다.</strong> 앵커는 “<code>B33</code> 에 <code>No</code>”라는 좌표+텍스트 쌍이므로 불일치다.</figcaption>
+</figure>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:28%">변경 형태</th><th style="width:14%">앵커</th><th style="width:12%">LLM</th><th>결과</th></tr>
+  <tr><td>맨 아래 표에 행 추가</td><td><span class="trg yes">일치</span></td><td><span class="trg no">0회</span></td><td>새 행이 자연히 포함된다 (S1 과 같음)</td></tr>
+  <tr><td><strong>위쪽</strong> 표에 행 추가 → 아래 표가 밀림</td><td><span class="trg no">불일치</span></td><td><span class="trg llm">시트당 1회</span></td><td>에이전트가 재해석 → 새 레이아웃이 <code>sheet_mapping</code> 에 추가 저장</td></tr>
+  <tr><td>컬럼 추가 / 헤더 문구 변경</td><td><span class="trg no">불일치</span></td><td><span class="trg llm">시트당 1회</span></td><td>같음. 새 컬럼도 잡히므로 <code>mold_stage</code> 항목이 늘어난다</td></tr>
+  <tr><td>앵커 밖에서 컬럼 구성만 바뀜</td><td><span class="trg yes">일치</span></td><td><span class="trg llm">1회 (재시도)</span></td><td>캐시로 파싱하다 예외 → <strong>한 번만</strong> 재발견 후 재시도</td></tr>
+</table>
+</div>
+
+<p>마지막 줄이 <a href="#im-read">3.1</a>에서 본 자가 치유 경로다. 이게 없으면 나쁜 캐시에 걸린 파일이
+영구히 실패하고 UI 로 빠져나올 방법이 없다.</p>
+
+<div class="callout warn">
+  <span class="tag">현실적 기대치</span>
+  <p>“양식이 안정적이면 LLM 호출은 평생 몇 번”이라는 기대는 <strong>맨 아래 표만 자라는 시트</strong>에서만 맞다.
+  실물 IQC 시트처럼 표 4개가 세로로 쌓인 형태에서는 위쪽 표가 자랄 때마다 시트당 1회씩 돈다.
+  동작 자체는 옳다 — 레이아웃이 실제로 바뀌었으니 재해석이 맞다.</p>
+</div>
+
+<h3 id="s4">S4. 파일 삭제 — 금형이 사라져야 할 때</h3>
+
+<p>관리대장 파일을 지우면 어떻게 될까? <code>changed</code> 는 비어 있지만 <code>removed</code> 가 차므로 <strong>배치는 돈다.</strong>
+그리고 문지기 ③에서 “관리대장 파일이 없다”로 <code>error</code> 가 되어 <strong>DB 는 그대로 유지</strong>된다.</p>
+
+<p>반면 MES 파일 하나(<code>2026-07-02_불량현황.xlsx</code>)만 지우면 배치가 정상적으로 끝나고, 이렇게 된다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="flow" style="flex-direction:column">
+      <div class="node db"><span class="t">ingested_file</span><span class="d">그 경로의 행이 <code>DELETE</code> 된다 — 남겨두면 “바뀐 게 없다” 판정이 영원히 틀린다</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node mes"><span class="t">production_run seq=1 의 defects_json</span><span class="d">07-02 항목이 빠져 <code>[{07-01,…},{07-04,…}]</code> 2일치가 된다 → <code>defect_rate</code> 재계산</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node"><span class="t">ingest_run.missing_mes_days</span><span class="d"><code>["2026-07-02", "2026-07-03"]</code> — 화면에 경고로 뜬다</span></div>
+    </div>
+  </div>
+  <figcaption>데이터가 조용히 사라지는 게 아니라 <strong>“며칠치가 빠졌다”가 화면까지 도달</strong>한다.
+  금형 상세의 구간 행에는 “4일 중 2일치 반영됨”으로 보인다.</figcaption>
+</figure>
+
+<h3 id="s5">S5. 조용히 반영되지 않는 경우 — 반드시 알아둘 것</h3>
+
+<p>지금까지는 전부 “제대로 반영되는” 이야기였다. 반영되지 <strong>않는</strong> 경우가 하나 있고, 이게 가장 위험하다.</p>
+
+<div class="callout trap">
+  <span class="tag">data_end_row 에 숫자가 박히면</span>
+  <p>에이전트가 <code>data_end_row=40</code> 으로 제출했다면 <strong>41행부터는 영원히 안 읽힌다.</strong>
+  파일 해시는 바뀌고, 배치는 돌고, 앵커도 맞고, 아무 경고도 안 뜬다. 화면은 정상으로 보이고 새 데이터만 없다.</p>
+  <p>실제로 지금 캐시에 그런 레이아웃이 둘 있다 — <code>jig_master</code>(<code>end=8</code>)와
+  <code>iqc</code>의 표들(<code>end=13/22/30/40</code>). 기준정보에 금형을 7번째로 추가하면 그 행은 안 읽힌다.</p>
+</div>
+
+<p>막으려고 두 군데에 명시해뒀다. 스키마 설명문에:</p>
+
+<figure>
+  <div class="frame">
+<pre>data_end_row: int | None = Field(
+    default=<span class="k">None</span>,
+    description=(
+        <span class="s">"데이터 마지막 행 번호. 표 아래에 다른 블록이 없으면 null 로 "</span>
+        <span class="s">"두면 빈 행에서 자동으로 멈춘다. 헤더 행 번호를 넣지 마라"</span>
+    ),
+)</pre>
+  </div>
+  <figcaption>그리고 발견 에이전트의 프롬프트에도 같은 요구가 있다. 다만 <strong>모델이 따르는지는 실물로 확인해야 한다</strong> —
+  <code>backend/logs/llm_calls.log</code> 에서 <code>submit_layout</code> 인자를 보거나, <a href="#appendix">부록</a>의 명령으로 캐시를 직접 열어보면 된다.</figcaption>
+</figure>
+
+<h4>다섯 시나리오 한눈에</h4>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:26%">시나리오</th><th style="width:12%">해시</th><th style="width:12%">앵커</th><th style="width:12%">LLM</th><th>DB 반영</th></tr>
+  <tr><td>S1 맨 아래 행 추가</td><td><span class="trg yes">변경</span></td><td><span class="trg yes">일치</span></td><td><span class="trg no">0회</span></td><td>✅ 새 구간·상태 변경</td></tr>
+  <tr><td>S2 셀 값 수정</td><td><span class="trg yes">변경</span></td><td><span class="trg yes">일치</span></td><td><span class="trg no">0회</span></td><td>✅ 해당 구간만 재계산</td></tr>
+  <tr><td>S3 구조 변경</td><td><span class="trg yes">변경</span></td><td><span class="trg no">불일치</span></td><td><span class="trg llm">시트당 1회</span></td><td>✅ 새 레이아웃으로 전부 재해석</td></tr>
+  <tr><td>S4 파일 삭제</td><td><span class="trg yes">removed</span></td><td>—</td><td><span class="trg no">0회</span></td><td>✅ 손실이 화면에 보고됨</td></tr>
+  <tr><td>S5 <code>data_end_row</code> 고정</td><td><span class="trg yes">변경</span></td><td><span class="trg yes">일치</span></td><td><span class="trg no">0회</span></td><td>❌ <strong>조용히 누락</strong></td></tr>
+</table>
+</div>
+
+<div class="qmemo" data-qid="change-scenarios" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">“우리 실제 파일이 이렇게 바뀌면 어떻게 되나요?” 같은 질문을 적어두면 다음 패스에서 추적해 드립니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="quiz">5. 이해도 점검 퀴즈 5문항</h2>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q1. 배치가 성공적으로 끝났다. <code>mold</code> 테이블의 <code>RX39513</code> 행은 어떻게 되었나?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">바뀐 컬럼만 <code>UPDATE</code> 되었다</button>
+    <button class="opt" data-i="1">기존 행은 남고 새 버전이 하나 더 <code>INSERT</code> 되어 이력이 쌓였다</button>
+    <button class="opt" data-i="2">테이블 전체가 <code>DELETE</code> 된 뒤 새로 <code>INSERT</code> 되었다 — 값이 하나도 안 바뀌었어도 그렇다</button>
+    <button class="opt" data-i="3">해시가 같은 파일에서 나온 금형은 건너뛰고 그대로 두었다</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden><code>store.replace_all</code> 은 결과 테이블 4개를 통째로 비우고 다시 채운다. 이렇게 하는 이유는 <b>관리대장에서 사라진 금형이 대시보드에서도 사라져야</b> 하기 때문이다 — upsert 만 하면 유령 금형이 영원히 남는다. 이력이 쌓이는 것은 결과 테이블이 아니라 <b>기억 테이블</b>(<code>sheet_mapping</code>, <code>ingest_run</code>)이다.</div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="q">Q2. 관리대장 시트 <code>#RX39513</code> 맨 아래에 “위치=설비” 이벤트를 추가했다. <code>mold.latest_defect_rate</code> 는?</p>
+  <div class="opts">
+    <button class="opt" data-i="0"><code>NULL</code> 이 된다 — 가장 최근 구간에 불량율이 없으므로</button>
+    <button class="opt" data-i="1">이전 값(4번 구간의 0.007333)이 그대로 유지된다</button>
+    <button class="opt" data-i="2">1~5번 구간의 평균으로 다시 계산된다</button>
+    <button class="opt" data-i="3">0.0 이 된다 — 새 구간의 불량수량이 아직 0 이므로</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden><code>assemble</code> 은 “가장 최근 구간”이 아니라 <b>“불량율이 있는 가장 최근 구간”</b>을 찾는다(<code>reversed(mold_runs)</code> 를 훑으며 <code>defect_rate is not None</code> 인 첫 값). 마지막 구간이 가동 중이라 비어 있으면 그 앞 구간으로 거슬러 올라간다. ④번이 왜 틀린지도 중요하다 — 투입이 0 이거나 조회할 날짜가 없을 때 <code>0.0</code> 을 넣으면 “불량 없음”이라는 거짓말이 되므로 코드는 항상 <code>None</code> 을 쓴다.</div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q">Q3. MES 파일에서 어느 하루의 불량수량을 120 → 300 으로 고치고 수집을 다시 돌렸다. 금형 <strong>목록 화면</strong>의 불량율이 그대로다. 왜인가?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">MES 파일은 앵커가 맞으면 다시 읽지 않기 때문</button>
+    <button class="opt" data-i="1">불량율은 <code>defect_ppm</code> 컬럼에서 오는데 그건 안 고쳤기 때문</button>
+    <button class="opt" data-i="2"><code>production_run</code> 은 갱신됐지만 <code>mold</code> 는 <code>UPDATE</code> 대상이 아니기 때문</button>
+    <button class="opt" data-i="3">목록의 값은 <strong>가장 최근 구간</strong>의 불량율인데, 고친 날짜는 1번(가장 오래된) 구간에 속하기 때문</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>목록의 <code>latest_defect_rate</code> 는 전체 평균이 아니라 최근 구간 하나의 값이다. 바뀐 값은 금형 상세의 ‘기간별 불량율’ 표 1번 행에서 확인해야 한다. ②번도 그럴듯하지만 틀렸다 — 불량율은 MES 의 PPM 컬럼을 가져다 쓰는 게 아니라 <b>투입·불량 raw 수량을 합쳐 코드가 다시 계산</b>한다(생산량이 다른 날을 같은 무게로 세지 않기 위해).</div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <p class="q">Q4. <code>sheet_mapping</code> 에 지금 <code>ees</code> 레이아웃이 하나 있는데, 앵커가 <code>B2="JIG ID"</code> 이고 현재 관리대장 파일의 <code>B2</code> 는 <code>"이벤트시간"</code> 이다. 다음 배치에서 무슨 일이 일어나나?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">캐시 미스 → 첫 시트에서 에이전트가 1회 돌고, 저장된 새 레이아웃으로 나머지 6개 시트가 통과한다</button>
+    <button class="opt" data-i="1">7개 시트 각각에서 에이전트가 도므로 총 7회 호출된다</button>
+    <button class="opt" data-i="2">옛 레이아웃이 자동으로 <code>DELETE</code> 되고 배치가 <code>error</code> 로 끝난다</button>
+    <button class="opt" data-i="3">앵커가 안 맞아도 컬럼 매핑은 유효하므로 그대로 파싱된다</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>핵심은 <code>load_layouts</code> 가 <b>시트 이름으로 거르지 않고 <code>kind</code> 로만</b> 거른다는 점이다. 관리대장은 시트 이름이 곧 금형번호라 시트마다 이름이 다른데, 시트명으로 걸렀다면 양식이 똑같은 7개 시트가 각각 LLM 발견을 돌았을 것이다(=②번). 첫 시트가 발견을 마치면 그 결과가 즉시 커밋되고, <code>ORDER BY id DESC</code> 라 다음 시트가 그것을 먼저 만난다. 옛 레이아웃은 지워지지 않고 그냥 영원히 안 맞을 뿐이다(감사 목적).</div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q5. 다음 중 <strong>엑셀에는 새 데이터가 있는데 화면에는 아무 경고 없이 안 나타나는</strong> 경우는?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">그 날짜의 MES 파일이 없다</button>
+    <button class="opt" data-i="1">관리대장에는 있는데 기준정보에 없는 JIG ID 다</button>
+    <button class="opt" data-i="2">레이아웃의 <code>data_end_row</code> 에 숫자가 박혀 있고 그 아래에 행이 추가됐다</button>
+    <button class="opt" data-i="3">누군가 그 엑셀 파일을 열어둔 채로 수집을 실행했다</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>나머지 셋은 <b>전부 이름 붙은 손실로 화면에 보고된다</b> — 그 날짜의 MES 파일이 없으면 <code>missing_mes_days</code>, 기준정보에 없는 JIG ID 는 <code>unknown_jig_id</code>, 열어둔 파일은 <code>unreadable_files</code> + <code>skipped</code>. “조용히 빠지는 데이터가 없어야 한다”가 이 파이프라인의 원칙이라 버려지는 것마다 이름이 있다.<br><br><code>data_end_row</code> 만 예외인 이유는 <b>완전성 검증이 캐시 재사용 경로에는 없기 때문</b>이다. <code>find_layout_gaps</code>(“이 레이아웃이 시트를 다 덮었나”)는 <code>submit_layout</code> 을 호출한 <i>그 순간</i>에만 돈다. 그때는 41행이 아직 없었으니 통과했고, 이후 배치는 앵커만 대조하고 곧장 파싱으로 간다 — 다시 검사할 기회 자체가 없다. 그래서 손실 카운터에도 잡히지 않는다.</div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup-db" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제나 해설이 이해 안 되는 부분을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="appendix">6. 부록 — 직접 확인하는 명령어</h2>
+
+<p>이 문서의 모든 예시는 아래 명령으로 직접 재현할 수 있다. <code>backend/</code> 에서 실행한다.</p>
+
+<h4>지금 DB 가 무엇을 기억하고 있나</h4>
+
+<figure>
+  <div class="frame">
+<pre>.venv\Scripts\python.exe -c "import sqlite3,sys; sys.stdout.reconfigure(encoding='utf-8'); c=sqlite3.connect('molds.db'); c.row_factory=sqlite3.Row; [print(r['kind'], r['path'].split('\\')[-1], r['content_hash'][:12]) for r in c.execute('SELECT * FROM ingested_file ORDER BY kind')]"</pre>
+  </div>
+  <figcaption>27행이 나오면 “이미 다 읽었다”는 뜻이고, 그래서 다음 클릭이 <code>skipped</code> 가 된다.</figcaption>
+</figure>
+
+<h4>캐시된 레이아웃을 열어본다 (<code>data_end_row</code> 확인용)</h4>
+
+<figure>
+  <div class="frame">
+<pre>.venv\Scripts\python.exe -c "import sqlite3,json,sys; sys.stdout.reconfigure(encoding='utf-8'); c=sqlite3.connect('molds.db'); c.row_factory=sqlite3.Row; [print(r['id'], r['kind'], r['sheet_name'], [(t['name'], t['role'], t['data_start_row'], t['data_end_row']) for t in json.loads(r['layout_json'])['tables']]) for r in c.execute('SELECT * FROM sheet_mapping ORDER BY id')]"</pre>
+  </div>
+  <figcaption><code>data_end_row</code> 가 <code>None</code> 이 아닌 표는 그 아래 새 행을 못 읽는다 — S5 의 위험 지점이다.</figcaption>
+</figure>
+
+<h4>강제로 전부 다시 읽히기</h4>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:34%">방법</th><th style="width:22%">레이아웃 캐시</th><th>언제 쓰나</th></tr>
+  <tr><td><code>DELETE FROM ingested_file</code></td><td><span class="trg yes">유지</span> LLM 0회, 빠름</td><td>“데이터를 다시 뽑아보고 싶다” — 대부분 이걸로 충분</td></tr>
+  <tr><td><code>del molds.db</code></td><td><span class="trg llm">삭제</span> 에이전트 재실행, 느림</td><td>“레이아웃을 잘못 학습한 것 같다”</td></tr>
+  <tr><td>엑셀을 열고 저장</td><td><span class="trg yes">유지</span></td><td>특정 파일만 다시 읽히고 싶을 때(결과는 전체 재실행과 같다)</td></tr>
+</table>
+</div>
+
+<figure>
+  <div class="frame">
+<pre><span class="c"># 파일 이력만 지우기 (권장)</span>
+.venv\Scripts\python.exe -c "import sqlite3; c=sqlite3.connect('molds.db'); c.execute('DELETE FROM ingested_file'); c.commit(); print('reset')"</pre>
+  </div>
+  <figcaption>지운 뒤 대시보드에서 <strong>수집 실행</strong>을 누르면 된다.
+  결과 테이블은 어차피 매번 전체 교체되므로 중복이 쌓이지 않는다.</figcaption>
+</figure>
+
+<h4>배치가 무엇을 잃었는지</h4>
+
+<figure>
+  <div class="frame">
+<pre>.venv\Scripts\python.exe -c "import sqlite3,sys; sys.stdout.reconfigure(encoding='utf-8'); c=sqlite3.connect('molds.db'); c.row_factory=sqlite3.Row; r=c.execute('SELECT * FROM ingest_run ORDER BY id DESC LIMIT 1').fetchone(); [print(k, '=', r[k]) for k in r.keys()]"</pre>
+  </div>
+  <figcaption><code>unknown_jig_id</code>·<code>missing_mes_days</code>·<code>bad_sheet_names</code>·<code>orphan_json</code> 이 비어 있지 않으면
+  사람이 고쳐야 할 것이 있다는 뜻이다. 같은 내용이 대시보드 수집 패널에도 뜬다.</figcaption>
+</figure>
+
+<h3>관련 문서</h3>
+<ul>
+  <li><a href="2026-08-11-explanation-mold-ingest-excel-agent.html">전체 동작 원리와 Excel Agent</a> — 이 문서의 선행편.
+    도구 6종의 입출력, 앵커 개념, 세 문서 조인을 다룬다</li>
+  <li><code>docs/superpowers/specs/2026-07-28-금형-데이터-수집-파이프라인-design.md</code> — 설계 의도</li>
+  <li><code>backend/tests/test_ingest_store.py</code> · <code>test_ingest_pipeline.py</code> — 이 문서의 트랜잭션 동작을 검증하는 테스트</li>
+</ul>
+
+<div class="qmemo" data-qid="appendix-commands" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">문서 전체를 읽고 남은 질문을 여기에 모아 적어도 좋습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<p class="small" style="margin:40px 0 20px">
+이 문서의 DB 덤프는 2026-08-11 시점 <code>backend/molds.db</code> 의 실제 값이다(배치 1회, 금형 6건 기준).
+수집을 다시 돌리면 값이 달라진다 — 어긋나는 곳을 발견하면 질문 메모에 적어두면 된다.
+</p>
+
+</div>
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+/* ── 질문 메모: 자동 저장 + 파일로 내보내기 ── */
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-11-explanation-excel-to-db-and-row-change.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\TestProject\\docs\\understanding\\2026-08-11-explanation-excel-to-db-and-row-change.html';
+  });
+})();
+
+/* ── 퀴즈 채점 ── */
+(function () {
+  document.querySelectorAll('.quiz').forEach(function (quiz) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var fb = quiz.querySelector('.fb');
+    var fbtext = quiz.querySelector('.fbtext');
+    var buttons = quiz.querySelectorAll('button.opt');
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (quiz.dataset.done === '1') return;
+        quiz.dataset.done = '1';
+        var picked = parseInt(btn.dataset.i, 10);
+        var ok = picked === answer;
+        buttons.forEach(function (b) {
+          b.disabled = true;
+          var i = parseInt(b.dataset.i, 10);
+          if (i === answer) b.classList.add('right');
+          else if (i === picked) b.classList.add('wrong');
+        });
+        fb.className = 'fb show ' + (ok ? 'ok' : 'no');
+        fb.innerHTML = (ok ? '<strong>정답입니다.</strong> ' : '<strong>아쉽습니다.</strong> 정답은 위에 초록으로 표시된 항목입니다. ')
+                     + fbtext.innerHTML;
+      });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
