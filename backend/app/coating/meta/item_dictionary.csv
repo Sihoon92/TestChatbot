@@ -1,0 +1,55 @@
+﻿item_id,item_name,io,role,zone
+10030009,BP value open rate,input,control,
+50030111,[PV] A면 COATER부 Pump RPM (실측값),input,control,
+10030271,[PV] A면 OS Gap,input,control,
+10030272,[PV] A면 DS Gap,input,control,
+30030838,(A면) T_Block UNIT Gap Offset 1Zone,input,control,1
+30030839,(A면) T_Block UNIT Gap Offset 2Zone,input,control,2
+30030840,(A면) T_Block UNIT Gap Offset 3Zone,input,control,3
+30030841,(A면) T_Block UNIT Gap Offset 4Zone,input,control,4
+30030842,(A면) T_Block UNIT Gap Offset 5Zone,input,control,5
+30030843,(A면) T_Block UNIT Gap Offset 6Zone,input,control,6
+30030844,(A면) T_Block UNIT Gap Offset 7Zone,input,control,7
+30030845,(A면) T_Block UNIT Gap Offset 8Zone,input,control,8
+30030846,(A면) T_Block UNIT Gap Offset 9Zone,input,control,9
+30030847,(A면) T_Block UNIT Gap Offset 10Zone,input,control,10
+30030848,(A면) T_Block UNIT Gap Offset 11Zone,input,control,11
+30030849,(A면) T_Block UNIT Gap Offset 12Zone,input,control,12
+30030850,(A면) T_Block UNIT Gap Offset 13Zone,input,control,13
+30030851,(A면) T_Block UNIT Gap Offset 14Zone,input,control,14
+30030852,(A면) T_Block UNIT Gap Offset 15Zone,input,control,15
+30030853,(A면) T_Block UNIT Gap Offset 16Zone,input,control,16
+30030854,(A면) T_Block UNIT Gap Offset 17Zone,input,control,17
+30030855,(A면) T_Block UNIT Gap Offset 18Zone,input,control,18
+30030856,(A면) T_Block UNIT Gap Offset 19Zone,input,control,19
+30030857,(A면) T_Block UNIT Gap Offset 20Zone,input,control,20
+30030858,(A면) T_Block UNIT Gap Offset 21Zone,input,control,21
+30030859,(A면) T_Block UNIT Gap Offset 22Zone,input,control,22
+30030860,(A면) T_Block UNIT Gap Offset 23Zone,input,control,23
+30030861,(A면) T_Block UNIT Gap Offset 24Zone,input,control,24
+30030862,(A면) T_Block UNIT Gap Offset 25Zone,input,control,25
+90030611,(A side)GV UNIT Wet 1Zone,output,loading_level,1
+90030612,(A side)GV UNIT Wet 2Zone,output,loading_level,2
+90030613,(A side)GV UNIT Wet 3Zone,output,loading_level,3
+90030614,(A side)GV UNIT Wet 4Zone,output,loading_level,4
+90030615,(A side)GV UNIT Wet 5Zone,output,loading_level,5
+90030616,(A side)GV UNIT Wet 6Zone,output,loading_level,6
+90030617,(A side)GV UNIT Wet 7Zone,output,loading_level,7
+90030618,(A side)GV UNIT Wet 8Zone,output,loading_level,8
+90030619,(A side)GV UNIT Wet 9Zone,output,loading_level,9
+90030620,(A side)GV UNIT Wet 10Zone,output,loading_level,10
+90030621,(A side)GV UNIT Wet 11Zone,output,loading_level,11
+90030622,(A side)GV UNIT Wet 12Zone,output,loading_level,12
+90030623,(A side)GV UNIT Wet 13Zone,output,loading_level,13
+90030624,(A side)GV UNIT Wet 14Zone,output,loading_level,14
+90030625,(A side)GV UNIT Wet 15Zone,output,loading_level,15
+90030626,(A side)GV UNIT Wet 16Zone,output,loading_level,16
+90030627,(A side)GV UNIT Wet 17Zone,output,loading_level,17
+90030628,(A side)GV UNIT Wet 18Zone,output,loading_level,18
+90030629,(A side)GV UNIT Wet 19Zone,output,loading_level,19
+90030630,(A side)GV UNIT Wet 20Zone,output,loading_level,20
+90030631,(A side)GV UNIT Wet 21Zone,output,loading_level,21
+90030632,(A side)GV UNIT Wet 22Zone,output,loading_level,22
+90030633,(A side)GV UNIT Wet 23Zone,output,loading_level,23
+90030634,(A side)GV UNIT Wet 24Zone,output,loading_level,24
+90030635,(A side)GV UNIT Wet 25Zone,output,loading_level,25
