@@ -8,6 +8,7 @@
 둘 중 하나라도 막히면 verdict = insufficient 를 내고, 무엇이 얼마나
 부족한지를 사업부에 요구할 수 있는 형태로 적는다.
 """
+import argparse
 import html as html_mod
 from pathlib import Path
 
@@ -172,7 +173,7 @@ def run(csv_path=None, dict_path=None, out_dir=None) -> tuple[str, str]:
     s = get_settings()
     root = Path(s.resolved_coating_data_dir)
     # CSV 는 실데이터라 런타임 디렉터리에서, 사전은 스키마라 패키지에서 읽는다.
-    csv_path = csv_path or root / "raw" / "sample_long.csv"
+    csv_path = csv_path or _default_csv_path()
     dict_path = dict_path or parse.DEFAULT_DICT_PATH
     out = Path(out_dir) if out_dir else root / "reports"
     out.mkdir(parents=True, exist_ok=True)
@@ -185,7 +186,52 @@ def run(csv_path=None, dict_path=None, out_dir=None) -> tuple[str, str]:
     return str(md_path), str(html_path)
 
 
+def build_parser() -> argparse.ArgumentParser:
+    """CLI 파서. 기본 경로를 여기 또 적지 않는다 — 기본값 결정은 run() 한 곳이다."""
+    p = argparse.ArgumentParser(
+        prog="python -m app.coating.report",
+        description="코팅 초기조건 데이터 실사 리포트를 MD·HTML 로 낸다.",
+        epilog=(
+            "예) python -m app.coating.report --csv data/coating/raw/실데이터.csv\n"
+            "생략하면 <COATING_DATA_DIR>/raw/sample_long.csv 를 읽는다."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("--csv", default=None, help="원본 long CSV 경로")
+    p.add_argument(
+        "--dict", dest="dict_path", default=None,
+        help="항목 사전 CSV 경로 (생략 시 패키지에 든 스키마)",
+    )
+    p.add_argument(
+        "--out", dest="out_dir", default=None,
+        help="리포트 출력 디렉터리 (생략 시 <COATING_DATA_DIR>/reports)",
+    )
+    return p
+
+
+def main(argv: list[str] | None = None) -> tuple[str, str]:
+    args = build_parser().parse_args(argv)
+    csv_path = Path(args.csv) if args.csv else _default_csv_path()
+    if not csv_path.exists():
+        # 기본 입력은 backend/data/ 아래인데 그건 실데이터가 들어가는 곳이라
+        # gitignore 대상이다. 새로 클론한 곳에는 없으므로, 맨 트레이스백 대신
+        # 무엇을 하면 되는지 적어준다.
+        raise SystemExit(
+            f"입력 CSV 를 찾을 수 없다: {csv_path}\n"
+            "  --csv 로 경로를 지정하거나, 커밋된 샘플을 런타임 위치로 복사한다:\n"
+            "    backend/tests/fixtures/coating/sample_long.csv"
+            f" -> {_default_csv_path()}"
+        )
+
+    md_path, html_path = run(csv_path, args.dict_path, args.out_dir)
+    print(md_path)
+    print(html_path)
+    return md_path, html_path
+
+
+def _default_csv_path() -> Path:
+    return Path(get_settings().resolved_coating_data_dir) / "raw" / "sample_long.csv"
+
+
 if __name__ == "__main__":
-    m, h = run()
-    print(m)
-    print(h)
+    main()
