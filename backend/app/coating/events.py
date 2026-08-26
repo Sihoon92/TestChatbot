@@ -49,3 +49,74 @@ def _zone_of(item_id: str) -> float:
     if item_id in S.GAP_ITEM_IDS:
         return float(S.GAP_ITEM_IDS.index(item_id) + 1)
     return float("nan")
+
+
+def annotate_settling(
+    events_df: pd.DataFrame,
+    wet_mean: pd.DataFrame,
+    std_max: float,
+    window_minutes: int,
+    max_wait_minutes: int,
+) -> pd.DataFrame:
+    """이벤트별 정착 시각을 찾고, 인과 분리가 불가능한 이벤트를 표시한다.
+
+    오염되는 두 경우:
+      overlapped — 재안정 전에 다음 조정이 왔다. 두 변경의 효과가 겹쳐
+                   어느 쪽이 Wet 을 움직였는지 알 수 없다.
+      no_settle  — max_wait 안에 정착을 못 찾았다. 최종 gain 을 못 읽는다.
+
+    둘 다 버리되 이유를 남긴다. 배제 비율 자체가 현장 진단이다
+    (높으면 튜닝이 급하게 이뤄지고 있다는 뜻).
+    """
+    out = events_df.sort_values([S.LOT, S.AT]).copy()
+    next_at = out.groupby(S.LOT)[S.AT].shift(-1)
+
+    settled, contaminated, reason = [], [], []
+    for (_, row), nxt in zip(out.iterrows(), next_at):
+        s = _settle_time(
+            wet_mean, row[S.LOT], row[S.AT], std_max, window_minutes, max_wait_minutes
+        )
+        if s is None:
+            settled.append(pd.NaT)
+            contaminated.append(True)
+            reason.append("no_settle")
+        elif pd.notna(nxt) and nxt < s:
+            settled.append(s)
+            contaminated.append(True)
+            reason.append("overlapped")
+        else:
+            settled.append(s)
+            contaminated.append(False)
+            reason.append(None)
+
+    out[S.SETTLED_AT] = settled
+    out[S.CONTAMINATED] = contaminated
+    out[S.DROP_REASON] = reason
+    return out.reset_index(drop=True)
+
+
+def _settle_time(
+    wet_mean: pd.DataFrame,
+    lot_id: str,
+    after,
+    std_max: float,
+    window_minutes: int,
+    max_wait_minutes: int,
+):
+    """`after` 이후 이동창 표준편차가 std_max 아래로 처음 내려간 시각."""
+    deadline = after + pd.Timedelta(minutes=max_wait_minutes)
+    g = wet_mean[
+        (wet_mean[S.LOT] == lot_id)
+        & (wet_mean[S.AT] > after)
+        & (wet_mean[S.AT] <= deadline)
+    ].sort_values(S.AT)
+    if g.empty:
+        return None
+    vals = g[S.WET_MEAN].to_numpy()
+    times = g[S.AT].to_numpy()
+    # window_minutes 는 분 단위 관측 개수와 같다고 본다(원본이 분 해상도).
+    w = max(2, window_minutes)
+    for i in range(w - 1, len(vals)):
+        if vals[i - w + 1 : i + 1].std(ddof=0) <= std_max:
+            return pd.Timestamp(times[i])
+    return None
