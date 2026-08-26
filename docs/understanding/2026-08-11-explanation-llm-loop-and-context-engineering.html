@@ -1,0 +1,1236 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>루프 안에서 무슨 일이 일어나는가 — LLM 입출력·프롬프트·컨텍스트·그래프 엔지니어링</title>
+<style>
+:root{
+  --bg:#faf9f7; --panel:#ffffff; --ink:#23262b; --ink-soft:#5b6068;
+  --line:#e3e0da; --line-strong:#c9c4bb;
+
+  --ees:#3b6fd4;  --ees-bg:#eaf0fc;
+  --jig:#7c5cbf;  --jig-bg:#f1ecfa;
+  --mes:#2f8f5b;  --mes-bg:#e8f5ee;
+  --iqc:#c07d1a;  --iqc-bg:#fbf1de;
+
+  --agent:#b4436c; --agent-bg:#fceef3;   /* LLM */
+  --pure:#1f7a7a;  --pure-bg:#e5f4f4;    /* 도구/코드 */
+  --db:#4a5568;    --db-bg:#edf0f4;
+  --sys:#7c5cbf;   --sys-bg:#f1ecfa;     /* system 메시지 */
+  --hum:#2f6f8f;   --hum-bg:#e6f1f7;     /* human 메시지 */
+  --warn:#b7791f;  --danger:#c05621;
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16.5px;line-height:1.75;padding-bottom:96px;-webkit-text-size-adjust:100%;}
+.wrap{max-width:940px;margin:0 auto;padding:0 20px;}
+header.page{background:linear-gradient(160deg,#3a2b38,#54394d);color:#fff;padding:44px 0 36px;margin-bottom:8px;}
+header.page h1{margin:0 0 10px;font-size:1.9rem;line-height:1.35;letter-spacing:-.01em;}
+header.page p{margin:0;color:#e2d5de;font-size:.98rem;}
+header.page .meta{margin-top:16px;font-size:.82rem;color:#c3aeba;}
+header.page code{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.2);color:#fff;}
+
+h2{margin:56px 0 4px;font-size:1.42rem;line-height:1.4;letter-spacing:-.01em;padding-bottom:8px;border-bottom:2px solid var(--line-strong);}
+h3{margin:34px 0 6px;font-size:1.14rem;letter-spacing:-.01em;}
+h4{margin:24px 0 4px;font-size:1rem;color:var(--ink-soft);}
+p{margin:12px 0;} ul,ol{margin:12px 0;padding-left:1.35em;} li{margin:6px 0;}
+code{font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;font-size:.86em;background:#f0eeea;padding:1px 5px;border-radius:4px;border:1px solid #e2ded7;}
+a{color:#2b6cb0;} strong{font-weight:700;}
+.small{font-size:.88rem;color:var(--ink-soft);}
+
+pre{background:#282c34;color:#e6e6e6;padding:16px 18px;border-radius:8px;overflow-x:auto;
+  font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;font-size:.79rem;line-height:1.6;
+  white-space:pre;margin:16px 0;}
+pre.plain{background:#fff;color:var(--ink);border:1px solid var(--line);}
+pre.log{background:#1f2329;color:#cfd6df;font-size:.75rem;}
+pre .c{color:#8a93a5;} pre .k{color:#c678dd;} pre .s{color:#98c379;} pre .n{color:#d19a66;}
+pre .sys{color:#c8a2ff;} pre .hum{color:#7fc4e8;} pre .ai{color:#f0a0c0;} pre .tool{color:#8fd3a8;}
+pre .hi{background:#3a3f4a;color:#ffd782;}
+
+.callout{border-left:4px solid var(--line-strong);background:var(--panel);padding:14px 18px;margin:20px 0;border-radius:0 8px 8px 0;box-shadow:0 1px 2px rgba(0,0,0,.04);}
+.callout .tag{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;color:var(--ink-soft);}
+.callout p:first-of-type{margin-top:0;} .callout p:last-child{margin-bottom:0;}
+.callout.key{border-left-color:var(--pure);background:var(--pure-bg);} .callout.key .tag{color:var(--pure);}
+.callout.warn{border-left-color:var(--warn);background:#fdf6e7;} .callout.warn .tag{color:var(--warn);}
+.callout.trap{border-left-color:var(--danger);background:#fdefe7;} .callout.trap .tag{color:var(--danger);}
+.callout.def{border-left-color:var(--ees);background:var(--ees-bg);} .callout.def .tag{color:var(--ees);}
+.callout.real{border-left-color:var(--agent);background:var(--agent-bg);} .callout.real .tag{color:var(--agent);}
+
+nav.toc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 22px;margin:28px 0;}
+nav.toc h2{margin:0 0 8px;font-size:1rem;border:0;padding:0;}
+nav.toc ol{margin:0;padding-left:1.2em;font-size:.94rem;}
+nav.toc ol ol{padding-left:1.1em;font-size:.9rem;color:var(--ink-soft);}
+nav.toc a{text-decoration:none;} nav.toc a:hover{text-decoration:underline;}
+
+figure{margin:26px 0;}
+figure .frame{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 18px;overflow-x:auto;}
+figcaption{font-size:.85rem;color:var(--ink-soft);margin-top:8px;padding-left:2px;}
+svg{display:block;max-width:100%;height:auto;}
+
+table.data{border-collapse:collapse;width:100%;font-size:.89rem;margin:18px 0;background:var(--panel);}
+table.data th,table.data td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top;}
+table.data th{background:#f2efeb;font-weight:700;font-size:.84rem;}
+table.data td code{font-size:.82em;}
+table.data tr.hl td{background:#fffaf0;}
+.tablewrap{overflow-x:auto;}
+
+/* 메시지 테이프 */
+.tape{display:flex;gap:5px;flex-wrap:nowrap;min-width:max-content;align-items:stretch;padding-bottom:4px;}
+.msg{border:1.5px solid var(--line-strong);border-radius:6px;padding:6px 9px;font-size:.72rem;
+     font-family:"JetBrains Mono",Consolas,monospace;min-width:74px;background:#fff;}
+.msg b{display:block;font-size:.64rem;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px;}
+.msg.sys{border-color:var(--sys);background:var(--sys-bg);} .msg.sys b{color:var(--sys);}
+.msg.hum{border-color:var(--hum);background:var(--hum-bg);} .msg.hum b{color:var(--hum);}
+.msg.ai{border-color:var(--agent);background:var(--agent-bg);} .msg.ai b{color:var(--agent);}
+.msg.tool{border-color:var(--pure);background:var(--pure-bg);} .msg.tool b{color:var(--pure);}
+.msg.new{outline:2px dashed #d69e2e;outline-offset:2px;}
+.taperow{display:flex;align-items:center;gap:10px;margin:7px 0;}
+.taperow .lbl{font-size:.75rem;color:var(--ink-soft);min-width:78px;font-family:"JetBrains Mono",Consolas,monospace;white-space:nowrap;}
+
+/* 예산 막대 */
+.budget{margin:14px 0;}
+.bar{display:flex;height:30px;border-radius:6px;overflow:hidden;border:1px solid var(--line-strong);font-size:.7rem;}
+.bar div{display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;white-space:nowrap;overflow:hidden;}
+.bar .b-tool{background:#1f7a7a;} .bar .b-sys{background:#7c5cbf;} .bar .b-hist{background:#b4436c;}
+.bar .b-free{background:#dfdad2;color:#6a655d;}
+.blabel{font-size:.78rem;color:var(--ink-soft);margin-top:5px;}
+
+.flow{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch;}
+.node{border:1.5px solid var(--line-strong);background:var(--panel);border-radius:8px;padding:10px 13px;font-size:.85rem;min-width:140px;flex:1 1 150px;}
+.node .t{font-weight:700;display:block;margin-bottom:2px;font-size:.86rem;}
+.node .d{color:var(--ink-soft);font-size:.79rem;line-height:1.5;}
+.node.agent{border-color:var(--agent);background:var(--agent-bg);}
+.node.pure{border-color:var(--pure);background:var(--pure-bg);}
+.node.db{border-color:var(--db);background:var(--db-bg);}
+.arrowdown{text-align:center;color:var(--line-strong);font-size:1.3rem;line-height:1;margin:6px 0;}
+
+/* 중첩 루프 상자 */
+.loopbox{border:2px solid var(--line-strong);border-radius:10px;padding:12px 14px;margin:0;}
+.loopbox>.lh{font-size:.8rem;font-weight:700;margin-bottom:8px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.loopbox>.lh .cap{font-weight:400;color:var(--ink-soft);font-size:.76rem;}
+.loopbox.l1{border-color:#8a8479;background:#f7f5f2;}
+.loopbox.l2{border-color:var(--mes);background:#f2faf5;}
+.loopbox.l3{border-color:var(--agent);background:#fdf3f7;}
+.loopbox.l4{border-color:var(--warn);background:#fdf9ee;}
+
+.trg{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:5px;white-space:nowrap;}
+.trg.yes{background:#e8f5ee;color:#1f6b41;border:1px solid #9ccdb2;}
+.trg.no{background:#f1efec;color:#8a8479;border:1px solid #ddd8d0;}
+.trg.llm{background:var(--agent-bg);color:#8c2f52;border:1px solid #edc6d6;}
+
+.stat{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0;}
+.stat>div{flex:1 1 150px;border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:12px 14px;text-align:center;}
+.stat .v{font-size:1.5rem;font-weight:800;letter-spacing:-.02em;display:block;line-height:1.2;}
+.stat .n{font-size:.76rem;color:var(--ink-soft);display:block;margin-top:3px;}
+.stat .v.llm{color:var(--agent);} .stat .v.tool{color:var(--pure);}
+
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.82rem;margin:12px 0 0;color:var(--ink-soft);}
+.legend span{display:inline-flex;align-items:center;gap:6px;}
+.legend i{width:13px;height:13px;border-radius:3px;display:inline-block;border:1.5px solid;}
+
+.qmemo{border:2px dashed #c9c4bb;background:#f4f2ed;border-radius:10px;padding:14px 16px;margin:26px 0;}
+.qmemo-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:8px;}
+.qmemo-label{font-size:.74rem;font-weight:800;letter-spacing:.06em;color:#7a736a;background:#e6e2da;padding:2px 8px;border-radius:20px;}
+.qmemo-hint{font-size:.78rem;color:#8b857c;}
+.qmemo-question{min-height:2.6em;background:#fff;border:1px solid var(--line);border-radius:6px;padding:9px 12px;font-size:.92rem;outline:none;}
+.qmemo-question:focus{border-color:var(--ees);box-shadow:0 0 0 3px rgba(59,111,212,.12);}
+.qmemo-question:empty:before{content:attr(data-placeholder);color:#b3ada4;}
+.qmemo-answer{margin-top:10px;background:#fff;border-left:3px solid var(--pure);padding:10px 14px;border-radius:0 6px 6px 0;font-size:.92rem;}
+.qmemo[data-status="answered"]{border:2px solid var(--pure);background:var(--pure-bg);}
+.qmemo[data-status="answered"] .qmemo-label{background:var(--pure);color:#fff;}
+
+#qmemo-bar{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(58,43,56,.97);color:#fff;padding:11px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;box-shadow:0 -2px 12px rgba(0,0,0,.18);}
+#qmemo-save-btn{background:#f5c14e;color:#3a2b38;border:0;border-radius:6px;padding:9px 18px;font-size:.9rem;font-weight:700;cursor:pointer;font-family:inherit;}
+#qmemo-save-btn:hover{background:#ffd370;}
+#qmemo-saymsg{font-size:.78rem;color:#e0d2da;word-break:break-all;}
+
+.quiz{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:22px 0;}
+.quiz .q{font-weight:700;margin:0 0 12px;}
+.quiz .opts{display:flex;flex-direction:column;gap:8px;}
+.quiz button.opt{text-align:left;font-family:inherit;font-size:.92rem;line-height:1.5;background:#f7f5f2;border:1.5px solid var(--line);border-radius:8px;padding:10px 13px;cursor:pointer;color:var(--ink);transition:.12s;}
+.quiz button.opt:hover:not(:disabled){border-color:var(--ees);background:#eef3fc;}
+.quiz button.opt:disabled{cursor:default;}
+.quiz button.opt.right{border-color:#2f8f5b;background:#e8f5ee;}
+.quiz button.opt.wrong{border-color:#c05621;background:#fdefe7;}
+.quiz .fb{margin-top:12px;font-size:.9rem;padding:11px 14px;border-radius:8px;display:none;line-height:1.65;}
+.quiz .fb.show{display:block;}
+.quiz .fb.ok{background:#e8f5ee;border-left:3px solid #2f8f5b;}
+.quiz .fb.no{background:#fdefe7;border-left:3px solid #c05621;}
+
+hr.sep{border:0;border-top:1px solid var(--line);margin:40px 0;}
+
+@media (max-width:640px){
+  body{font-size:16px;} header.page h1{font-size:1.4rem;} h2{font-size:1.2rem;}
+  .wrap{padding:0 15px;} figure .frame{padding:14px 12px;} .stat .v{font-size:1.25rem;}
+}
+</style>
+</head>
+<body>
+
+<header class="page">
+  <div class="wrap">
+    <h1>루프 안에서 무슨 일이 일어나는가</h1>
+    <p>엑셀이 바뀌었을 때 <strong>코드가 어떤 순서로 무엇을 LLM 에 보내고 무엇을 받는가</strong> —
+       입력·출력·프롬프트·컨텍스트·그래프·루프 엔지니어링의 관점</p>
+    <div class="meta">
+      2026-08-11 · <code>feat/ingest-phase1</code> ·
+      이 문서의 수치는 <code>backend/logs/llm_calls.log</code> 의 <strong>실제 112회 호출</strong>을 집계한 값이다
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<p>이 문서는 세 번째 편이다.
+<a href="2026-08-11-explanation-mold-ingest-excel-agent.html">1편</a>은 시스템의 전체 지도를,
+<a href="2026-08-11-explanation-excel-to-db-and-row-change.html">2편</a>은 엑셀 변경이 DB 에 어떻게 반영되는지를 —
+둘 다 <strong>“무엇이 일어나는가(현상)”</strong>를 다뤘다.</p>
+
+<p>이번에는 <strong>“어떻게 일어나는가(기전)”</strong>다. 그중에서도 가장 불투명한 부분,
+즉 <strong>LLM 을 부르는 그 순간</strong>을 연다. 무엇이 정확히 전송되고, 왜 그렇게 생겼고,
+루프가 어떻게 돌고 언제 멈추며, 컨텍스트가 어떻게 자라고 어디서 잘리는가.</p>
+
+<div class="callout def">
+  <span class="tag">이 페이지 쓰는 법</span>
+  <p>읽다가 궁금한 게 생기면 <strong>“질문 메모”</strong> 상자에 적으면 된다. 적는 즉시 이 브라우저에 자동 저장되고,
+  맨 아래 <strong>질문 저장</strong> 버튼을 누르면 <em>같은 파일 이름</em>으로 질문이 박힌 사본이 다운로드된다.
+  그 파일로 원본을 덮어쓴 뒤 Claude 에게 “질문 답해줘”라고 하면 답이 그 자리에 채워진다.</p>
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#bg">배경 — LLM 을 부른다는 것</a>
+      <ol>
+        <li><a href="#bg-basics">완전 기초 (아는 사람은 건너뛰어도 좋다)</a></li>
+        <li><a href="#bg-graphs">이 저장소의 그래프는 둘이다</a></li>
+      </ol>
+    </li>
+    <li><a href="#intuition">직관 — 매 턴 무엇이 오가는가</a>
+      <ol>
+        <li><a href="#in-tape">메시지 테이프: 고정 비용 + 자라는 꼬리</a></li>
+        <li><a href="#in-budget">컨텍스트 예산 (실측 7.5KB 고정)</a></li>
+        <li><a href="#in-cost">루프 한 바퀴의 진짜 비용</a></li>
+      </ol>
+    </li>
+    <li><a href="#impl">구현 — 여섯 개의 관점</a>
+      <ol>
+        <li><a href="#im-input">INPUT: 한 호출의 정확한 구성</a></li>
+        <li><a href="#im-prompt">PROMPT: 두 조각의 합성과 규칙의 내력</a></li>
+        <li><a href="#im-schema">숨은 프롬프트: 도구 스키마</a></li>
+        <li><a href="#im-output">OUTPUT: 파싱하지 않고 검증한다</a></li>
+        <li><a href="#im-graph">GRAPH: 노드 둘, 조건부 엣지 하나</a></li>
+        <li><a href="#im-loop">LOOP: 네 겹의 루프와 각각의 상한</a></li>
+        <li><a href="#im-context">CONTEXT: 세 가지 압축 장치</a></li>
+      </ol>
+    </li>
+    <li><a href="#change">엑셀이 바뀌면 — LLM 관점의 실행 경로</a>
+      <ol>
+        <li><a href="#c-hit">경로 A: 앵커 일치 → LLM 이 아예 안 깨어난다</a></li>
+        <li><a href="#c-miss">경로 B: 캐시 미스 → 새 대화가 시작된다</a></li>
+        <li><a href="#c-reject">경로 C: 되돌려보내기 루프 (실측 9/28)</a></li>
+        <li><a href="#c-incident">실제로 관측된 사고와 그 수정</a></li>
+      </ol>
+    </li>
+    <li><a href="#quiz">이해도 점검 퀴즈 5문항</a></li>
+    <li><a href="#appendix">부록 — 로그로 직접 확인하기</a></li>
+  </ol>
+</nav>
+
+<hr class="sep">
+
+<h2 id="bg">1. 배경 — LLM 을 부른다는 것</h2>
+
+<h3 id="bg-basics">1.1 완전 기초 (아는 사람은 건너뛰어도 좋다)</h3>
+
+<p>“에이전트가 엑셀을 살펴본다”는 표현은 편리하지만 오해를 부른다. 실제로 일어나는 일은 훨씬 건조하다.</p>
+
+<div class="callout key">
+  <span class="tag">가장 중요한 사실</span>
+  <p><strong>LLM 은 기억이 없다.</strong> 매 호출은 완전히 독립적이다.
+  “아까 시트 목록을 봤잖아”가 성립하려면, <strong>그 대화 전체를 매번 다시 보내야 한다.</strong>
+  에이전트의 ‘기억’은 모델 안이 아니라 <em>우리 쪽 메시지 리스트</em>에 있다.</p>
+</div>
+
+<p>그래서 LLM 호출 한 번은 이렇게 생겼다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="flow">
+      <div class="node agent" style="flex:1 1 100%">
+        <span class="t">보내는 것 (INPUT)</span>
+        <span class="d">
+          ① <strong>메시지 리스트</strong> — <code>[system, human, ai, tool, ai, tool, …]</code> 지금까지의 전부<br>
+          ② <strong>도구 정의</strong> — 이름·설명·인자 JSON 스키마. 매 호출마다 통째로 다시 보낸다<br>
+          ③ 샘플링 파라미터 — 온도, 컨텍스트 크기(<code>num_ctx</code>) 등
+        </span>
+      </div>
+    </div>
+    <div class="arrowdown">▼</div>
+    <div class="flow">
+      <div class="node" style="flex:1 1 100%">
+        <span class="t">받는 것 (OUTPUT) — 둘 중 하나다</span>
+        <span class="d">
+          ⓐ <strong>도구 호출</strong> — <code>tool_calls=[{name:"read_range", args:{...}}]</code>, 본문 텍스트는 대개 빈 문자열<br>
+          ⓑ <strong>최종 답변</strong> — 도구 호출이 없는 평범한 텍스트. 이것이 곧 <em>루프 종료 신호</em>다
+        </span>
+      </div>
+    </div>
+  </div>
+  <figcaption>“도구를 실행”하는 것은 모델이 아니다. 모델은 <strong>이름과 인자를 말할 뿐</strong>이고,
+  실제 실행은 우리 코드가 한다. 그리고 그 결과를 다시 메시지로 붙여 <em>또 한 번</em> 모델을 부른다.</figcaption>
+</figure>
+
+<div class="callout def">
+  <span class="tag">알아둘 용어 다섯</span>
+  <p><strong>토큰</strong> — 모델이 세는 글자 단위. 영어는 대략 4자에 1토큰, 한글은 글자당 1~3토큰이라 <em>훨씬 비싸다</em>.<br>
+  <strong>컨텍스트 윈도</strong> — 한 번에 넣을 수 있는 토큰 상한. 넘치면 잘린다.<br>
+  <strong>도구(tool) 호출</strong> — 모델이 “이 함수를 이 인자로 불러줘”라고 <em>구조화된 형식으로</em> 말하는 능력.<br>
+  <strong>ReAct 루프</strong> — 생각→도구 호출→관찰을 모델이 스스로 멈출 때까지 반복하는 구조.<br>
+  <strong>그래프</strong> — 그 반복을 노드와 엣지로 표현한 것. LangGraph 가 실행을 맡는다.</p>
+</div>
+
+<h3 id="bg-graphs">1.2 이 저장소의 그래프는 둘이다</h3>
+
+<p>헷갈리기 쉬운 지점이라 먼저 갈라놓는다. 이름은 둘 다 “그래프”지만 성격이 정반대다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:14%"></th><th style="width:41%">채팅 그래프<br><code>app/graph/builder.py</code></th><th>에이전트 그래프<br><code>create_react_agent</code> (라이브러리 제공)</th></tr>
+  <tr><td><strong>모양</strong></td><td><code>START → chat → END</code> — 노드 하나, 루프 없음</td><td><code>agent ⇄ tools</code> — 조건부 엣지로 도는 루프</td></tr>
+  <tr><td><strong>도구</strong></td><td>없음. 순수 대화</td><td>7종(엑셀 6 + <code>submit_layout</code>)</td></tr>
+  <tr><td><strong>메모리</strong></td><td><strong>있다.</strong> SQLite 체크포인터가 <code>thread_id=session_id</code> 로 턴을 이어붙인다</td><td><strong>없다.</strong> 매 호출이 빈 상태에서 시작해 그 자리에서 끝난다</td></tr>
+  <tr><td><strong>수명</strong></td><td>세션 단위(며칠도 이어짐)</td><td><strong>시트 하나 분석 동안만.</strong> 끝나면 메시지 전부 버려진다</td></tr>
+  <tr><td><strong>부르는 곳</strong></td><td><code>POST /api/sessions/{id}/chat</code></td><td><code>discover_layout()</code> · <code>run_excel_agent()</code></td></tr>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="tag">지금 둘은 연결돼 있지 않다</span>
+  <p>채팅에서 “이 금형 불량율 알려줘”라고 물어도 엑셀 에이전트가 돌지 않는다.
+  수집은 <code>POST /api/ingest/run</code> 이 직접 부른다. 이 문서의 주인공은 <strong>에이전트 그래프</strong> 쪽이다.</p>
+</div>
+
+<div class="qmemo" data-qid="bg-two-graphs" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">두 그래프의 차이에서 헷갈리는 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="intuition">2. 직관 — 매 턴 무엇이 오가는가</h2>
+
+<h3 id="in-tape">2.1 메시지 테이프: 고정 비용 + 자라는 꼬리</h3>
+
+<p>말로 설명하는 대신 실제 로그를 보자. 아래는 <code>기준정보</code> 시트 하나를 분석한 <strong>진짜 실행</strong>이다
+(2026-07-29 21:32, <code>llm_calls.log</code>). 각 줄이 LLM 호출 한 번이고, <code>INPUT (n messages)</code> 가 로그에 그대로 찍혀 있다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="taperow">
+      <span class="lbl">1번 호출<br><span style="font-size:.9em">18,055ms</span></span>
+      <div class="tape">
+        <div class="msg sys"><b>system</b>프롬프트<br>2,651자</div>
+        <div class="msg hum"><b>human</b>“구조를 파악해<br>제출하라”</div>
+      </div>
+      <span style="color:var(--agent);font-size:.78rem;font-weight:700">→ sheet_outline(“기준정보”)</span>
+    </div>
+    <div class="taperow">
+      <span class="lbl">2번 호출<br><span style="font-size:.9em">6,771ms</span></span>
+      <div class="tape">
+        <div class="msg sys"><b>system</b>동일</div>
+        <div class="msg hum"><b>human</b>동일</div>
+        <div class="msg ai new"><b>ai</b>tool_call</div>
+        <div class="msg tool new"><b>tool</b>윤곽 결과</div>
+      </div>
+      <span style="color:var(--agent);font-size:.78rem;font-weight:700">→ read_range(“B2:K8”)</span>
+    </div>
+    <div class="taperow">
+      <span class="lbl">3번 호출<br><span style="font-size:.9em">17,534ms</span></span>
+      <div class="tape">
+        <div class="msg sys"><b>system</b>동일</div>
+        <div class="msg hum"><b>human</b>동일</div>
+        <div class="msg ai"><b>ai</b>tool_call</div>
+        <div class="msg tool"><b>tool</b>윤곽 결과</div>
+        <div class="msg ai new"><b>ai</b>tool_call</div>
+        <div class="msg tool new"><b>tool</b>격자 표</div>
+      </div>
+      <span style="color:var(--agent);font-size:.78rem;font-weight:700">→ submit_layout(…)</span>
+    </div>
+    <div class="taperow">
+      <span class="lbl">4번 호출<br><span style="font-size:.9em">9,133ms</span></span>
+      <div class="tape">
+        <div class="msg sys"><b>system</b>동일</div>
+        <div class="msg hum"><b>human</b>동일</div>
+        <div class="msg ai"><b>ai</b>tool_call</div>
+        <div class="msg tool"><b>tool</b>윤곽</div>
+        <div class="msg ai"><b>ai</b>tool_call</div>
+        <div class="msg tool"><b>tool</b>격자</div>
+        <div class="msg ai new"><b>ai</b>tool_call</div>
+        <div class="msg tool new"><b>tool</b>“접수했다”</div>
+      </div>
+      <span style="color:#1f6b41;font-size:.78rem;font-weight:700">→ “완료” (루프 종료)</span>
+    </div>
+    <div class="legend">
+      <span><i style="border-color:var(--sys);background:var(--sys-bg)"></i> system — 매번 그대로 재전송</span>
+      <span><i style="border-color:var(--hum);background:var(--hum-bg)"></i> human — 매번 그대로 재전송</span>
+      <span><i style="border-color:var(--agent);background:var(--agent-bg)"></i> ai — 모델의 출력</span>
+      <span><i style="border-color:var(--pure);background:var(--pure-bg)"></i> tool — 우리 코드의 실행 결과</span>
+      <span><i style="border-color:#d69e2e;background:#fff;border-style:dashed"></i> 이번에 새로 붙은 것</span>
+    </div>
+  </div>
+  <figcaption>메시지 수가 <strong>2 → 4 → 6 → 8</strong> 로 자란다. 한 바퀴마다 정확히 2개(모델의 tool_call + 도구 결과)가 붙는다.
+  로그 전체 112회 호출의 메시지 수 분포도 짝수만 나온다: 2가 20회, 4가 20회, 6이 20회, 8이 20회, … 최대 24.</figcaption>
+</figure>
+
+<div class="callout key">
+  <span class="tag">이 그림에서 하나만 기억한다면</span>
+  <p><strong>앞쪽 메시지는 사라지지 않는다. 매 호출마다 처음부터 전부 다시 전송된다.</strong><br>
+  4번째 호출은 1번째보다 4배 가까이 긴 입력을 보낸다. 그래서 루프를 한 바퀴 아끼는 것은
+  “LLM 호출 1회”가 아니라 “점점 커지는 입력 1회”를 아끼는 일이다.</p>
+</div>
+
+<h3 id="in-budget">2.2 컨텍스트 예산 (실측 7.5KB 고정)</h3>
+
+<p>그렇다면 “고정 비용”은 정확히 얼마일까? 코드에서 직접 뽑아봤다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:34%">매 호출에 반드시 들어가는 것</th><th style="width:16%">크기</th><th>비고</th></tr>
+  <tr><td>도구 스키마 <code>submit_layout</code></td><td>3,120자</td><td>중첩 Pydantic 모델 4개가 펼쳐진다. <strong>전체의 64%</strong></td></tr>
+  <tr><td>도구 스키마 엑셀 6종</td><td>1,772자</td><td><code>aggregate</code> 374 · <code>read_range</code> 318 · <code>sheet_outline</code> 313 …</td></tr>
+  <tr><td>시스템 프롬프트 <code>_BASE_PROMPT</code></td><td>2,033자</td><td>절차 5단계 + 작성 규칙</td></tr>
+  <tr><td><code>FIELD_GUIDE[kind]</code></td><td>529~672자</td><td>종류마다 다름 (ees 가 가장 김)</td></tr>
+  <tr class="hl"><td><strong>합계 (메시지 0개일 때)</strong></td><td><strong>약 7,500자</strong></td><td>여기에 대화 히스토리가 얹힌다</td></tr>
+</table>
+</div>
+
+<figure>
+  <div class="frame">
+    <div class="budget">
+      <div class="blabel" style="margin-bottom:5px;font-weight:700">num_ctx = 16384 (현재 설정)</div>
+      <div class="bar">
+        <div class="b-tool" style="width:30%">도구 스키마 4,892자</div>
+        <div class="b-sys" style="width:16%">프롬프트 2,6xx</div>
+        <div class="b-hist" style="width:26%">대화 히스토리(자람)</div>
+        <div class="b-free" style="width:28%">여유</div>
+      </div>
+      <div class="blabel">도구 정의만으로 이미 3분의 1 가까이 쓴다. 남은 자리를 격자 텍스트가 채운다.</div>
+    </div>
+    <div class="budget" style="margin-top:22px">
+      <div class="blabel" style="margin-bottom:5px;font-weight:700;color:var(--danger)">num_ctx = 4096 (Ollama 런타임 기본값 — 명시하지 않으면 이것으로 서빙된다)</div>
+      <div class="bar">
+        <div class="b-tool" style="width:100%">도구 스키마 4,892자 ▸ 이미 넘침</div>
+      </div>
+      <div class="blabel" style="color:var(--danger)">앞부분이 <strong>에러 없이</strong> 잘린다. 거기 도구 정의가 있으면 모델은 어떤 도구도 못 부르고 빈 응답을 돌려준다.</div>
+    </div>
+  </div>
+  <figcaption><code>config.py</code> 의 <code>ollama_num_ctx: int = 16384</code> 주석은
+  “수집 에이전트는 도구 6종 스키마만으로도 4천 자를 넘겨 실제로 이 방식으로 조용히 실패했다”고 적고 있다.
+  실측 4,892자가 그 서술과 맞는다.</figcaption>
+</figure>
+
+<div class="callout trap">
+  <span class="tag">컨텍스트 초과는 예외를 던지지 않는다</span>
+  <p>이 종류의 실패가 특히 나쁜 이유는 <strong>아무도 오류를 보고하지 않는다</strong>는 데 있다.
+  Ollama 는 넘치는 앞부분을 조용히 버리고 남은 것으로 답한다. 호출자가 보는 것은
+  “빈 응답” 또는 “도구를 안 부르고 아무 말이나 하는 모델”뿐이라, 원인을 프롬프트 품질로 오해하기 쉽다.
+  <strong>도구를 늘리거나 프롬프트를 늘릴 때는 <code>num_ctx</code> 를 함께 올려야 한다.</strong></p>
+</div>
+
+<div class="qmemo" data-qid="in-context-budget" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">컨텍스트 예산 그림에서 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="in-cost">2.3 루프 한 바퀴의 진짜 비용</h3>
+
+<p>로그 전체(112회 LLM 호출, 90회 도구 실행)를 집계하면 이 시스템의 성능 구조가 한눈에 드러난다.</p>
+
+<div class="stat">
+  <div><span class="v llm">112회</span><span class="n">LLM 호출</span></div>
+  <div><span class="v llm">2,104초</span><span class="n">LLM 총 대기 (35분)</span></div>
+  <div><span class="v llm">18.8초</span><span class="n">평균 호출당 (최대 238초)</span></div>
+  <div><span class="v tool">90회</span><span class="n">도구 실행</span></div>
+  <div><span class="v tool">1.87초</span><span class="n">도구 총 시간</span></div>
+  <div><span class="v tool">21ms</span><span class="n">평균 도구당</span></div>
+</div>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 700 130" role="img" aria-label="LLM 대기 시간이 도구 실행 시간의 1000배임을 보여주는 막대 비교">
+      <text x="10" y="22" font-size="12.5" font-weight="700" fill="#8c2f52">LLM 대기</text>
+      <rect x="105" y="10" width="580" height="26" rx="4" fill="#b4436c"/>
+      <text x="395" y="28" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">2,104초 · 전체의 99.91%</text>
+
+      <text x="10" y="70" font-size="12.5" font-weight="700" fill="#155f5f">도구 실행</text>
+      <rect x="105" y="58" width="1.6" height="26" rx="1" fill="#1f7a7a"/>
+      <text x="118" y="76" font-size="12" fill="#155f5f">1.87초 · 0.09% (막대가 거의 안 보인다)</text>
+
+      <text x="105" y="112" font-size="11.5" fill="#8a8479">엑셀을 읽는 일(COM 왕복)은 21ms 다. 기다리는 것은 언제나 모델이다.</text>
+    </svg>
+  </div>
+  <figcaption>이 비율이 이 시스템의 모든 설계 결정을 설명한다 — <strong>앵커 캐시, 윤곽 접기, 되돌려보내기 횟수 제한</strong>은
+  전부 “LLM 호출 횟수와 입력 길이를 줄이려는” 장치다. 도구를 최적화할 이유는 없다.</figcaption>
+</figure>
+
+<hr class="sep">
+
+<h2 id="impl">3. 구현 — 여섯 개의 관점</h2>
+
+<h3 id="im-input">3.1 INPUT: 한 호출의 정확한 구성</h3>
+
+<p>입력을 만드는 코드는 놀랍도록 짧다. <code>discover_layout()</code> 의 핵심이 이것뿐이다.</p>
+
+<figure>
+  <div class="frame">
+<pre>prompt   = _BASE_PROMPT + <span class="s">"\n"</span> + FIELD_GUIDE[kind]        <span class="c"># ← 시스템 메시지</span>
+question = (
+    <span class="s">f"시트 '{sheet_name}' 의 구조를 파악해 submit_layout 으로 제출하라. "</span>
+    <span class="s">f"sheet_name 은 정확히 '{sheet_name}' 로 적어라."</span>          <span class="c"># ← 사람 메시지</span>
+)
+run_config = {<span class="s">"recursion_limit"</span>: <span class="n">40</span>, **(config <span class="k">or</span> {})}
+
+agent.invoke(
+    {<span class="s">"messages"</span>: [
+        SystemMessage(content=prompt),
+        HumanMessage(content=question),
+    ]},
+    config=run_config,
+)</pre>
+  </div>
+  <figcaption>메시지 두 개로 시작한다. 나머지 <code>ai</code>/<code>tool</code> 메시지는 그래프가 루프를 돌며 스스로 붙인다.</figcaption>
+</figure>
+
+<p>그리고 이것이 로그에 실제로 남은 모습이다. 사람이 읽을 수 있게 <code>DebugCallbackHandler</code> 가
+<code>on_chat_model_start</code> / <code>on_llm_end</code> 를 받아 블록으로 찍는다.</p>
+
+<figure>
+  <div class="frame">
+<pre class="log">================================================================================
+[2026-07-29 21:32:25.570] script=ingest node=agent run=019faddc
+<span class="hi">--- INPUT (2 messages) ---</span>
+<span class="sys">[system]</span> 너는 엑셀 시트의 구조를 파악하는 분석가다.
+목표는 이 시트에서 데이터를 기계적으로 뽑을 수 있는 '레이아웃'을 알아내는 것이다.
+   … (2,651자) …
+<span class="hum">[human]</span> 시트 '기준정보' 의 구조를 파악해 submit_layout 으로 제출하라.
+        sheet_name 은 정확히 '기준정보' 로 적어라.
+
+<span class="hi">--- OUTPUT (18055ms) ---</span>
+<span class="ai">[ai]</span>
+  ↳ tool_call: sheet_outline({'sheet': '기준정보'})
+================================================================================
+[2026-07-29 21:32:25.592] script=ingest node=tools run=019faddc
+--- TOOL RESULT: sheet_outline (19ms) ---
+<span class="tool">content='      2  10칸  B~K  B=Shop명 · C=Line Group명 · D=Line명 …'</span>
+================================================================================</pre>
+  </div>
+  <figcaption>블록 헤더의 <code>node=agent</code> / <code>node=tools</code> 가 곧 그래프의 어느 노드인지를 알려준다.
+  <code>script=ingest</code> 는 <code>debug_run_config("ingest", settings)</code> 가 심은 메타데이터다 —
+  웹 채팅과 예제 스크립트가 같은 로그 파일을 공유하므로 구분자가 필요하다.</figcaption>
+</figure>
+
+<div class="callout def">
+  <span class="tag">관측이 설계를 이끈다</span>
+  <p>이 로깅은 곁다리가 아니다. <strong>프롬프트를 다듬을 때 유일한 근거</strong>다.
+  <code>on_tool_error</code> 까지 굳이 구현한 이유도 같다 — ReAct 에이전트는 도구 실패를
+  <code>ToolMessage</code> 로 바꿔 계속 진행하므로, <em>최종 답변만 봐서는 중간 실패가 드러나지 않는다.</em></p>
+</div>
+
+<h3 id="im-prompt">3.2 PROMPT: 두 조각의 합성과 규칙의 내력</h3>
+
+<p>시스템 프롬프트는 <strong>공통 절차</strong>와 <strong>종류별 어휘</strong>의 합이다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="flow" style="flex-direction:column">
+      <div class="node"><span class="t">_BASE_PROMPT (2,033자) — 모든 종류 공통</span>
+        <span class="d">권장 절차 5단계 · 레이아웃 작성 규칙 7개 · 제출 직전 자가검산 지시 · 종료 지시</span></div>
+      <div class="arrowdown">＋</div>
+      <div class="node"><span class="t">FIELD_GUIDE[kind] (529~672자) — 종류마다 다름</span>
+        <span class="d">“이 시트는 무엇인가” + 고정 필드 영문 이름 + <strong>실물 헤더 문구와의 짝짓기</strong></span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node agent"><span class="t">SystemMessage (약 2,600자)</span>
+        <span class="d">매 호출마다 통째로 재전송된다</span></div>
+    </div>
+  </div>
+  <figcaption><code>FIELD_GUIDE</code> 에 없는 종류로 부르면 즉시 <code>ValueError</code> 다.
+  어휘 안내 없이 돌리면 모델이 필드명을 지어내고, <code>assemble</code> 이 그 이름을 모르니
+  <strong>파싱은 되고 쓰이지는 않는</strong> 조용한 실패가 된다.</figcaption>
+</figure>
+
+<h4>규칙 하나하나에 실패의 내력이 있다</h4>
+
+<p>프롬프트를 읽다 보면 이상하리만치 구체적인 문장들이 나온다. 전부 <strong>실제로 당한 뒤 추가된</strong> 것이다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:44%">프롬프트의 문장</th><th>막으려는 실패</th></tr>
+  <tr><td>“<strong>sheet_outline 을 먼저 호출한다.</strong>”</td>
+      <td>모델이 <code>read_range</code> 로 시작하면 30행까지만 보여 33행부터 시작하는 표를 통째로 놓친다</td></tr>
+  <tr><td>“‘16칸’은 값이 있는 칸 수, ‘B~U’는 <strong>그 값들이 걸쳐 있는 열 범위</strong>, 그 뒤는 앞쪽 4칸의 미리보기<strong>일 뿐</strong>이다”</td>
+      <td>미리보기에 안 보이는 열을 “없다”고 판단하는 것. 실물에서 20열 표를 J 로 찍어 K 이후를 존재조차 모른 채 지나갔다</td></tr>
+  <tr><td>“<strong>오른쪽 끝은 윤곽이 알려준 열 범위를 그대로 쓴다.</strong> 위 예라면 <code>B33:U41</code> 이다”</td>
+      <td>범위를 찍어서 좁게 자르는 것. 구체적 예시까지 준 이유는 추상 규칙만으로는 안 지켜졌기 때문</td></tr>
+  <tr><td>“<strong>읽은 표를 윤곽과 대조하라.</strong> 16칸이라는데 4개만 보인다면 범위 바깥이다”</td>
+      <td>자가검증 절차를 아예 프롬프트에 심었다 — 모델이 스스로 “덜 읽었다”를 알아채게</td></tr>
+  <tr><td>“쓸모없어 보이거나 값이 비어 보인다고 빼지 마라”</td>
+      <td>빈 열을 생략하는 것. 빠뜨린 열의 값은 그 뒤 어디에도 나타나지 않는다</td></tr>
+  <tr><td>“<code>data_end_row</code> 는 … 없으면 <strong>null 로 둬라</strong>”</td>
+      <td>숫자가 박히면 그 아래 새 행이 영원히 안 읽힌다 (2편의 S5 함정)</td></tr>
+  <tr><td>“데이터 값이 아니라 <strong>헤더 텍스트</strong>를 골라라 — 데이터는 행이 추가되면 바뀐다”</td>
+      <td>앵커로 데이터 셀을 고르면 행이 하나 늘 때마다 캐시가 깨진다</td></tr>
+  <tr><td>“그 뒤에는 더 이상 도구를 부르지 말고 <strong>‘완료’ 라고만 답하라</strong>”</td>
+      <td>종료 조건을 명시적으로 준다. 이게 없으면 모델이 계속 도구를 부르다 <code>recursion_limit</code> 에 걸린다</td></tr>
+</table>
+</div>
+
+<div class="callout real">
+  <span class="tag">실측: 마지막 규칙은 완벽히 지켜지지 않는다</span>
+  <p>로그를 보면 <code>#RX39513</code> 시트에서 모델이 <strong><code>submit_layout</code> 을 두 번 연속 호출</strong>했다
+  (메시지 8개 → 10개). 첫 번째가 이미 “접수했다”를 받았는데도 한 번 더 불렀다.
+  프롬프트로 종료를 <em>요청</em>할 수는 있어도 <em>강제</em>할 수는 없다는 뜻이고, 그래서
+  <code>recursion_limit</code> 같은 하드 상한이 별도로 필요하다.</p>
+</div>
+
+<div class="qmemo" data-qid="im-prompt-rules" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">프롬프트 규칙 중 “왜 이렇게 썼지?” 싶은 문장이 있으면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="im-schema">3.3 숨은 프롬프트: 도구 스키마</h3>
+
+<p>여기가 이 저장소에서 가장 영리한 부분이고, 동시에 가장 놓치기 쉬운 부분이다.</p>
+
+<div class="callout key">
+  <span class="tag">핵심</span>
+  <p><strong>Pydantic 모델의 <code>description</code> 은 주석이 아니라 프롬프트다.</strong>
+  <code>args_schema=SheetLayout</code> 로 붙는 순간, 그 설명문이 JSON 스키마가 되어 모델에게 그대로 전달된다.</p>
+</div>
+
+<p><code>ColumnMap</code> 의 docstring 이 이 사실을 직접 말하고 있다.</p>
+
+<figure>
+  <div class="frame">
+<pre><span class="k">class</span> ColumnMap(BaseModel):
+    <span class="s">"""표의 한 열이 어느 필드에 해당하는지.</span>
+
+<span class="s">    description 이 붙어 있는 이유: 이 계열 모델은 submit_layout 도구의 인자</span>
+<span class="s">    스키마가 되고, <b>에이전트는 Python 주석이 아니라 JSON 스키마만 본다.</b></span>
+<span class="s">    설명이 없으면 필드명과 타입만 보고 관례를 추측한다.</span>
+<span class="s">    """</span>
+    field: str = Field(description=<span class="s">"고정 어휘(mold_no 등) 또는 헤더 텍스트 그대로"</span>)
+    column: str = Field(description=<span class="s">'열 문자. 예: "C"'</span>)</pre>
+  </div>
+  <figcaption>모델이 실제로 받는 JSON 스키마는 <strong>5,314자</strong>이고, 위 문장들이 그 안에 문자열로 들어간다.</figcaption>
+</figure>
+
+<p>변환된 결과의 일부를 보면 감이 온다. <code>AnchorCheck</code> 의 클래스 docstring까지 <code>description</code> 으로 실려 나간다.</p>
+
+<figure>
+  <div class="frame">
+<pre>{
+  <span class="s">"$defs"</span>: {
+    <span class="s">"AnchorCheck"</span>: {
+      <span class="s">"description"</span>: <span class="s">"'여기에 이 텍스트가 있으면 같은 양식이다.'\n\n에이전트가 직접 지목한다 — …"</span>,
+      <span class="s">"properties"</span>: {
+        <span class="s">"cell"</span>: {<span class="s">"description"</span>: <span class="s">"확인할 셀 주소. 예: \"B4\""</span>, <span class="s">"type"</span>: <span class="s">"string"</span>},
+        <span class="s">"text"</span>: {<span class="s">"description"</span>: <span class="s">"그 셀에 있어야 하는 텍스트. 행이 추가돼도 안 바뀌는 </span>
+<span class="s">                              **헤더 텍스트**를 골라라 — 데이터 값은 안 된다"</span>, …}
+      },
+      <span class="s">"required"</span>: [<span class="s">"cell"</span>, <span class="s">"text"</span>]
+    },
+    <span class="s">"ColumnMap"</span>: { … }, <span class="s">"KeyValueItem"</span>: { … }, <span class="s">"TableBlock"</span>: { … }
+  }, …
+}</pre>
+  </div>
+  <figcaption>그래서 스키마를 손보는 것은 <strong>프롬프트를 손보는 것</strong>과 같다.
+  필드를 하나 추가하면 컨텍스트 예산도 그만큼 줄어든다 — <code>submit_layout</code> 하나가 도구 전체 스키마의 64%다.</figcaption>
+</figure>
+
+<h4>왜 JSON 을 텍스트로 받지 않는가</h4>
+
+<p>“마지막에 JSON 을 출력해줘”라고 시키는 방법도 있다. 이 저장소가 그렇게 하지 않는 이유는 세 가지다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:32%">텍스트로 JSON 을 받으면</th><th>도구 인자로 받으면</th></tr>
+  <tr><td>코드 블록·설명문이 섞여 파싱이 깨진다</td><td>구조화된 <code>args</code> 로 도착한다 — 파싱 자체가 없다</td></tr>
+  <tr><td>타입/필수값 검증을 직접 짜야 한다</td><td><strong>Pydantic 이 검증한다.</strong> 틀리면 <code>ToolNode</code> 가 에러를 메시지로 되돌려 모델이 스스로 고친다</td></tr>
+  <tr><td>모델이 언제 끝났는지 애매하다</td><td><strong>도구 호출이 곧 종료 신호</strong>다 — 호출됐으면 <code>holder</code> 에 결과가 담긴다</td></tr>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="tag">결과를 반환값이 아니라 클로저로 받는 이유</span>
+  <p><code>discover_layout</code> 은 그래프의 반환값을 쓰지 않는다. <code>_make_submit_tool(holder, …)</code> 의
+  <code>holder</code> dict 에 담긴 것을 꺼낸다. <strong>검증이 통과한 그 시점의 Pydantic 인스턴스를 그대로 붙잡기 위해서</strong>다 —
+  그래프 반환값에서 다시 파싱하면 같은 실수를 반복하게 된다.</p>
+</div>
+
+<h3 id="im-output">3.4 OUTPUT: 파싱하지 않고 검증한다</h3>
+
+<p>모델이 실제로 뱉은 것을 보자. 아래는 로그에서 그대로 꺼낸 <code>기준정보</code> 시트의 최종 제출(729자)이다.</p>
+
+<figure>
+  <div class="frame">
+<pre class="log">↳ tool_call: submit_layout({
+  <span class="s">'anchors'</span>: [{<span class="s">'cell'</span>: <span class="s">'G2'</span>, <span class="s">'text'</span>: <span class="s">'JIG ID'</span>},
+               {<span class="s">'cell'</span>: <span class="s">'H2'</span>, <span class="s">'text'</span>: <span class="s">'JIG명'</span>},
+               {<span class="s">'cell'</span>: <span class="s">'J2'</span>, <span class="s">'text'</span>: <span class="s">'설비코드'</span>}],
+  <span class="s">'key_values'</span>: [],
+  <span class="s">'notes'</span>: <span class="s">"시트 '기준정보'는 JIG의 기준 정보를 담고 있는 상세 데이터 테이블입니다. 모든 열을 포함했습니다."</span>,
+  <span class="s">'sheet_name'</span>: <span class="s">'기준정보'</span>,
+  <span class="s">'tables'</span>: [{
+     <span class="s">'name'</span>: <span class="s">'설비/금형 기준 정보 매핑 테이블'</span>, <span class="s">'role'</span>: <span class="s">'detail'</span>,
+     <span class="s">'header_rows'</span>: [<span class="n">2</span>], <span class="s">'data_start_row'</span>: <span class="n">3</span>, <span class="hi">'data_end_row': 8</span>,
+     <span class="s">'columns'</span>: [{<span class="s">'column'</span>: <span class="s">'B'</span>, <span class="s">'field'</span>: <span class="s">'Shop명'</span>}, {<span class="s">'column'</span>: <span class="s">'C'</span>, <span class="s">'field'</span>: <span class="s">'Line Group명'</span>},
+                 {<span class="s">'column'</span>: <span class="s">'D'</span>, <span class="s">'field'</span>: <span class="s">'line'</span>}, … {<span class="s">'column'</span>: <span class="s">'G'</span>, <span class="s">'field'</span>: <span class="s">'mold_no'</span>},
+                 {<span class="s">'column'</span>: <span class="s">'J'</span>, <span class="s">'field'</span>: <span class="s">'equipment_code'</span>}, {<span class="s">'column'</span>: <span class="s">'K'</span>, <span class="s">'field'</span>: <span class="s">'equipment'</span>}]
+  }]
+})</pre>
+  </div>
+  <figcaption>고정 어휘(<code>line</code>·<code>mold_no</code>·<code>equipment_code</code>)와 헤더 텍스트 그대로인 필드(<code>Shop명</code>·<code>Line Group명</code>)가
+  섞여 있다 — 프롬프트가 요구한 그대로다.</figcaption>
+</figure>
+
+<div class="callout trap">
+  <span class="tag">노란 줄을 보라</span>
+  <p><code>'data_end_row': 8</code> — 프롬프트가 “없으면 null 로 둬라”라고 했는데도 모델이 숫자를 박았다.
+  이 레이아웃이 캐시에 저장되면, 기준정보에 <strong>7번째 금형을 추가해도 그 행은 영원히 안 읽힌다</strong>.
+  2편에서 “조용히 반영되지 않는 유일한 경우”로 다룬 S5 함정의 <em>실물 증거</em>다.</p>
+  <p>지금 <code>molds.db</code> 의 <code>jig_master</code> 레이아웃도 <code>data_end_row=8</code> 이다.</p>
+</div>
+
+<h3 id="im-graph">3.5 GRAPH: 노드 둘, 조건부 엣지 하나</h3>
+
+<p><code>create_react_agent(model, tools)</code> 가 만들어주는 그래프는 아주 단순하다.</p>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 700 270" role="img" aria-label="agent 노드와 tools 노드가 조건부 엣지로 순환하는 ReAct 그래프">
+      <defs><marker id="g1" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#8a8479"/></marker></defs>
+
+      <circle cx="60" cy="60" r="22" fill="#edf0f4" stroke="#4a5568" stroke-width="1.6"/>
+      <text x="60" y="65" text-anchor="middle" font-size="11" font-weight="700" fill="#37404f">START</text>
+      <path d="M84,60 L156,60" stroke="#8a8479" stroke-width="1.6" marker-end="url(#g1)"/>
+      <text x="120" y="50" text-anchor="middle" font-size="10" fill="#8a8479">메시지 2개</text>
+
+      <rect x="158" y="30" width="180" height="62" rx="10" fill="#fceef3" stroke="#b4436c" stroke-width="2"/>
+      <text x="248" y="55" text-anchor="middle" font-size="14" font-weight="700" fill="#8c2f52">agent</text>
+      <text x="248" y="74" text-anchor="middle" font-size="10.5" fill="#8c2f52">LLM 호출 · 평균 18.8초</text>
+
+      <path d="M338,45 C400,20 460,20 512,45" fill="none" stroke="#b4436c" stroke-width="1.8" marker-end="url(#g1)"/>
+      <text x="425" y="18" text-anchor="middle" font-size="10.5" fill="#8c2f52">tool_calls 가 있으면</text>
+
+      <rect x="514" y="30" width="160" height="62" rx="10" fill="#e5f4f4" stroke="#1f7a7a" stroke-width="2"/>
+      <text x="594" y="55" text-anchor="middle" font-size="14" font-weight="700" fill="#155f5f">tools</text>
+      <text x="594" y="74" text-anchor="middle" font-size="10.5" fill="#155f5f">우리 코드 실행 · 21ms</text>
+
+      <path d="M512,80 C460,108 400,108 340,80" fill="none" stroke="#1f7a7a" stroke-width="1.8" marker-end="url(#g1)"/>
+      <text x="425" y="118" text-anchor="middle" font-size="10.5" fill="#155f5f">ToolMessage 를 붙여 무조건 되돌아온다</text>
+
+      <path d="M248,94 L248,150" stroke="#8a8479" stroke-width="1.6" marker-end="url(#g1)"/>
+      <text x="258" y="126" font-size="10.5" fill="#8a8479">tool_calls 가 없으면</text>
+      <circle cx="248" cy="174" r="22" fill="#edf0f4" stroke="#4a5568" stroke-width="1.6"/>
+      <text x="248" y="179" text-anchor="middle" font-size="11" font-weight="700" fill="#37404f">END</text>
+
+      <rect x="330" y="150" width="345" height="72" rx="9" fill="#fdf6e7" stroke="#b7791f" stroke-width="1.5"/>
+      <text x="345" y="170" font-size="11.5" font-weight="700" fill="#8a5b12">종료 조건은 셋뿐이다</text>
+      <text x="345" y="188" font-size="10.5" fill="#96631a">① 모델이 도구를 안 부른다 (정상 종료)</text>
+      <text x="345" y="204" font-size="10.5" fill="#96631a">② recursion_limit=40 초과 → GraphRecursionError</text>
+      <text x="345" y="220" font-size="10.5" fill="#96631a">③ 예외 (도구 실패는 여기 해당하지 않는다 — 메시지로 흡수된다)</text>
+
+      <text x="20" y="250" font-size="11" fill="#8a8479">tools 노드는 <tspan font-weight="700">항상</tspan> agent 로 돌아간다 — 조건부 엣지는 agent 쪽에만 있다. 그래서 “도구를 부르는 한 루프는 계속된다”.</text>
+    </svg>
+  </div>
+  <figcaption>이 구조 덕분에 도구 실패도 대화가 된다: <code>ToolNode</code> 가 예외를 <code>repr(e)</code> 로 감싼
+  <code>ToolMessage</code> 로 바꿔 넣으면, 모델이 그 에러 문장을 읽고 인자를 고쳐 다시 부른다.</figcaption>
+</figure>
+
+<div class="callout def">
+  <span class="tag">이 구조가 예외 메시지의 길이를 정한다</span>
+  <p><code>workbook.py</code> 의 <code>WorkbookOperationError</code> 는 메시지를 <strong>250자로 자른다.</strong>
+  다섯 조회 메서드 중 유일하게 이 예외만 <code>ToolNode</code> 를 거쳐 <em>LLM 프롬프트에 그대로 들어가기</em> 때문이다.
+  전체 traceback 은 <code>exc.add_note(...)</code> 로만 붙인다 — <code>repr(e)</code> 에는 note 가 포함되지 않으므로
+  프롬프트는 짧고, 로그를 보는 사람은 전체 정보를 얻는다.</p>
+</div>
+
+<h3 id="im-loop">3.6 LOOP: 네 겹의 루프와 각각의 상한</h3>
+
+<p>“루프”라고 뭉뚱그리기 쉽지만, 실제로는 <strong>서로 다른 네 개</strong>가 중첩돼 있다. 안쪽부터 바깥으로.</p>
+
+<figure>
+  <div class="frame">
+    <div class="loopbox l1">
+      <div class="lh"><span>① 파일 루프 — <code>pipeline.run_ingest</code></span><span class="cap">상한 없음 · 파일 수만큼</span></div>
+      <div class="loopbox l2">
+        <div class="lh"><span>② 시트 루프 — <code>_read_file</code></span><span class="cap">상한 없음 · 워크북의 시트 수만큼</span></div>
+        <div class="loopbox l3">
+          <div class="lh"><span>③ ReAct 루프 — <code>create_react_agent</code></span><span class="cap"><strong>recursion_limit = 40</strong></span></div>
+          <div class="loopbox l4">
+            <div class="lh"><span>④ 되돌려보내기 루프 — <code>submit_layout</code></span><span class="cap"><strong>_MAX_SUBMIT_REJECTIONS = 2</strong></span></div>
+            <div style="font-size:.84rem;color:var(--ink-soft);line-height:1.6">
+              제출 → <code>find_layout_gaps</code> 검증 → 빈틈이 있으면 문자열로 되돌려보냄 → 모델이 고쳐 재제출.<br>
+              <strong>3번째부터는 빈틈이 있어도 그냥 접수한다</strong> — 못 맞추는 모델이 걸렸을 때 왕복만 하다
+              <code>recursion_limit</code> 에 걸려 레이아웃을 <em>하나도</em> 못 얻는 것보다, 몇 열 빠진 레이아웃이 낫다.
+            </div>
+          </div>
+          <div style="font-size:.84rem;color:var(--ink-soft);margin-top:8px;line-height:1.6">
+            <strong>+ 별도의 재시도 1회:</strong> 캐시된 레이아웃으로 <code>parse_rows</code> 가 실패하면
+            <code>discover_layout</code> 을 한 번만 다시 돌린다(<code>cached is None</code> 이면 그냥 실패시킨다).
+            나쁜 캐시에 걸린 파일이 영구히 실패하는 것을 막는 자가 치유다.
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i style="border-color:#8a8479;background:#f7f5f2"></i> 코드가 도는 루프</span>
+      <span><i style="border-color:var(--agent);background:#fdf3f7"></i> 모델이 도는 루프</span>
+      <span><i style="border-color:var(--warn);background:#fdf9ee"></i> 검증이 강제하는 루프</span>
+    </div>
+  </div>
+  <figcaption>바깥 두 루프에는 상한이 없다. 그래서 <strong>“몇 번 도는가”를 줄이는 유일한 장치가 앵커 캐시</strong>다 —
+  캐시가 맞으면 ③④가 통째로 건너뛰어진다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="tag">왜 상한이 “예외로 끝나야” 하는가</span>
+  <p><code>recursion_limit</code> 을 명시하지 않으면 기본값(~25)에 조용히 걸린다.
+  두 에이전트 모두 40으로 명시한 이유는, 약한 모델이 수렴하지 못했을 때
+  <strong><code>GraphRecursionError</code> 로 <em>끝나야</em> 호출자가 “이 파일은 error”로 처리할 수 있기 때문</strong>이다.
+  스텝을 조용히 다 쓰고 어정쩡한 답을 내는 것보다 시끄럽게 실패하는 편이 낫다.</p>
+</div>
+
+<h3 id="im-context">3.7 CONTEXT: 세 가지 압축 장치</h3>
+
+<p>컨텍스트가 매 바퀴 자라므로, 도구가 무엇을 <em>얼마나</em> 돌려주느냐가 곧 예산 관리다.
+<code>tools.py</code> 는 <strong>항상 짧게 잘라서</strong> 준다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:24%">장치</th><th style="width:20%">한도</th><th>효과와 안전장치</th></tr>
+  <tr><td><strong>윤곽 접기</strong><br><code>outline_grid</code></td><td>같은 모양 행을 1줄로</td>
+      <td>94행 시트가 <strong>4줄</strong>이 된다. 값 대신 <em>모양</em>(어느 칸이 어떤 타입으로 찼는지)만 보여준다.
+      타입까지 보는 이유는 그래야 헤더와 데이터의 경계가 저절로 드러나기 때문</td></tr>
+  <tr><td><strong>격자 잘림</strong><br><code>read_range</code></td><td>30행 × 30열</td>
+      <td>넘으면 “(주의: 30행까지만 표시. 나머지는 범위를 나눠 다시 읽어라.)”를 붙인다 —
+      <strong>잘렸다는 사실 자체를 모델에게 알린다</strong></td></tr>
+  <tr><td><strong>검색 잘림</strong><br><code>find_value</code></td><td>200건</td>
+      <td>내부적으로 201건을 요청해 “정확히 200건”과 “넘쳐서 잘림”을 구분한다.
+      그냥 200으로 부르면 둘이 똑같이 보여 모델이 알 수 없다</td></tr>
+  <tr><td><strong>에러 잘림</strong><br><code>WorkbookOperationError</code></td><td>250자</td>
+      <td>재시도마다 반복되므로 짧게. 전체 렌더는 note 로만</td></tr>
+</table>
+</div>
+
+<div class="callout key">
+  <span class="tag">잘림의 제1원칙</span>
+  <p><strong>자를 때는 반드시 잘렸다고 말한다.</strong> 조용히 자르면 모델은 그것이 전부인 줄 알고
+  “표가 30행에서 끝난다”고 결론 내린다 — 그 오판이 레이아웃에 박히면 데이터가 조용히 사라진다.</p>
+</div>
+
+<div class="qmemo" data-qid="im-loop-context" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">루프 중첩이나 컨텍스트 압축에서 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="change">4. 엑셀이 바뀌면 — LLM 관점의 실행 경로</h2>
+
+<p>2편에서 “무엇이 바뀌는가”를 봤다면, 이제 같은 사건을 <strong>LLM 이 깨어나는가 / 무엇을 받는가</strong>의 관점에서 본다.</p>
+
+<h3 id="c-hit">4.1 경로 A: 앵커 일치 → LLM 이 아예 안 깨어난다</h3>
+
+<p>관리대장 맨 아래에 이벤트 행을 하나 추가한 경우(2편의 S1)다. 코드가 실제로 밟는 경로는 이렇다.</p>
+
+<figure>
+  <div class="frame">
+<pre>grid, top_left = wb.used_values(sheet_name)              <span class="c"># 21ms — 엑셀에서 격자를 읽는다</span>
+cached = pick_layout(grid, top_left, registry.load_layouts(conn, kind))
+<span class="c">#        └─ anchors_match(): B2 == "이벤트시간" ? … 3개 전부 일치 → 히트</span>
+
+layout = cached
+<span class="k">if</span> layout <span class="k">is</span> <span class="k">None</span>:                                       <span class="c"># ← 여기 안 들어온다</span>
+    layout = discover_layout(model, wb, kind, sheet_name)  <span class="c">#   프롬프트조차 만들어지지 않는다</span>
+
+parsed = parse_rows(grid, top_left, layout, path, sheet_name)   <span class="c"># 순수 파이썬</span></pre>
+  </div>
+  <figcaption><code>discover_layout</code> 이 호출되지 않으므로 <strong>시스템 프롬프트도, 도구 스키마도, 메시지 리스트도 만들어지지 않는다.</strong>
+  “LLM 호출 0회”는 프롬프트를 보내고 짧게 끝나는 게 아니라, <em>대화 자체가 존재하지 않는다</em>는 뜻이다.</figcaption>
+</figure>
+
+<div class="stat">
+  <div><span class="v">0회</span><span class="n">LLM 호출</span></div>
+  <div><span class="v">0자</span><span class="n">전송된 프롬프트</span></div>
+  <div><span class="v tool">~21ms</span><span class="n">시트당 소요</span></div>
+  <div><span class="v">3회</span><span class="n">문자열 비교 (앵커 대조)</span></div>
+</div>
+
+<p>여기서 <strong>앵커가 왜 “헤더 텍스트여야 하는지”</strong>가 결정적이 된다. 앵커가 데이터 셀을 가리켰다면
+행이 하나 늘 때마다 값이 달라져 경로 B 로 빠지고, 매번 35분짜리 LLM 루프가 돌았을 것이다.</p>
+
+<h3 id="c-miss">4.2 경로 B: 캐시 미스 → 새 대화가 시작된다</h3>
+
+<p>헤더 문구가 바뀌었거나 표가 밀린 경우다. 이때 만들어지는 <strong>첫 입력</strong>은 항상 똑같은 모양이다 —
+<em>이전 실행에서 무엇을 알아냈든 하나도 이어받지 않는다.</em></p>
+
+<figure>
+  <div class="frame">
+    <div class="taperow">
+      <span class="lbl">첫 호출</span>
+      <div class="tape">
+        <div class="msg sys"><b>system</b>_BASE_PROMPT<br>+ FIELD_GUIDE[kind]</div>
+        <div class="msg hum"><b>human</b>“시트 '#RX39513' 의<br>구조를 파악해…”</div>
+      </div>
+    </div>
+    <div style="margin:14px 0 6px;font-size:.84rem;color:var(--ink-soft)">여기에 <strong>포함되지 않는</strong> 것들:</div>
+    <div class="flow">
+      <div class="node"><span class="t">옛 레이아웃</span><span class="d">“지난번엔 이랬다”를 알려주지 않는다. 힌트로 주면 모델이 그것을 베껴 <em>바뀐 부분을 못 본다</em></span></div>
+      <div class="node"><span class="t">다른 시트의 분석 결과</span><span class="d">시트마다 새 대화다. 공유는 오직 <code>sheet_mapping</code> 캐시를 통해서만</span></div>
+      <div class="node"><span class="t">격자 내용</span><span class="d">처음엔 한 칸도 안 준다. 모델이 <code>sheet_outline</code> 을 불러야 비로소 본다</span></div>
+    </div>
+  </div>
+  <figcaption>“컨텍스트를 최소로 시작해 모델이 필요한 만큼 스스로 끌어오게 한다”는 것이 이 설계의 태도다.
+  한 번에 다 주면 컨텍스트를 넘기고, 안 주면 모델이 도구를 쓴다.</figcaption>
+</figure>
+
+<h3 id="c-reject">4.3 경로 C: 되돌려보내기 루프 (실측 9/28)</h3>
+
+<p>제출이 곧 종료는 아니다. 로그에서 <code>submit_layout</code> 결과 블록 <strong>28개 중 9개</strong>가 되돌려보내기였다.
+실제 되돌림 메시지는 이렇게 생겼다.</p>
+
+<figure>
+  <div class="frame">
+<pre class="log">[2026-07-29 21:36:53.766] script=ingest node=tools run=019fade0
+--- TOOL RESULT: submit_layout (35ms) ---
+content="<span class="hi">아직 접수하지 않았다. 레이아웃에 덮이지 않은 곳이 있다.</span>
+- 표 '이벤트 로그 대장' 에서 값이 있는데 columns 에 없는 열: L(상세 구분1), M(상세 구분2),
+  N(규격(Spec)), O(규격 단위), P(제조 업체), Q(생산 유형), R(폐기 기준), S(1차 경고 주기),
+  T(2차 경고 주기), U(3차 경고 주기), V(설명), W(수정자 사번), X(수정자)
+고쳐서 submit_layout 을 다시 호출하라."</pre>
+  </div>
+  <figcaption>모델이 <strong>13개 열을 빠뜨렸다.</strong> 프롬프트가 “표의 오른쪽 끝까지 가라”고 세 번 말했는데도 그렇다 —
+  그래서 프롬프트가 아니라 <em>격자와 대조하는 코드</em>가 필요하다.</figcaption>
+</figure>
+
+<div class="callout key">
+  <span class="tag">이것이 “루프 엔지니어링”의 핵심 아이디어</span>
+  <p><strong>모델의 출력을 결정론적 코드로 채점해서, 그 채점 결과를 다시 모델에게 먹인다.</strong>
+  격자는 표의 끝이 어디인지 <em>알고 있고</em>, 모델은 추측한다. 아는 쪽이 확인해야 한다.
+  이 되먹임이 있으면 약한 모델로도 완전한 레이아웃에 도달할 수 있다.</p>
+  <p>단 무한하면 안 된다. 그래서 <strong>2회</strong>다 — 이 상한이 “완전한 레이아웃”과 “아예 없는 레이아웃” 사이의 타협점이다.</p>
+</div>
+
+<p>되돌려보낼 때 <strong>예외가 아니라 평범한 문자열</strong>을 돌려주는 것도 그래프 구조 때문이다.
+<code>ToolException</code> 은 <code>ToolNode</code> 를 그대로 통과해 그래프 밖으로 나가버려서,
+되돌려보내려던 제출이 <em>파일 전체의 실패</em>가 된다 — 검증이 막으려던 것보다 나쁜 결과다.</p>
+
+<h3 id="c-incident">4.4 실제로 관측된 사고와 그 수정</h3>
+
+<p>이 로그에는 <strong>성능 사고 하나가 통째로 찍혀 있다.</strong> 관리대장 워크북의 시트 7개에 대해
+에이전트가 <em>각각</em> 돌았다.</p>
+
+<figure>
+  <div class="frame">
+<pre class="plain">21:33:03  sheet_outline('#RX39513')   → … → submit_layout ×2 → 완료   <span style="color:#8a8479"># 4회 LLM</span>
+21:34:09  sheet_outline('#RX28312')   → … → submit_layout    → 완료   <span style="color:#8a8479"># 4회 LLM</span>
+21:34:54  sheet_outline('#RX28315')   → … → submit_layout    → 완료   <span style="color:#8a8479"># 4회 LLM</span>
+21:35:37  sheet_outline('#RX50177')   → … → submit_layout    → 완료   <span style="color:#8a8479"># 4회 LLM</span>
+21:36:19  sheet_outline('#RX41194')   → … → submit_layout ×2 → 완료   <span style="color:#8a8479"># 5회 LLM</span>
+   …                                                                  <span style="color:#c05621"># 시트 7개 × 약 4회 = 30회 가까이</span></pre>
+  </div>
+  <figcaption>양식은 <strong>일곱 시트 모두 동일</strong>했다(전부 <code>B=이벤트시간 · C=활동 · D=수량 · E=위치</code>).
+  그런데도 매번 처음부터 분석했다.</figcaption>
+</figure>
+
+<p>원인은 프롬프트도 모델도 아니었다. <strong>캐시 조회 키</strong>였다.</p>
+
+<figure>
+  <div class="frame">
+<pre><span class="c"># 그때 (로그 시점, 2026-07-29)</span>
+<span class="k">def</span> load_layouts(conn, kind, sheet_name):
+    ... <span class="s">"WHERE kind = ? AND sheet_name = ?"</span>       <span class="c"># ← 시트 이름이 조회 키에 있었다</span>
+
+<span class="c"># 관리대장은 시트 이름이 곧 금형번호다 → 시트마다 이름이 다르다</span>
+<span class="c">#   '#RX39513' 로 조회 → 없음 → 캐시 미스 → 에이전트</span>
+<span class="c">#   '#RX28312' 로 조회 → 없음 → 캐시 미스 → 에이전트  …</span>
+
+<span class="c"># 지금 (커밋 1d932df, 2026-07-31)</span>
+<span class="k">def</span> load_layouts(conn, kind):
+    ... <span class="s">"WHERE kind = ?"</span>                          <span class="c"># ← 종류로만 좁힌다</span>
+    <span class="c"># 어느 레이아웃이 이 시트에 맞는지는 pick_layout 의 앵커 대조가 판정한다</span>
+    <span class="c"># — 원래 그러라고 만든 장치다.</span></pre>
+  </div>
+  <figcaption>커밋 <code>1d932df perf(ingest): 레이아웃 캐시를 시트명이 아니라 단계로 조회한다</code> (2026-07-31).
+  로그는 그 이틀 전 것이라, <strong>이 문서의 로그가 곧 그 수정을 낳은 증거</strong>다.</figcaption>
+</figure>
+
+<div class="callout real">
+  <span class="tag">수정 후 예상 동작</span>
+  <p>첫 시트에서 에이전트가 1회 돌고 → 결과가 <code>sheet_mapping</code> 에 즉시 커밋되고 →
+  나머지 6개 시트는 <code>ORDER BY id DESC</code> 로 그 레이아웃을 먼저 만나 앵커가 맞는다.
+  <strong>LLM 호출이 약 30회에서 4~5회로 줄어든다</strong>(추정치: 30회 × 18.8초 ≈ 9분 → 약 1.5분).</p>
+  <p>여기서 배울 점은 방법론이다. “느리다”를 프롬프트 튜닝으로 접근했다면 못 고쳤다.
+  <strong>호출 로그를 세어보니 같은 양식을 일곱 번 분석하고 있었다</strong> — 관측이 먼저다.</p>
+</div>
+
+<div class="qmemo" data-qid="change-llm-paths" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">LLM 실행 경로 A/B/C 나 관측된 사고에 대해 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="quiz">5. 이해도 점검 퀴즈 5문항</h2>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q1. ReAct 루프의 4번째 LLM 호출에서, 모델에게 전송되는 것은?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">직전 도구 결과 하나. 앞선 대화는 모델이 기억하고 있다</button>
+    <button class="opt" data-i="1">시스템 프롬프트 + 직전 도구 결과. 중간 메시지는 요약되어 압축된다</button>
+    <button class="opt" data-i="2">시스템 프롬프트 · 사람 질문 · 그동안의 모든 ai/tool 메시지 · 도구 스키마 7종 — 전부 다시</button>
+    <button class="opt" data-i="3">도구 스키마는 첫 호출에만 보내고, 이후에는 메시지만 보낸다</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>LLM 은 상태가 없다. “기억”은 모델 안이 아니라 우리 쪽 메시지 리스트에 있고, 매 호출마다 처음부터 전부 재전송된다. 로그의 <code>INPUT (n messages)</code> 가 2 → 4 → 6 → 8 로 자라는 것이 그 증거다. 도구 스키마(실측 4,892자)도 매번 함께 간다. 그래서 루프를 한 바퀴 아끼는 것은 “호출 1회”가 아니라 “점점 커지는 입력 1회”를 아끼는 일이다.</div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="q">Q2. <code>SheetLayout</code> 의 <code>Field(description="...")</code> 문구를 고치면 무엇이 달라지나?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">아무것도. 파이썬 주석과 같아서 런타임에는 영향이 없다</button>
+    <button class="opt" data-i="1">모델에게 전송되는 도구 스키마가 바뀐다 — 즉 <strong>프롬프트를 고친 것</strong>이고, 컨텍스트 사용량도 함께 변한다</button>
+    <button class="opt" data-i="2">DB 의 <code>layout_json</code> 컬럼 형식이 바뀌어 옛 캐시를 못 읽는다</button>
+    <button class="opt" data-i="3">Pydantic 검증 규칙이 강해져 잘못된 제출이 거부된다</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden><code>args_schema=SheetLayout</code> 로 붙는 순간 그 설명문이 JSON 스키마(실측 5,314자)가 되어 모델에게 그대로 전달된다. <code>ColumnMap</code> 의 docstring 이 이 사실을 직접 적어두고 있다 — “에이전트는 Python 주석이 아니라 JSON 스키마만 본다”. 그리고 <code>submit_layout</code> 하나가 도구 전체 스키마의 64%(3,120/4,892자)를 차지하므로, 필드를 늘리면 컨텍스트 예산이 그만큼 줄어든다. ④는 틀렸다 — 설명문은 검증 규칙이 아니다(타입·필수 여부가 검증을 정한다).</div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <p class="q">Q3. <code>OLLAMA_NUM_CTX</code> 를 명시하지 않아 런타임 기본값 4096 으로 서빙되면 무슨 일이 생기나?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">앞부분이 <strong>에러 없이</strong> 잘리고, 거기 도구 정의가 있으면 모델이 어떤 도구도 못 부른 채 빈 응답을 준다</button>
+    <button class="opt" data-i="1">컨텍스트 초과 예외가 발생해 배치가 <code>error</code> 로 끝나고 사유가 화면에 뜬다</button>
+    <button class="opt" data-i="2">모델이 자동으로 오래된 메시지를 요약해 넣는다</button>
+    <button class="opt" data-i="3">도구 스키마는 별도 채널로 가므로 영향이 없고, 대화만 짧아진다</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>이 실패가 특히 나쁜 이유는 <b>아무도 오류를 보고하지 않는다</b>는 데 있다. 호출자가 보는 것은 “빈 응답”뿐이라 프롬프트 품질 문제로 오해하기 쉽다. 실측 도구 스키마만 4,892자라 4096 토큰 창에는 <i>대화가 한 줄도 없어도</i> 이미 안 들어간다. <code>config.py</code> 가 <code>ollama_num_ctx: int = 16384</code> 를 굳이 명시하고 긴 주석을 단 이유가 이것이다 — 도구나 프롬프트를 늘릴 때 함께 올려야 한다.</div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q">Q4. <code>submit_layout</code> 이 “덮이지 않은 열이 있다”고 판단했을 때, <strong>3번째</strong> 제출에서 여전히 빈틈이 있으면?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">계속 되돌려보낸다 — 완전한 레이아웃을 얻을 때까지</button>
+    <button class="opt" data-i="1"><code>LayoutNotSubmittedError</code> 가 발생해 그 파일이 실패한다</button>
+    <button class="opt" data-i="2"><code>ToolException</code> 을 던져 그래프를 중단시킨다</button>
+    <button class="opt" data-i="3">빈틈이 있어도 그대로 접수한다 — 몇 열 빠진 레이아웃이 아예 없는 것보다 낫기 때문</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden><code>_MAX_SUBMIT_REJECTIONS = 2</code> 다. 무제한이면 못 맞추는 모델이 걸렸을 때 왕복만 하다 <code>recursion_limit</code>(40)에 걸려 레이아웃을 <b>하나도</b> 못 얻는다. 이 상한은 “완전한 레이아웃”과 “아예 없는 레이아웃” 사이의 의도된 타협점이다. 참고로 되돌려보낼 때 ②처럼 <code>ToolException</code> 을 쓰면 안 된다 — 그 예외는 <code>ToolNode</code> 를 그대로 통과해 그래프 밖으로 나가버려서, 되돌려보내려던 제출이 파일 전체의 실패가 된다.</div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q5. 관리대장 워크북(양식이 동일한 시트 7개)에서 에이전트가 시트마다 한 번씩, 총 30회 가까이 돌았다. 근본 원인은?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">프롬프트가 “다른 시트도 같은 양식이면 재사용하라”고 말하지 않아서</button>
+    <button class="opt" data-i="1">모델이 약해 앵커를 매번 다르게 지목해서</button>
+    <button class="opt" data-i="2">캐시 조회 키에 <code>sheet_name</code> 이 들어 있었는데, 관리대장은 시트 이름이 곧 금형번호라 시트마다 달랐기 때문</button>
+    <button class="opt" data-i="3"><code>save_layout</code> 이 배치 끝에 한 번만 커밋해서 다음 시트가 아직 못 읽었기 때문</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>커밋 <code>1d932df</code> 가 <code>WHERE kind = ? AND sheet_name = ?</code> 를 <code>WHERE kind = ?</code> 로 바꿔 해결했다. 어느 레이아웃이 이 시트에 맞는지는 <b>앵커 대조가 판정한다</b> — 원래 그러라고 만든 장치인데, 조회 단계에서 미리 걸러버려 그 장치가 일할 기회가 없었다. ④도 그럴듯하지만 반대다: <code>save_layout</code> 은 <b>즉시 커밋</b>하므로 다음 시트가 바로 읽을 수 있다(그래서 파싱 성공 후에 저장하는 순서가 중요하다). 이 사례의 교훈은 방법론이다 — “느리다”를 프롬프트 튜닝으로 접근했다면 못 고쳤을 것이고, 호출 로그를 세어본 것이 원인을 드러냈다.</div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup-llm" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제나 해설이 이해 안 되는 부분을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="appendix">6. 부록 — 로그로 직접 확인하기</h2>
+
+<p>이 문서의 수치는 전부 <code>backend/logs/llm_calls.log</code> 를 집계한 것이다. 같은 방식으로 직접 확인할 수 있다.</p>
+
+<h4>호출 시퀀스를 한 줄씩 보기 (메시지 수가 자라는 것을 눈으로)</h4>
+
+<figure>
+  <div class="frame">
+<pre>.venv\Scripts\python.exe -c "
+import re,sys; sys.stdout.reconfigure(encoding='utf-8')
+t=open('logs/llm_calls.log',encoding='utf-8',errors='replace').read()
+for b in t.split('='*80):
+    m=re.search(r'INPUT \((\d+) messages\)', b); o=re.search(r'OUTPUT \((\d+)ms\)(.*)', b, re.S)
+    if m and o:
+        c=re.search(r'tool_call: (\w+)\((.*?)\)', o.group(2))
+        print('%2s msgs %7sms  %s' % (m.group(1), o.group(1), c.group(1)+'('+c.group(2)[:40]+')' if c else '(최종답변)'))
+"</pre>
+  </div>
+  <figcaption>출력 예: <code> 2 msgs   18055ms  sheet_outline({'sheet': '기준정보'})</code> …</figcaption>
+</figure>
+
+<h4>LLM 시간 vs 도구 시간</h4>
+
+<figure>
+  <div class="frame">
+<pre>.venv\Scripts\python.exe -c "
+import re,sys; sys.stdout.reconfigure(encoding='utf-8')
+t=open('logs/llm_calls.log',encoding='utf-8',errors='replace').read().split('='*80)
+llm=[int(m.group(1)) for b in t for m in [re.search(r'OUTPUT \((\d+)ms\)', b)] if m]
+tool=[int(m.group(2)) for b in t for m in [re.search(r'TOOL RESULT: (\w+) \((\d+)ms\)', b)] if m]
+print('LLM  %3d회 %8.1f초 (평균 %5.0fms, 최대 %6dms)' % (len(llm), sum(llm)/1000, sum(llm)/len(llm), max(llm)))
+print('도구 %3d회 %8.2f초 (평균 %5.0fms)' % (len(tool), sum(tool)/1000, sum(tool)/len(tool)))
+"</pre>
+  </div>
+  <figcaption>이 문서 작성 시점 결과: <code>LLM 112회 2104.2초</code> / <code>도구 90회 1.87초</code>.</figcaption>
+</figure>
+
+<h4>도구가 실제로 어떤 스키마로 전달되는지</h4>
+
+<figure>
+  <div class="frame">
+<pre>.venv\Scripts\python.exe -c "
+import json,sys; sys.stdout.reconfigure(encoding='utf-8')
+from app.ingest.schemas import SheetLayout
+print(json.dumps(SheetLayout.model_json_schema(), ensure_ascii=False, indent=2))
+"</pre>
+  </div>
+  <figcaption>여기 보이는 <code>description</code> 문자열이 곧 모델이 읽는 문장이다.
+  <code>data_end_row</code> 항목을 확인해 보라 — “없으면 null 로 두면 빈 행에서 자동으로 멈춘다”가 그대로 들어 있다.</figcaption>
+</figure>
+
+<h4>로깅을 켜고 끄기</h4>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:34%"><code>backend/.env</code></th><th>효과</th></tr>
+  <tr><td><code>DEBUG_LOG_ENABLED=true</code> (기본)</td><td>호출마다 INPUT/OUTPUT 블록을 파일로 남긴다</td></tr>
+  <tr><td><code>DEBUG_LOG_PATH=./logs/llm_calls.log</code></td><td>상대경로는 <code>backend/</code> 기준으로 해석된다</td></tr>
+  <tr><td><code>DEBUG_LOG_MAX_BYTES=5000000</code> · <code>DEBUG_LOG_BACKUP_COUNT=5</code></td><td>5MB 로테이션 × 5개 보관</td></tr>
+  <tr><td><code>DEBUG_LOG_VERBOSE=true</code></td><td>콜백 발화·파일핸들러 생성까지 콘솔에 추적. “로그가 왜 안 남지”를 볼 때만</td></tr>
+</table>
+</div>
+
+<h3>관련 문서</h3>
+<ul>
+  <li><a href="2026-08-11-explanation-mold-ingest-excel-agent.html">1편 — 전체 동작 원리와 Excel Agent</a>: 도구 6종의 입출력, 앵커 개념, 세 문서 조인</li>
+  <li><a href="2026-08-11-explanation-excel-to-db-and-row-change.html">2편 — DB 저장 프로세스와 행 변경 파급</a>: 테이블 두 가족, 트랜잭션, 시나리오 5개</li>
+  <li><code>backend/app/ingest/discover.py</code> — 프롬프트와 <code>submit_layout</code> 의 원본</li>
+  <li><code>backend/app/observability/debug_callback.py</code> — 이 로그를 만드는 콜백</li>
+</ul>
+
+<div class="qmemo" data-qid="appendix-llm-log" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">문서 전체를 읽고 남은 질문을 여기에 모아 적어도 좋습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<p class="small" style="margin:40px 0 20px">
+계측값은 2026-07-29 실행분(<code>llm_calls.log</code>, 112회 호출) 기준이다.
+그 로그는 캐시 조회 키 수정(<code>1d932df</code>, 2026-07-31) <strong>이전</strong>의 것이므로,
+지금 다시 돌리면 LLM 호출 수는 크게 줄어든다. 어긋나는 곳을 발견하면 질문 메모에 적어두면 된다.
+</p>
+
+</div>
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+/* ── 질문 메모: 자동 저장 + 파일로 내보내기 ── */
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-11-explanation-llm-loop-and-context-engineering.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\TestProject\\docs\\understanding\\2026-08-11-explanation-llm-loop-and-context-engineering.html';
+  });
+})();
+
+/* ── 퀴즈 채점 ── */
+(function () {
+  document.querySelectorAll('.quiz').forEach(function (quiz) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var fb = quiz.querySelector('.fb');
+    var fbtext = quiz.querySelector('.fbtext');
+    var buttons = quiz.querySelectorAll('button.opt');
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (quiz.dataset.done === '1') return;
+        quiz.dataset.done = '1';
+        var picked = parseInt(btn.dataset.i, 10);
+        var ok = picked === answer;
+        buttons.forEach(function (b) {
+          b.disabled = true;
+          var i = parseInt(b.dataset.i, 10);
+          if (i === answer) b.classList.add('right');
+          else if (i === picked) b.classList.add('wrong');
+        });
+        fb.className = 'fb show ' + (ok ? 'ok' : 'no');
+        fb.innerHTML = (ok ? '<strong>정답입니다.</strong> ' : '<strong>아쉽습니다.</strong> 정답은 위에 초록으로 표시된 항목입니다. ')
+                     + fbtext.innerHTML;
+      });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

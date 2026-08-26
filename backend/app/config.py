@@ -63,6 +63,25 @@ class Settings(BaseSettings):
     # 0 = 자동 폴링 끔(수동 트리거만). 1단계는 0 으로 둔다.
     ingest_poll_seconds: int = 0
 
+    # ── 코팅 초기조건 도출 ──────────────────────────────────────────────
+    # 원본 CSV·중간 parquet·리포트가 모두 이 아래에 놓인다(상대경로는 backend/ 기준).
+    coating_data_dir: str = "./data/coating"
+    # 이 시간 안에 일어난 제어값 변경들을 하나의 조정 이벤트로 묶는다. 항목별로
+    # 쪼개면 하나의 Wet 변화가 여러 이벤트에 중복 귀속되어 영향이 부풀려진다.
+    coating_event_merge_minutes: int = 2
+    # 안정화 판정: 이 길이(분)의 이동창에서 Wet 평균의 표준편차가
+    # coating_settle_std_max 아래로 내려가면 정착으로 본다.
+    coating_settle_window_minutes: int = 5
+    coating_settle_std_max: float = 0.02
+    # 이 시간 안에 정착을 못 찾으면 오염 이벤트로 버린다.
+    coating_settle_max_wait_minutes: int = 30
+    # 튜닝 종료의 교차검증 기준. 스펙(±0.4)은 합격 판정용이라 튜닝 종료 판정에는
+    # 너무 헐겁다 — 실제 변동이 ±0.03 이면 즉시 스펙에 들어와 구간이 사라진다.
+    coating_tuning_band: float = 0.1
+    # 영향행렬 커널 반폭 k. 파라미터 수 = 2k+1.
+    coating_kernel_half_width: int = 2
+    coating_ridge_alpha: float = 1.0
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
@@ -77,6 +96,10 @@ class Settings(BaseSettings):
     @property
     def resolved_ingest_root(self) -> str:
         return self._resolve(self.ingest_root)
+
+    @property
+    def resolved_coating_data_dir(self) -> str:
+        return self._resolve(self.coating_data_dir)
 
     @property
     def resolved_molds_db_path(self) -> str:
