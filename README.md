@@ -89,6 +89,35 @@ python -m venv .venv
   `.env` 의 `COATING_CSV_ENCODINGS` 로 바꾸고, 한 번만 강제할 땐 `--encoding` 을 쓴다.
 - `pytest-asyncio` 가 없으므로 `Unknown config option: asyncio_mode` 경고가 뜬다(정상).
 
+### 입력 소스 전환 (CSV / xlsx)
+
+사내 실데이터가 문서보안(DRM)으로 암호화돼 있으면 python 이 파일 바이트를 직접
+읽을 수 없다(`CSV 가 아니다 ... NASCA DRM`). DRM 은 등록된 애플리케이션 안에서만
+복호화하므로, 같은 데이터를 xlsx 로 만들어 두고 **Excel(COM)을 통해** 읽는다.
+
+`backend/.env` 두 줄로 전환한다.
+
+```
+COATING_INPUT_FORMAT=xlsx
+COATING_INPUT_PATH=raw/실데이터.xlsx
+COATING_XLSX_SHEET=            # 비우면 첫 시트
+```
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install xlwings   # xlsx 경로에서만 필요
+.\.venv\Scripts\python.exe -m app.coating.report    # 설정대로 읽는다
+# 한 번만 다르게 쓰고 싶으면
+.\.venv\Scripts\python.exe -m app.coating.report --input raw\다른파일.xlsx --format xlsx --sheet 데이터
+```
+
+- 그 PC 에 **Excel 설치·라이선스가 필요**하다. 읽기는 느리고(COM 왕복), 시트당
+  1,048,576 행이 한계다. 원본이 그보다 크면 xlsx 를 만드는 시점에 이미 잘리므로
+  lot 단위로 파일을 나눈다(코드는 한계값에 정확히 걸리면 에러를 낸다).
+- CSV 경로는 그대로 살아 있다. DRM 이 풀리면 `COATING_INPUT_FORMAT=csv` 로
+  되돌리는 것만으로 복귀한다.
+- `--csv` 는 `--input` 의 옛 이름으로 계속 동작한다.
+
+
 ## Tests
 
 ```bash

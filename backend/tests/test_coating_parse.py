@@ -178,3 +178,35 @@ def test_drm_wrapped_file_is_named_as_drm_not_encoding(tmp_path):
     with pytest.raises(ValueError) as e:
         parse.load_readings(csv, DICT)
     assert "DRM" in str(e.value)
+
+
+def test_csv_path_works_without_xlwings_installed(tmp_path, monkeypatch):
+    """xlsx 경로는 xlwings·pywin32 를 쓰지만, CSV 만 쓰는 최소 설치(사내 폐쇄망)
+    에서는 그게 없어도 끝까지 돌아야 한다.
+
+    이미 import 된 모듈을 지우고 xlwings 를 막은 채 **다시 import** 하는 것이
+    핵심이다. 그냥 sys.modules 만 건드리면 수집 시점에 이미 로드가 끝나 있어
+    어떤 회귀도 잡지 못한다(그렇게 썼다가 변이 테스트에서 들켰다)."""
+    import importlib
+    import sys
+
+    import app.coating
+
+    for name in ("app.coating.parse", "app.coating.excel_source", "app.excel.workbook"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    # sys.modules 에서 지우는 것만으로는 부족하다. 패키지 객체에 남은 속성
+    # (app.coating.excel_source)이 있으면 `from app.coating import excel_source`
+    # 가 재import 없이 그 속성을 그대로 집어가서 아무것도 검증하지 못한다.
+    monkeypatch.delattr(app.coating, "excel_source", raising=False)
+    monkeypatch.setitem(sys.modules, "xlwings", None)
+    monkeypatch.setitem(sys.modules, "pythoncom", None)
+
+    csv = tmp_path / "x.csv"
+    csv.write_text(
+        "lot_id,worked_at,product,item_id,item_name,value\n"
+        "L1,2026-01-31 18:55,P1,10030271,,163\n",
+        encoding="utf-8-sig",
+    )
+    fresh = importlib.import_module("app.coating.parse")
+    r = fresh.load_readings(csv, DICT)
+    assert list(r[S.ITEM]) == ["10030271"]

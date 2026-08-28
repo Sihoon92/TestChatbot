@@ -46,3 +46,19 @@ def test_csv_encoding_candidates_come_from_settings():
     s = get_settings()
     assert s.coating_csv_encoding_list[0] == "utf-8-sig"
     assert "cp949" in s.coating_csv_encoding_list
+
+
+def test_input_source_is_switchable_by_setting():
+    """DRM 때문에 CSV 를 못 읽는 동안 xlsx 로 우회한다. 어느 쪽을 읽을지는
+    코드가 아니라 .env 가 정한다 — 사내 PC 에서 두 줄만 바꿔 전환한다."""
+    s = get_settings()
+    assert s.coating_input_format in ("csv", "xlsx")
+    assert s.resolved_coating_input_path.endswith(".csv")
+    assert s.coating_xlsx_sheet == ""
+
+
+def test_input_path_resolves_under_coating_data_dir():
+    """상대경로는 backend/ 가 아니라 COATING_DATA_DIR 기준이다. raw/ 아래에
+    원본을 두는 규약을 설정 한 줄로 유지한다."""
+    s = get_settings()
+    assert s.resolved_coating_input_path.startswith(s.resolved_coating_data_dir)

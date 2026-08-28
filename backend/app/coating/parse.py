@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from app.coating import excel_source
 from app.coating import schemas as S
 
 # 인코딩 후보. 실데이터는 사내 MES·엑셀 export 라 cp949 인 경우가 흔하고,
@@ -148,8 +149,26 @@ def load_readings(
     dict_path: str | Path | None = None,
     encodings=None,
     force_encoding=None,
+    *,
+    source: str = "csv",
+    sheet: str | None = None,
 ) -> pd.DataFrame:
-    raw = read_csv_any(csv_path, encodings, force_encoding, dtype={S.ITEM: str})
+    """원본 → readings. source 가 csv 든 xlsx 든 같은 계약으로 나온다.
+
+    xlsx 경로는 DRM 때문에 존재한다(모듈 excel_source 참고). 읽는 방법만
+    다르고 그 뒤 정규화·사전 조인은 완전히 공유한다 - 갈라지면 두 경로의
+    결과가 조용히 달라진다."""
+    if source == "xlsx":
+        raw = excel_source.read_long_table(csv_path, sheet)
+    elif source == "csv":
+        raw = read_csv_any(csv_path, encodings, force_encoding, dtype={S.ITEM: str})
+    else:
+        raise ValueError(f"알 수 없는 입력 형식: {source!r} (csv | xlsx)")
+    return _finalize(raw, dict_path, encodings)
+
+
+def _finalize(raw: pd.DataFrame, dict_path, encodings) -> pd.DataFrame:
+    """두 입력 경로가 만나는 곳. 타입 보정 + 순서 보존 + 사전 조인."""
     # 원본에도 item_name 열이 있지만 대부분 비어 있다. 사전 것을 쓴다.
     raw = raw.drop(columns=[S.ITEM_NAME], errors="ignore")
     raw[S.AT] = pd.to_datetime(raw[S.AT])
@@ -161,7 +180,6 @@ def load_readings(
     # 지시이고, 사전은 우리가 utf-8-sig 로 배포하는 별개의 파일이다. 같이 강제하면
     # --encoding cp949 한 번에 사전 조인이 통째로 깨진다.
     return raw.merge(load_item_dictionary(dict_path, encodings), on=S.ITEM, how="left")
-
 
 def unknown_item_ids(readings: pd.DataFrame) -> list[str]:
     """사전에 없는 항목 ID. 버리지 않고 보고한다."""

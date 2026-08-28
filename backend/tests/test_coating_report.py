@@ -54,7 +54,7 @@ def test_cli_defaults_are_none_so_run_stays_single_source():
     """기본 경로를 파서에 또 적으면 run() 과 두 군데가 된다. 파서는 '지정 안 함'
     만 표현하고 기본값 결정은 run() 에 맡긴다."""
     args = report.build_parser().parse_args([])
-    assert args.csv is None
+    assert args.input_path is None
     assert args.dict_path is None
     assert args.out_dir is None
 
@@ -78,7 +78,7 @@ def test_cli_reports_missing_csv_with_actionable_message(tmp_path, capsys):
     assert e.value.code != 0
     message = str(e.value) + capsys.readouterr().err
     assert "없는파일.csv" in message
-    assert "--csv" in message
+    assert "--input" in message
 
 
 def _write_cp949(path):
@@ -122,3 +122,47 @@ def test_report_uses_encoding_candidates_from_settings(tmp_path, monkeypatch):
     with pytest.raises(ValueError) as e:
         report.run(csv, DICT, out_dir=tmp_path)
     assert "utf-8" in str(e.value)
+
+
+def test_cli_input_and_csv_are_the_same_argument():
+    """--csv 는 이전 이름이다. 파일이 xlsx 일 수도 있는데 --csv 라고 부르면
+    거짓말이 되므로 --input 을 정본으로 하되, 기존 명령·문서를 깨지 않는다."""
+    p = report.build_parser()
+    assert p.parse_args(["--input", "a.xlsx"]).input_path == "a.xlsx"
+    assert p.parse_args(["--csv", "a.csv"]).input_path == "a.csv"
+
+
+def test_cli_format_defaults_to_none_so_settings_decide():
+    """형식 결정도 기본값은 .env 다. 파서에 'csv' 를 적어두면 설정이 무시된다."""
+    args = report.build_parser().parse_args([])
+    assert args.format is None
+    assert args.sheet is None
+
+
+def test_default_input_path_comes_from_settings(tmp_path, monkeypatch):
+    """기본 입력 경로가 코드에 박혀 있으면 사내 PC 는 매번 --input 을 타이핑해야
+    한다. COATING_INPUT_PATH 한 줄로 끝나야 한다."""
+    target = tmp_path / "raw" / "실데이터.xlsx"
+    s = get_settings().model_copy(
+        update={"coating_input_path": str(target), "coating_input_format": "xlsx"}
+    )
+    monkeypatch.setattr(report, "get_settings", lambda: s)
+    assert report._default_input_path() == target
+
+
+def test_missing_xlsx_input_points_at_the_setting(tmp_path, monkeypatch, capsys):
+    """xlsx 경로에서 파일이 없을 때 'fixture 를 복사하라'고 하면 틀린 안내다.
+    그건 CSV 샘플 얘기고, 여기서 필요한 건 어디를 보고 있는지다."""
+    s = get_settings().model_copy(
+        update={
+            "coating_input_path": str(tmp_path / "없는파일.xlsx"),
+            "coating_input_format": "xlsx",
+        }
+    )
+    monkeypatch.setattr(report, "get_settings", lambda: s)
+    with pytest.raises(SystemExit) as e:
+        report.main([])
+    message = str(e.value) + capsys.readouterr().err
+    assert "없는파일.xlsx" in message
+    assert "COATING_INPUT_PATH" in message
+

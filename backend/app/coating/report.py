@@ -25,9 +25,13 @@ from app.config import get_settings
 _MIN_EVENTS = 20  # Toeplitz 커널(2k+1개)을 견고하게 추정하는 하한
 
 
-def profile_dataset(csv_path, dict_path, encodings=None, force_encoding=None) -> dict:
+def profile_dataset(
+    csv_path, dict_path, encodings=None, force_encoding=None, *, source="csv", sheet=None
+) -> dict:
     s = get_settings()
-    readings = parse.load_readings(csv_path, dict_path, encodings, force_encoding)
+    readings = parse.load_readings(
+        csv_path, dict_path, encodings, force_encoding, source=source, sheet=sheet
+    )
     deduped = pivot.dedupe_minute(readings)
     changes = pivot.compress_runs(deduped)
     wet = features.wet_wide(deduped)
@@ -170,19 +174,29 @@ def render_html(f: dict) -> str:
 
 
 def run(
-    csv_path=None, dict_path=None, out_dir=None, encodings=None, force_encoding=None
+    csv_path=None,
+    dict_path=None,
+    out_dir=None,
+    encodings=None,
+    force_encoding=None,
+    source=None,
+    sheet=None,
 ) -> tuple[str, str]:
     s = get_settings()
     root = Path(s.resolved_coating_data_dir)
     # CSV 는 실데이터라 런타임 디렉터리에서, 사전은 스키마라 패키지에서 읽는다.
-    csv_path = csv_path or _default_csv_path()
+    csv_path = csv_path or _default_input_path()
     dict_path = dict_path or parse.DEFAULT_DICT_PATH
     out = Path(out_dir) if out_dir else root / "reports"
     out.mkdir(parents=True, exist_ok=True)
     # 인코딩 후보도 기본값 결정은 여기 한 곳이다(.env 단일 출처).
     encodings = encodings or s.coating_csv_encoding_list
+    source = source or s.coating_input_format
+    sheet = sheet or s.coating_xlsx_sheet or None
 
-    facts = profile_dataset(csv_path, dict_path, encodings, force_encoding)
+    facts = profile_dataset(
+        csv_path, dict_path, encodings, force_encoding, source=source, sheet=sheet
+    )
     md_path = out / "data_profile.md"
     html_path = out / "data_profile.html"
     md_path.write_text(render_markdown(facts), encoding="utf-8")
@@ -201,7 +215,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--csv", default=None, help="원본 long CSV 경로")
+    p.add_argument(
+        "--input", "--csv", dest="input_path", default=None,
+        help="원본 long 테이블 경로 (생략 시 COATING_INPUT_PATH)",
+    )
+    p.add_argument(
+        "--format", choices=("csv", "xlsx"), default=None,
+        help="입력 형식 (생략 시 COATING_INPUT_FORMAT)",
+    )
+    p.add_argument(
+        "--sheet", default=None,
+        help="xlsx 에서 읽을 시트 (생략 시 COATING_XLSX_SHEET, 그것도 비면 첫 시트)",
+    )
     p.add_argument(
         "--dict", dest="dict_path", default=None,
         help="항목 사전 CSV 경로 (생략 시 패키지에 든 스키마)",
@@ -222,32 +247,47 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> tuple[str, str]:
     args = build_parser().parse_args(argv)
-    csv_path = Path(args.csv) if args.csv else _default_csv_path()
-    if not csv_path.exists():
+    s = get_settings()
+    source = args.format or s.coating_input_format
+    in_path = Path(args.input_path) if args.input_path else _default_input_path()
+    if not in_path.exists():
         # 기본 입력은 backend/data/ 아래인데 그건 실데이터가 들어가는 곳이라
         # gitignore 대상이다. 새로 클론한 곳에는 없으므로, 맨 트레이스백 대신
-        # 무엇을 하면 되는지 적어준다.
-        raise SystemExit(
-            f"입력 CSV 를 찾을 수 없다: {csv_path}\n"
-            "  --csv 로 경로를 지정하거나, 커밋된 샘플을 런타임 위치로 복사한다:\n"
+        # 무엇을 하면 되는지 적어준다. 안내는 형식별로 다르다 - xlsx 를 쓰는
+        # 사람에게 CSV 샘플을 복사하라고 하면 틀린 길로 보내는 것이다.
+        hint = (
             "    backend/tests/fixtures/coating/sample_long.csv"
-            f" -> {_default_csv_path()}"
+            f" -> {_default_input_path()}"
+            if source == "csv"
+            else "  .env 의 COATING_INPUT_PATH 가 가리키는 곳에 xlsx 를 둔다."
+        )
+        raise SystemExit(
+            f"입력 파일을 찾을 수 없다: {in_path} (형식: {source})\n"
+            "  --input 으로 경로를 지정하거나, COATING_INPUT_PATH 를 고친다.\n"
+            + hint
         )
 
     try:
         md_path, html_path = run(
-            csv_path, args.dict_path, args.out_dir, force_encoding=args.encoding
+            in_path,
+            args.dict_path,
+            args.out_dir,
+            force_encoding=args.encoding,
+            source=source,
+            sheet=args.sheet,
         )
     except ValueError as e:
-        # parse 가 후보를 다 써도 못 읽은 경우다. 트레이스백은 원인을 못 알려준다.
+        # parse·excel_source 가 원인을 이미 문장으로 만들어 뒀다. 트레이스백을
+        # 그대로 던지면 그 문장이 스택 밑에 묻힌다.
         raise SystemExit(str(e)) from e
     print(md_path)
     print(html_path)
     return md_path, html_path
 
 
-def _default_csv_path() -> Path:
-    return Path(get_settings().resolved_coating_data_dir) / "raw" / "sample_long.csv"
+def _default_input_path() -> Path:
+    """기본 입력 경로. 형식(csv/xlsx)과 함께 .env 가 정한다."""
+    return Path(get_settings().resolved_coating_input_path)
 
 
 if __name__ == "__main__":

@@ -28,6 +28,12 @@ scipy>=1.13            # inverse.py: 제약 최적화
 pydantic>=2.5
 pydantic-settings>=2.3
 
+# COATING_INPUT_FORMAT=xlsx 일 때만 필요하다. 사내 실데이터가 DRM 으로 암호화돼
+# 있어 python 이 바이트를 직접 못 읽을 때, Excel(COM)을 통해 읽는 경로에 쓴다.
+# pywin32 는 xlwings 가 끌고 온다. CSV 만 쓸 거면 이 줄을 빼도 전부 동작한다
+# (import 가 지연돼 있고, tests/test_coating_parse.py 가 그 사실을 지킨다).
+xlwings>=0.31
+
 # 설치 검증용. tests/test_coating_*.py 가 통과하면 환경이 맞은 것이다.
 pytest>=8.0
 

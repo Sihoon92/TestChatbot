@@ -81,10 +81,29 @@ class Settings(BaseSettings):
     # 영향행렬 커널 반폭 k. 파라미터 수 = 2k+1.
     coating_kernel_half_width: int = 2
     coating_ridge_alpha: float = 1.0
+    # 입력 소스. 사내 실데이터 CSV 가 DRM 으로 암호화돼 python 이 바이트를 직접
+    # 읽을 수 없는 동안, 같은 데이터를 xlsx 로 만들어 Excel(COM)로 읽는다.
+    # DRM 이 풀리면 이 값만 csv 로 되돌리면 원래 경로로 복귀한다.
+    coating_input_format: str = "csv"  # csv | xlsx
+    # 원본 파일 경로. 상대경로는 COATING_DATA_DIR 기준이다(raw/ 아래에 둔다).
+    coating_input_path: str = "raw/sample_long.csv"
+    # 읽을 시트. 비우면 첫 시트. xlsx 일 때만 쓴다.
+    coating_xlsx_sheet: str = ""
     # 원본 CSV 인코딩 후보(쉼표 구분). 앞에서부터 시도한다.
     # 사내 MES·엑셀 export 는 cp949 가 흔하고 우리 픽스처는 utf-8-sig 다.
     # utf-8 을 먼저 두는 순서가 중요하다(app/coating/parse.py 주석 참조).
     coating_csv_encodings: str = "utf-8-sig,cp949"
+
+    @property
+    def resolved_coating_input_path(self) -> str:
+        """원본 파일의 절대경로. 상대경로는 backend/ 가 아니라 데이터 루트 기준이다
+
+        - raw/interim/reports 가 한 루트 아래 모여 있다는 규약을 유지하려면
+        기준점이 COATING_DATA_DIR 이어야 한다."""
+        p = Path(self.coating_input_path)
+        if p.is_absolute():
+            return str(p)
+        return str(Path(self.resolved_coating_data_dir) / p)
 
     @property
     def coating_csv_encoding_list(self) -> list[str]:
