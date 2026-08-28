@@ -38,3 +38,11 @@ def test_coating_settings_have_defaults_and_resolve_path():
     assert s.coating_kernel_half_width >= 1
     assert s.coating_settle_std_max > 0
     assert s.resolved_coating_data_dir.endswith("coating")
+
+
+def test_csv_encoding_candidates_come_from_settings():
+    """실데이터 인코딩은 사업부·설비마다 다르다. 코드에 박으면 사내 PC 에서
+    한 줄 고치자고 배포를 다시 해야 한다 — .env 단일 출처 규칙."""
+    s = get_settings()
+    assert s.coating_csv_encoding_list[0] == "utf-8-sig"
+    assert "cp949" in s.coating_csv_encoding_list

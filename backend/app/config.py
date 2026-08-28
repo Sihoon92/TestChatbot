@@ -81,6 +81,16 @@ class Settings(BaseSettings):
     # 영향행렬 커널 반폭 k. 파라미터 수 = 2k+1.
     coating_kernel_half_width: int = 2
     coating_ridge_alpha: float = 1.0
+    # 원본 CSV 인코딩 후보(쉼표 구분). 앞에서부터 시도한다.
+    # 사내 MES·엑셀 export 는 cp949 가 흔하고 우리 픽스처는 utf-8-sig 다.
+    # utf-8 을 먼저 두는 순서가 중요하다(app/coating/parse.py 주석 참조).
+    coating_csv_encodings: str = "utf-8-sig,cp949"
+
+    @property
+    def coating_csv_encoding_list(self) -> list[str]:
+        """"utf-8-sig,cp949" -> ["utf-8-sig", "cp949"]. 빈 값이면 기본 후보."""
+        out = [e.strip() for e in self.coating_csv_encodings.split(",") if e.strip()]
+        return out or ["utf-8-sig", "cp949"]
 
     @property
     def cors_origin_list(self) -> list[str]:

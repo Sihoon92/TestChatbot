@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from app.coating import parse
 from app.coating import schemas as S
@@ -67,3 +68,46 @@ def test_unknown_item_ids_reports_missing(tmp_path):
     )
     r = parse.load_readings(csv, DICT)
     assert parse.unknown_item_ids(r) == ["99999999"]
+
+
+def test_reads_cp949_csv(tmp_path):
+    """실데이터는 MES·엑셀에서 나와 cp949 인 경우가 많다. utf-8 고정이면
+    한글이 한 글자만 있어도 UnicodeDecodeError 로 파이프라인 전체가 멈춘다."""
+    csv = tmp_path / "cp949.csv"
+    csv.write_bytes(
+        (
+            "lot_id,worked_at,product,item_id,item_name,value\n"
+            "L1,2026-01-31 18:55,비앤비,10030271,오에스 갭,163\n"
+        ).encode("cp949")
+    )
+    r = parse.load_readings(csv, DICT)
+    assert list(r[S.PRODUCT]) == ["비앤비"]
+
+
+def test_utf8_korean_is_not_misread_as_cp949(tmp_path):
+    """후보 순서 보장. '코팅' 의 utf-8 바이트는 cp949 에서 **예외 없이** 다른
+    글자 3자로 디코드된다. DEFAULT_ENCODINGS 를 뒤집으면 에러 하나 없이 깨진
+    제품명이 파이프라인 끝까지 흘러간다. 비ASCII 를 이 한 단어로 제한하는 것이
+    이 테스트의 요점이다 — 예외를 내는 한글이 한 글자라도 섞이면 폴백이
+    되살려버려서 순서가 뒤집혀도 통과한다."""
+    csv = tmp_path / "utf8.csv"
+    csv.write_bytes(
+        (
+            "lot_id,worked_at,product,item_id,item_name,value\n"
+            "L1,2026-01-31 18:55,코팅,10030271,,163\n"
+        ).encode("utf-8")
+    )
+    r = parse.load_readings(csv, DICT)
+    assert list(r[S.PRODUCT]) == ["코팅"]
+
+
+def test_undecodable_csv_names_the_encodings_it_tried(tmp_path):
+    """'byte 0xff in position 0' 만 보고는 무엇을 고쳐야 할지 알 수 없다."""
+    csv = tmp_path / "utf16.csv"
+    csv.write_bytes(
+        "lot_id,worked_at,product,item_id,item_name,value\n".encode("utf-16")
+    )
+    with pytest.raises(ValueError) as e:
+        parse.load_readings(csv, DICT, encodings=["utf-8"])
+    assert "utf-8" in str(e.value)
+    assert "utf16.csv" in str(e.value)
