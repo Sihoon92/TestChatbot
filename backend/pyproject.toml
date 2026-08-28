@@ -24,6 +24,9 @@ dev = [
     "pytest-asyncio>=0.23",
     "anyio>=4.0",
 ]
+# 전체 앱을 한 번에: pip install -e ".[all]"
+# 코팅 과제만 돌릴 거면 requirements-coating.txt 를 쓴다(base 의존성을 뺀 최소 세트).
+all = ["chat-backend[dev,ml]"]
 ml = [
     "pandas>=2.2",
     "pyarrow>=14.0",
@@ -35,6 +38,10 @@ ml = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# 패키지를 설치하지 않고(requirements-coating.txt 최소 설치) 테스트를 돌릴 때
+# backend/ 를 sys.path 에 넣어준다. 없으면 `pytest` 로 부를 때만 조용히
+# ModuleNotFoundError: app 이 난다(`python -m pytest` 는 cwd 덕에 우연히 된다).
+pythonpath = ["."]
 
 [tool.setuptools.packages.find]
 where = ["."]

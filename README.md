@@ -65,6 +65,30 @@ python dev.py internal   # 사내 LLM 백엔드로 강제
 
 사이드바의 **LLM 연결 테스트** 버튼으로 현재 백엔드 연결/모델 목록을 확인할 수 있다(초록=성공, 빨강=실패).
 
+## 코팅 초기조건 도출 (최소 설치 / 사내 PC)
+
+채팅 앱과 무관한 순수 수치 파이프라인이라 fastapi·langgraph·Node 없이 돈다.
+폐쇄망에서는 받아야 할 패키지 수가 곧 실패 확률이라 최소 세트를 따로 둔다.
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-coating.txt
+
+# 설치 검증 (코팅 테스트만)
+.\.venv\Scripts\python.exe -m pytest (Get-ChildItem tests\test_coating_*.py).FullName -q
+
+# 실행 - 결과는 data\coating\reports\data_profile.md / .html
+.\.venv\Scripts\python.exe -m app.coating.report --csv data\coating\raw\실데이터.csv
+```
+
+- 이 최소 설치에서는 `pip install -e .` 를 하지 않는다. 반드시 `backend/` 에서
+  **`python -m ...`** 형태로 부른다(`python app/coating/report.py` 는 `app` 을 못 찾는다).
+- 전체 앱(채팅 + 금형 + 코팅)까지 필요하면 대신 `pip install -e ".[all]"`.
+- 입력 CSV 인코딩은 `utf-8-sig` → `cp949` 순으로 자동 판별한다. 후보는
+  `.env` 의 `COATING_CSV_ENCODINGS` 로 바꾸고, 한 번만 강제할 땐 `--encoding` 을 쓴다.
+- `pytest-asyncio` 가 없으므로 `Unknown config option: asyncio_mode` 경고가 뜬다(정상).
+
 ## Tests
 
 ```bash

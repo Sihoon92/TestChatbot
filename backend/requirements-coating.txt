@@ -1,0 +1,35 @@
+﻿# KEEP THIS FILE AS UTF-8 WITH BOM. On Korean Windows, pip decodes requirements
+# files with the cp949 locale codec and dies on these comments without the BOM.
+# 코팅 초기조건 도출 과제만 실행할 때 쓰는 최소 설치 세트.
+#
+#   python -m pip install -r requirements-coating.txt
+#
+# 왜 pyproject 가 아니라 별도 파일인가:
+# pyproject 의 base dependencies(fastapi / uvicorn / langgraph / langchain-* /
+# xlwings)는 채팅 앱과 금형 수집용이라 이 과제에서 한 줄도 import 하지 않는다.
+# 그런데 pip 의 extras 는 base 를 항상 함께 깐다 - `pip install -e ".[ml]"` 로는
+# 그 20여 개를 뺄 수 없다. 사내 폐쇄망/프록시에서는 받아야 할 패키지 수가 곧
+# 실패 확률이라, 코팅이 실제로 import 하는 것만 여기 고정한다.
+#
+# 이 파일로 설치하면 `pip install -e .` 는 하지 않는다. backend/ 에서
+# `python -m app.coating.report` 로 실행하면 cwd 가 sys.path 에 들어가 app 을 찾는다.
+#
+# 전체 앱(채팅 + 금형 + 코팅)까지 필요하면 대신:  pip install -e ".[all]"
+#
+# 버전 하한은 pyproject 의 optional-dependencies.ml 과 일치시킨다. 한쪽만 올리지 않는다.
+
+# 파이프라인 본체
+pandas>=2.2
+pyarrow>=14.0          # 단계별 중간 산출물(parquet)
+scikit-learn>=1.4      # level.py: Ridge / evaluate.py: GroupKFold
+scipy>=1.13            # inverse.py: 제약 최적화
+
+# app.config 의 Settings 가 backend/.env 를 읽는다. base 에서 필요한 건 이 둘뿐이다.
+pydantic>=2.5
+pydantic-settings>=2.3
+
+# 설치 검증용. tests/test_coating_*.py 가 통과하면 환경이 맞은 것이다.
+pytest>=8.0
+
+# matplotlib 은 아직 어느 코팅 모듈도 import 하지 않는다. 그림이 필요해지는
+# 시점에 여기 추가한다(폐쇄망에서는 안 쓰는 패키지 하나가 곧 설치 실패 한 번이다).
