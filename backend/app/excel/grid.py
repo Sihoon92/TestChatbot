@@ -9,6 +9,28 @@ from typing import Any
 _NUMERIC = (int, float)
 
 
+def cell_to_text(v: object) -> str | None:
+    """셀 값을 표시·비교용 문자열로. 빈 값은 None."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, date):
+        return v.isoformat()
+    if isinstance(v, bool):
+        # bool 은 int 의 하위 타입이라 아래 숫자 분기보다 먼저 처리해야 한다.
+        return "TRUE" if v else "FALSE"
+    if isinstance(v, float):
+        # 정수값 float 는 소수점을 떼야 한다 — str(28312.0) == '28312.0'.
+        if v.is_integer():
+            return str(int(v))
+        return str(v)
+    if isinstance(v, int):
+        return str(v)
+    s = str(v).strip()
+    return s or None
+
+
 def col_to_letter(col_idx: int) -> str:
     """1-기반 열 인덱스를 엑셀 열문자로 (1→'A', 27→'AA')."""
     letters = ""

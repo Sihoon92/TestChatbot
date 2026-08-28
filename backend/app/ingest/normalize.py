@@ -10,6 +10,11 @@ str() 하면 '1.0' 이 되어 매칭이 전부 깨진다 — cell_to_text 가 �
 import re
 from datetime import date, datetime
 
+# 셀 값 → 텍스트 변환은 금형 도메인이 아니라 '엑셀 값 다루기' 의 문제라
+# 순수 계층(app.excel.grid)에 산다. 여기서는 재수출만 한다 — 이 모듈이
+# 정규화의 단일 창구라는 성질은 그대로 유지된다.
+from app.excel.grid import cell_to_text
+
 # 금형번호 칸에 들어올 수 있지만 금형이 아닌 값들. 실물 IQC 시트의 summary
 # 표와 소계 행에서 나온다. role="summary" 로 걸러지는 것이 1차 방어이고,
 # 이것은 detail 표 안에 섞인 소계 행에 대한 2차 방어다.
@@ -62,28 +67,6 @@ def status_from_location(raw: object) -> str | None:
         if keyword in squeezed:
             return status
     return "standby"
-
-
-def cell_to_text(v: object) -> str | None:
-    """셀 값을 표시·비교용 문자열로. 빈 값은 None."""
-    if v is None:
-        return None
-    if isinstance(v, datetime):
-        return v.isoformat()
-    if isinstance(v, date):
-        return v.isoformat()
-    if isinstance(v, bool):
-        # bool 은 int 의 하위 타입이라 아래 숫자 분기보다 먼저 처리해야 한다.
-        return "TRUE" if v else "FALSE"
-    if isinstance(v, float):
-        # 정수값 float 는 소수점을 떼야 한다 — str(28312.0) == '28312.0'.
-        if v.is_integer():
-            return str(int(v))
-        return str(v)
-    if isinstance(v, int):
-        return str(v)
-    s = str(v).strip()
-    return s or None
 
 
 def normalize_text(s: str | None) -> str:

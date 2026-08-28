@@ -2,6 +2,7 @@ from datetime import datetime
 
 import pytest
 
+from app.excel import grid
 from app.excel.grid import (
     EMPTY_CELL,
     a1_offset,
@@ -235,3 +236,13 @@ def test_aggregate_values_rejects_unknown_op_on_empty_list():
     """Regression test: unknown op should raise ValueError even with empty input."""
     with pytest.raises(ValueError):
         aggregate_values([], "median")
+
+
+def test_cell_to_text_strips_float_decimal_from_integer_cells():
+    """xlwings 는 정수 셀도 float 로 준다. 그대로 str() 하면 '30030859.0' 이
+    되어 항목사전(문자열 키) 조인이 예외 없이 전부 미매칭 된다. 이 변환은
+    금형 도메인이 아니라 엑셀 값 다루기의 문제라 순수 계층에 둔다."""
+    assert grid.cell_to_text(30030859.0) == "30030859"
+    assert grid.cell_to_text(18.21) == "18.21"
+    assert grid.cell_to_text(None) is None
+    assert grid.cell_to_text("  BNB48X1  ") == "BNB48X1"
