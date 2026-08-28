@@ -25,9 +25,9 @@ from app.config import get_settings
 _MIN_EVENTS = 20  # Toeplitz 커널(2k+1개)을 견고하게 추정하는 하한
 
 
-def profile_dataset(csv_path, dict_path, encodings=None) -> dict:
+def profile_dataset(csv_path, dict_path, encodings=None, force_encoding=None) -> dict:
     s = get_settings()
-    readings = parse.load_readings(csv_path, dict_path, encodings)
+    readings = parse.load_readings(csv_path, dict_path, encodings, force_encoding)
     deduped = pivot.dedupe_minute(readings)
     changes = pivot.compress_runs(deduped)
     wet = features.wet_wide(deduped)
@@ -169,7 +169,9 @@ def render_html(f: dict) -> str:
     )
 
 
-def run(csv_path=None, dict_path=None, out_dir=None, encodings=None) -> tuple[str, str]:
+def run(
+    csv_path=None, dict_path=None, out_dir=None, encodings=None, force_encoding=None
+) -> tuple[str, str]:
     s = get_settings()
     root = Path(s.resolved_coating_data_dir)
     # CSV 는 실데이터라 런타임 디렉터리에서, 사전은 스키마라 패키지에서 읽는다.
@@ -180,7 +182,7 @@ def run(csv_path=None, dict_path=None, out_dir=None, encodings=None) -> tuple[st
     # 인코딩 후보도 기본값 결정은 여기 한 곳이다(.env 단일 출처).
     encodings = encodings or s.coating_csv_encoding_list
 
-    facts = profile_dataset(csv_path, dict_path, encodings)
+    facts = profile_dataset(csv_path, dict_path, encodings, force_encoding)
     md_path = out / "data_profile.md"
     html_path = out / "data_profile.html"
     md_path.write_text(render_markdown(facts), encoding="utf-8")
@@ -210,7 +212,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--encoding", default=None,
-        help="원본 CSV 인코딩을 하나로 강제 (생략 시 COATING_CSV_ENCODINGS 후보를 차례로 시도)",
+        help=(
+            "원본 CSV 인코딩을 하나로 강제한다. 생략하면 BOM·시그니처로 판별하고 "
+            "안 되면 COATING_CSV_ENCODINGS 후보를 차례로 시도한다."
+        ),
     )
     return p
 
@@ -229,9 +234,10 @@ def main(argv: list[str] | None = None) -> tuple[str, str]:
             f" -> {_default_csv_path()}"
         )
 
-    encodings = [args.encoding] if args.encoding else None
     try:
-        md_path, html_path = run(csv_path, args.dict_path, args.out_dir, encodings)
+        md_path, html_path = run(
+            csv_path, args.dict_path, args.out_dir, force_encoding=args.encoding
+        )
     except ValueError as e:
         # parse 가 후보를 다 써도 못 읽은 경우다. 트레이스백은 원인을 못 알려준다.
         raise SystemExit(str(e)) from e

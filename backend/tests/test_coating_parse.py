@@ -102,12 +102,68 @@ def test_utf8_korean_is_not_misread_as_cp949(tmp_path):
 
 
 def test_undecodable_csv_names_the_encodings_it_tried(tmp_path):
-    """'byte 0xff in position 0' 만 보고는 무엇을 고쳐야 할지 알 수 없다."""
+    """'byte 0xff in position 0' 만 보고는 무엇을 고쳐야 할지 알 수 없다.
+
+    utf-16 BOM 이 있는 파일이라 자동 판별이면 읽힌다. 여기서는 --encoding 으로
+    강제했을 때 그 지시가 지켜지는지(그리고 실패를 설명하는지)를 본다."""
     csv = tmp_path / "utf16.csv"
     csv.write_bytes(
         "lot_id,worked_at,product,item_id,item_name,value\n".encode("utf-16")
     )
     with pytest.raises(ValueError) as e:
-        parse.load_readings(csv, DICT, encodings=["utf-8"])
+        parse.load_readings(csv, DICT, force_encoding="utf-8")
     assert "utf-8" in str(e.value)
     assert "utf16.csv" in str(e.value)
+
+
+def _csv_bytes(encoding):
+    return (
+        "lot_id,worked_at,product,item_id,item_name,value\n"
+        "L1,2026-01-31 18:55,비앤비,10030271,오에스 갭,163\n"
+    ).encode(encoding)
+
+
+def test_reads_utf16_with_bom(tmp_path):
+    """Windows PowerShell 5.1 의 Out-File / '>' 기본 출력이 utf-16 BOM 이다.
+    MES·SSMS export 도 흔하다. BOM 은 추측이 아니라 파일이 스스로 밝힌
+    정답이므로 후보 목록보다 먼저 본다."""
+    csv = tmp_path / "utf16.csv"
+    csv.write_bytes(_csv_bytes("utf-16"))
+    r = parse.load_readings(csv, DICT)
+    assert list(r[S.PRODUCT]) == ["비앤비"]
+
+
+def test_reads_utf16le_without_bom(tmp_path):
+    """BOM 이 없어도 본문 절반이 0x00 이면 utf-16 이다. 일반 CSV 텍스트에는
+    NUL 이 나올 수 없으므로 오탐이 아니다."""
+    csv = tmp_path / "utf16le.csv"
+    csv.write_bytes(_csv_bytes("utf-16-le"))
+    r = parse.load_readings(csv, DICT)
+    assert list(r[S.PRODUCT]) == ["비앤비"]
+
+
+def test_excel_file_renamed_to_csv_is_not_reported_as_encoding_problem(tmp_path):
+    """xlsx 를 이름만 .csv 로 바꿔 넣는 일이 잦다. 이걸 '인코딩 판별 실패' 로
+    말하면 인코딩만 몇 시간 뒤진다. 파일 종류를 짚어줘야 한다."""
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("xl/workbook.xml", "<workbook/>")
+    csv = tmp_path / "가짜.csv"
+    csv.write_bytes(buf.getvalue())
+
+    with pytest.raises(ValueError) as e:
+        parse.load_readings(csv, DICT)
+    assert "엑셀" in str(e.value)
+
+
+def test_undecodable_file_shows_first_bytes(tmp_path):
+    """재현이 안 되는 환경에서 원인을 한 번에 좁히려면 파일이 실제로 어떤
+    바이트로 시작하는지가 있어야 한다."""
+    csv = tmp_path / "이상한.csv"
+    csv.write_bytes(bytes([0x8F, 0xFF, 0xFE, 0x41, 0x42]))
+    with pytest.raises(ValueError) as e:
+        parse.load_readings(csv, DICT, encodings=["utf-8"])
+    assert "8f ff fe" in str(e.value).lower()
