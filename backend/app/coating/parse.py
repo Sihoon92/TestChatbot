@@ -26,6 +26,7 @@ DEFAULT_ENCODINGS = ("utf-8-sig", "cp949")
 # 바이너리 시그니처. 엑셀을 이름만 .csv 로 바꿔 넣는 일이 잦은데, 이걸
 # "인코딩 판별 실패" 로 말하면 인코딩만 몇 시간을 뒤지게 된다.
 _SIGNATURES = (
+    (b"<## NASCA DRM", "사내 문서보안(NASCA DRM)으로 암호화된 파일"),
     (b"PK\x03\x04", "엑셀 파일(.xlsx) 또는 zip"),
     (b"\xd0\xcf\x11\xe0", "옛 엑셀 파일(.xls)"),
     (b"%PDF", "PDF 파일"),
@@ -40,6 +41,21 @@ _BOMS = (
     (codecs.BOM_UTF16_LE, "utf-16"),
     (codecs.BOM_UTF16_BE, "utf-16"),
 )
+
+_HOWTO_DEFAULT = "  엑셀에서 '다른 이름으로 저장 > CSV UTF-8' 로 다시 내보낸다."
+
+# DRM 은 파일 형식 문제가 아니라 권한 문제다. 다시 내보내라고 하면 안 된다 -
+# 등록되지 않은 프로세스(python.exe)는 복호화된 내용을 아예 못 본다.
+_HOWTO = {
+    b"<## NASCA DRM": (
+        "  DRM 은 등록된 프로그램에만 복호화해서 보여준다. python 은 암호문을 그대로 받는다.\n"
+        "  보안팀에 둘 중 하나를 요청한다:\n"
+        "    (1) 이 CSV 의 DRM 해제(복호화) 반출\n"
+        "    (2) 분석용 python.exe 를 DRM 예외 애플리케이션으로 등록\n"
+        "  사내 정책이 허용하면 엑셀로 연 뒤 '다른 이름으로 저장 > CSV UTF-8' 로\n"
+        "  받은 사본이 평문일 수 있다(정책에 따라 사본도 자동 암호화된다)."
+    ),
+}
 
 _HEAD_BYTES = 4096
 
@@ -83,7 +99,7 @@ def read_csv_any(
             raise ValueError(
                 f"CSV 가 아니다: {path}\n"
                 f"  파일 내용이 {kind}이다(첫 바이트 {head[:4].hex(' ')}).\n"
-                "  엑셀에서 '다른 이름으로 저장 > CSV UTF-8' 로 다시 내보낸다."
+                + _HOWTO.get(sig, _HOWTO_DEFAULT)
             )
 
     if force_encoding:

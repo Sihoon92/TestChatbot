@@ -167,3 +167,14 @@ def test_undecodable_file_shows_first_bytes(tmp_path):
     with pytest.raises(ValueError) as e:
         parse.load_readings(csv, DICT, encodings=["utf-8"])
     assert "8f ff fe" in str(e.value).lower()
+
+
+def test_drm_wrapped_file_is_named_as_drm_not_encoding(tmp_path):
+    """사내 문서보안(NASCA DRM)이 감싼 파일은 어떤 인코딩으로도 안 읽힌다.
+    이걸 '인코딩 판별 실패' 로 말하면 인코딩을 며칠 뒤지게 된다. 실제로
+    한 번 겪었다(첫 바이트 3c 23 23 20 4e 41 53 43 41 = '<## NASCA')."""
+    csv = tmp_path / "보안.csv"
+    csv.write_bytes(b"<## NASCA DRM FILE ##>" + bytes(range(200, 256)))
+    with pytest.raises(ValueError) as e:
+        parse.load_readings(csv, DICT)
+    assert "DRM" in str(e.value)
