@@ -210,3 +210,20 @@ def test_csv_path_works_without_xlwings_installed(tmp_path, monkeypatch):
     fresh = importlib.import_module("app.coating.parse")
     r = fresh.load_readings(csv, DICT)
     assert list(r[S.ITEM]) == ["10030271"]
+
+
+def test_missing_required_column_reports_what_was_found(tmp_path):
+    """헤더 이름이 계약이다. 하지만 KeyError: 'worked_at' 한 줄로는 무엇을
+    어떻게 고쳐야 하는지 알 수 없다 — 사내 MES 헤더는 한글이거나 이름이 다르다.
+    필요한 것과 실제로 있던 것을 나란히 보여준다."""
+    csv = tmp_path / "한글헤더.csv"
+    csv.write_text(
+        "LOT번호,작업일시,품명,항목코드,항목명,측정값\n"
+        "L1,2026-01-31 18:55,BNB48X1,10030271,,163\n",
+        encoding="utf-8-sig",
+    )
+    with pytest.raises(ValueError) as e:
+        parse.load_readings(csv, DICT)
+    message = str(e.value)
+    assert S.AT in message          # 무엇이 필요한지
+    assert "작업일시" in message     # 무엇이 있었는지

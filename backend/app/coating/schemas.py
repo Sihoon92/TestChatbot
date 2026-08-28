@@ -35,6 +35,10 @@ DROP_REASON = "drop_reason"
 WET_MEAN = "wet_mean"
 SEGMENT = "segment_id"
 
+# 원본에 반드시 있어야 하는 컬럼. item_name 은 빠져도 된다 - 원본 것은 대부분
+# 비어 있고 사전 것을 쓴다.
+REQUIRED_COLUMNS = (LOT, AT, PRODUCT, ITEM, VALUE)
+
 N_ZONES = 25
 
 # T_Block UNIT Gap Offset 1~25Zone
@@ -52,6 +56,23 @@ CONTROL_SCALARS = {
 
 # 제어 항목 전체 = 스칼라 4 + zone 25
 CONTROL_ITEM_IDS = list(CONTROL_SCALARS) + GAP_ITEM_IDS
+
+
+def require_columns(found, path, hint: str) -> None:
+    """필수 컬럼 검증. 두 입력 경로(csv·xlsx)가 같은 문장으로 실패한다.
+
+    없으면 pandas 가 뒤에서 KeyError: 'worked_at' 를 던지는데, 그 한 줄로는
+    헤더를 어떻게 고쳐야 하는지 알 수 없다. 사내 MES 원본은 헤더가 한글이거나
+    이름이 달라서, 실제로 무엇이 있었는지를 함께 보여줘야 한 번에 고친다."""
+    missing = [c for c in REQUIRED_COLUMNS if c not in list(found)]
+    if not missing:
+        return
+    raise ValueError(
+        f"필수 컬럼이 없다: {missing} ({path})\n"
+        f"  실제 헤더: {list(found)}\n"
+        f"  필요한 컬럼: {list(REQUIRED_COLUMNS)} (item_name 은 선택)\n"
+        + hint
+    )
 
 
 def zone_col(z: int) -> str:

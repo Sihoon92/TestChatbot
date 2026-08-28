@@ -22,10 +22,6 @@ from app.excel.grid import cell_to_text
 # 엑셀 시트의 최대 행. 원본이 이보다 크면 xlsx 를 만드는 시점에 이미 잘린다.
 _EXCEL_MAX_ROWS = 1_048_576
 
-# 이 다섯 개가 없으면 뒤 단계가 KeyError 로 죽는다. item_name 은 없어도 된다
-# (원본은 대부분 비어 있고 사전 것을 쓴다).
-_REQUIRED = (S.LOT, S.AT, S.PRODUCT, S.ITEM, S.VALUE)
-
 
 def read_long_table(path: str | Path, sheet: str | None = None) -> pd.DataFrame:
     """xlsx 를 Excel 로 열어 long 테이블로 읽는다. 모든 셀은 문자열.
@@ -59,13 +55,13 @@ def read_long_table(path: str | Path, sheet: str | None = None) -> pd.DataFrame:
         raise ValueError(f"데이터 행이 없다(헤더만 있거나 빈 시트다): {path}")
 
     header = [cell_to_text(c) for c in rows[0]]
-    missing = [c for c in _REQUIRED if c not in header]
-    if missing:
-        raise ValueError(
-            f"필수 컬럼이 없다: {missing} ({path})\n"
-            f"  이 시트의 헤더: {header}\n"
-            "  헤더가 첫 행에 오도록 맞추거나 --sheet 로 다른 시트를 지정한다."
-        )
+    # 검증 문장은 CSV 경로와 공유한다. 다만 여기서만 줄 수 있는 힌트(시트)를 붙인다.
+    S.require_columns(
+        header,
+        path,
+        f"  이 시트({target!r})의 첫 행이 헤더가 맞는지 확인하고,\n"
+        "  아니면 --sheet 로 다른 시트를 지정한다.",
+    )
 
     body = [[cell_to_text(c) for c in row] for row in rows[1:]]
     return pd.DataFrame(body, columns=header, dtype=object)

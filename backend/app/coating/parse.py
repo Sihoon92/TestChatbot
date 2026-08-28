@@ -164,11 +164,17 @@ def load_readings(
         raw = read_csv_any(csv_path, encodings, force_encoding, dtype={S.ITEM: str})
     else:
         raise ValueError(f"알 수 없는 입력 형식: {source!r} (csv | xlsx)")
-    return _finalize(raw, dict_path, encodings)
+    return _finalize(raw, dict_path, encodings, csv_path)
 
 
-def _finalize(raw: pd.DataFrame, dict_path, encodings) -> pd.DataFrame:
-    """두 입력 경로가 만나는 곳. 타입 보정 + 순서 보존 + 사전 조인."""
+def _finalize(raw: pd.DataFrame, dict_path, encodings, path=None) -> pd.DataFrame:
+    """두 입력 경로가 만나는 곳. 검증 + 타입 보정 + 순서 보존 + 사전 조인."""
+    S.require_columns(
+        raw.columns,
+        path,
+        "  첫 행이 헤더인지, 위에 제목 행이 끼어 있지 않은지 확인한다.\n"
+        "  헤더 이름이 다르면 원본에서 위 이름으로 바꿔 저장한다.",
+    )
     # 원본에도 item_name 열이 있지만 대부분 비어 있다. 사전 것을 쓴다.
     raw = raw.drop(columns=[S.ITEM_NAME], errors="ignore")
     raw[S.AT] = pd.to_datetime(raw[S.AT])
