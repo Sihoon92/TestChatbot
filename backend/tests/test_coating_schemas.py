@@ -51,12 +51,22 @@ def test_csv_encoding_candidates_come_from_settings():
 
 
 def test_input_source_is_switchable_by_setting():
-    """DRM 때문에 CSV 를 못 읽는 동안 xlsx 로 우회한다. 어느 쪽을 읽을지는
-    코드가 아니라 .env 가 정한다 — 사내 PC 에서 두 줄만 바꿔 전환한다."""
+    """DRM 때문에 CSV 를 못 읽는 동안 xlsx 로 우회하고, 한 번 변환한 뒤에는
+    parquet 으로 간다. 어느 쪽을 읽을지는 코드가 아니라 .env 가 정한다 —
+    사내 PC 에서 두 줄만 바꿔 전환한다.
+
+    개발자의 로컬 .env 에 실제로 적힌 값을 단언하지 않는다. .env 는 gitignore
+    대상이라 사람마다 다르고, 실제로 여기서 parquet 으로 바꾸자 예전 단언
+    (endswith('.csv'))이 깨졌다. 검증할 것은 "설정이 결과를 바꾼다" 이지
+    "지금 설정이 무엇이다" 가 아니다.
+    """
     s = get_settings()
-    assert s.coating_input_format in ("csv", "xlsx")
-    assert s.resolved_coating_input_path.endswith(".csv")
-    assert s.coating_xlsx_sheet == ""
+    assert s.coating_input_format in ("csv", "xlsx", "parquet")
+    for fmt, name in (("csv", "a.csv"), ("xlsx", "b.xlsx"), ("parquet", "c.parquet")):
+        moved = s.model_copy(update={"coating_input_format": fmt,
+                                     "coating_input_path": f"raw/{name}"})
+        assert moved.coating_input_format == fmt
+        assert moved.resolved_coating_input_path.endswith(name)
 
 
 def test_input_path_resolves_under_coating_data_dir():

@@ -239,6 +239,24 @@ def test_switching_files_does_not_keep_a_stale_selection(tmp_path):
     assert sum(len(m.value) for m in app.multiselect) == 2
 
 
+def test_dashboard_shows_the_read_error_instead_of_a_traceback(tmp_path):
+    """DRM·인코딩·헤더 불일치는 parse 가 이미 원인과 대처를 문장으로 만들어 둔다.
+    그걸 안 받으면 streamlit 이 트레이스백을 띄워 그 문장이 스택 밑에 묻힌다 —
+    설정 문제가 버그처럼 보인다. 실제로 그렇게 나와서 넣은 회귀다."""
+    at = pytest.importorskip("streamlit.testing.v1").AppTest
+
+    drm = tmp_path / "보안.csv"
+    drm.write_bytes(b"<## NASCA DRM FILE ##>" + bytes(range(200, 256)))
+
+    app = at.from_file(str(Path(__file__).parents[1] / "app" / "coating" / "dashboard.py"))
+    app.run(timeout=60)
+    app.text_input[0].set_value(str(drm)).run(timeout=60)
+
+    assert not app.exception, "트레이스백이 새어 나왔다"
+    assert "DRM" in app.error[0].value          # 원인
+    assert "convert" in app.info[0].value       # 대처
+
+
 def test_dashboard_stops_with_a_message_on_a_bad_path(tmp_path):
     """경로를 잘못 적었을 때 트레이스백이 아니라 문장이 나와야 한다."""
     at = pytest.importorskip("streamlit.testing.v1").AppTest

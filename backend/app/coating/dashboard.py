@@ -73,9 +73,21 @@ def main() -> None:
             st.stop()
 
     fmt = parse.format_for(path, default=s.coating_input_format)
-    readings = load(
-        str(path), fmt, tuple(s.coating_csv_encoding_list), path.stat().st_mtime_ns
-    )
+    try:
+        readings = load(
+            str(path), fmt, tuple(s.coating_csv_encoding_list), path.stat().st_mtime_ns
+        )
+    except ValueError as e:
+        # parse·excel_source 가 원인과 대처를 이미 문장으로 만들어 뒀다(DRM·인코딩·
+        # 헤더 불일치). 그대로 두면 streamlit 이 트레이스백을 띄워 그 문장이 스택
+        # 밑에 묻힌다 - report.main 이 SystemExit 로 감싸는 것과 같은 이유다.
+        st.error(str(e))
+        st.info(
+            "xlsx·DRM 원본은 한 번 변환해 두면 그 뒤로는 Excel 없이 열린다:\n\n"
+            "```\npython -m app.coating.convert --input <원본> --sheet <시트>\n```\n"
+            "만든 .parquet 경로를 위 칸에 넣거나, .env 의 COATING_INPUT_PATH 를 고친다."
+        )
+        st.stop()
     st.caption(f"{path.name} · {fmt} · {len(readings):,}행")
 
     with st.sidebar:
