@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 from app.coating import events as ev_mod
-from app.coating import features, parse, pivot
+from app.coating import features, panel as panel_mod, parse, pivot, response
 from app.coating import schemas as S
 from app.coating import segment
 from app.coating.model import profile
@@ -93,8 +93,39 @@ def profile_readings(readings: pd.DataFrame) -> dict:
         "missing_control_items": missing,
         "tuning_end": segment.tuning_end_last_change(changes).to_dict("records"),
     }
+    facts["dynamics"] = _dynamics_facts(readings, ev, dl, s)
     facts.update(_verdict(facts))
     return facts
+
+
+def _dynamics_facts(readings, ev, dl, s) -> dict:
+    """동특성 — "지연이 몇 분인가" 보다 "지연을 말할 수 있는가" 가 먼저다.
+
+    표본이 모자란 채로 낸 L 은 숫자처럼 보여서 더 위험하다. 그래서 못 낼 때는
+    숫자 자리에 '몇 건이 더 필요한지' 를 넣는다.
+    """
+    p = panel_mod.build_panel(
+        pivot.dedupe_minute(readings), s.coating_panel_ffill_max_minutes
+    )
+    sigma, quiet_minutes = response.noise_floor(
+        panel_mod.build_delta(p), ev, s.coating_response_post_minutes
+    )
+    aligned = response.align_events(
+        p, ev, dl, s.coating_response_pre_minutes,
+        s.coating_response_post_minutes, s.coating_settle_window_minutes,
+    )
+    curve = response.response_curve(aligned)
+    dyn = response.dynamics(curve, sigma)
+    n_clean = int((~ev[S.CONTAMINATED].astype(bool)).sum()) if len(ev) else 0
+    n_pairs = aligned.groupby([S.EVENT, S.ZONE]).ngroups if len(aligned) else 0
+    # τ 를 아직 모를 때의 대입값. 관측 창의 절반을 쓴다 - 이보다 느린 반응은
+    # 애초에 이 창으로 못 본다.
+    tau_guess = dyn["tau"] or (s.coating_response_post_minutes / 2)
+    return {
+        "quiet_minutes": quiet_minutes,
+        **dyn,
+        **response.verdict(sigma, n_clean, n_pairs, dyn, tau_guess),
+    }
 
 
 def _verdict(f: dict) -> dict:
@@ -125,6 +156,66 @@ def _verdict(f: dict) -> dict:
     return {"verdict": "trainable", "verdict_reason": "1·2차 관문을 통과했다."}
 
 
+def _dynamics_lines(d: dict) -> list[str]:
+    """동특성 섹션. 못 낼 때 빈 칸을 두지 않고 '무엇이 더 필요한지' 를 적는다."""
+    if not d:
+        return []
+    sigma = d.get("sigma")
+    lines = ["## 동특성 (조정 → 반영까지)"]
+    if sigma is None or not np.isfinite(sigma):
+        return lines + ["- 노이즈를 잴 조용한 구간이 없다. 판정 불가.", ""]
+
+    lines.append(
+        f"- 노이즈 바닥: σ = {sigma:.4f} (분당 ΔWet, 조정 없는 {d['quiet_minutes']:,}분에서)"
+    )
+    lines.append(
+        f"- 깨끗한 이벤트 {d['n_events']}건 → (이벤트×zone) 표본 {d['n_pairs']}개"
+    )
+    if not d.get("identifiable"):
+        return lines + _not_identifiable_lines(d) + [""]
+
+    lines.append(
+        f"- **순수 지연 L = {d['dead_time']}분** — 조정 후 이 시간이 지나야 Wet 이 움직인다"
+    )
+    if d.get("tau") is not None:
+        lines.append(f"- 시정수 τ = {d['tau']}분 (최종 변화의 63% 도달)")
+    if d.get("settle") is not None:
+        lines.append(
+            f"- 정착 T_s = {d['settle']}분 — 다음 조정까지 최소 이만큼 띄워야"
+            " 두 조정의 효과가 섞이지 않는다"
+        )
+    lines.append(f"- 최종 변화량 {d['final']:+.4f} (부호 정렬, |Δgap| 1회분 기준)")
+    if d.get("plateau_reached") is False:
+        lines.append(
+            "  - ⚠ 관측 창이 끝날 때까지 아직 오르고 있다. τ 와 최종 변화량은 **하한**이다"
+            " — COATING_RESPONSE_POST_MINUTES 를 늘려 다시 본다."
+        )
+    return lines + [""]
+
+
+def _not_identifiable_lines(d: dict) -> list[str]:
+    """왜 못 내는지에 따라 다른 말을 한다. "반응이 없다" 와 "표본이 모자라다" 는
+    다른 진단이고 다음 행동도 다르다 - 앞은 조정 폭을, 뒤는 이벤트 수를 늘려야 한다."""
+    reason = d.get("reason")
+    if reason == "no_events":
+        return ["- **판정: 지연 추정 불가** — 깨끗한 조정 이벤트가 없다.",
+                "  - 제어값이 바뀐 구간의 데이터가 있어야 한다."]
+    if reason == "no_response":
+        det = d.get("detectable")
+        size = f"±{det:.4f}" if det and np.isfinite(det) else "검출 한계"
+        return [
+            f"- **판정: 반응이 관측되지 않았다** — 지금 표본으로 볼 수 있는 최소 반응은 {size} 다.",
+            "  - 그보다 작은 반응은 있어도 못 본다. 조정 폭을 키우거나 이벤트를 늘려야 한다.",
+        ]
+    need, short = d.get("required_events", -1), d.get("shortfall_events", -1)
+    want = f"약 {need}건" if need > 0 else "더 많은 이벤트가"
+    tail = f" (지금 {d['n_events']}건, {short}건 부족)." if short > 0 else "."
+    return [
+        f"- **판정: 지연 추정 불가** — 1분 단위로 가르려면 {want} 필요하다{tail}",
+        "  - 반응은 보인다. 튜닝 구간이 포함된 기간의 데이터를 더 요청한다.",
+    ]
+
+
 def render_markdown(f: dict) -> str:
     lines = [
         "# 코팅 초기조건 데이터 실사 리포트",
@@ -146,6 +237,7 @@ def render_markdown(f: dict) -> str:
         f"- Δgap 유효 랭크: {f['effective_rank']} / 25",
         f"- 상위 특이값: {[round(x, 3) for x in f['singular_values']]}",
         "",
+        *_dynamics_lines(f.get("dynamics") or {}),
         "## 유효 폭",
         f"- 유효 zone: {f['valid_zones']}",
         f"- 제외 zone: {f['invalid_zones']}",

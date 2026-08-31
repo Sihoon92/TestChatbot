@@ -99,6 +99,19 @@ class Settings(BaseSettings):
     # 사내 MES·엑셀 export 는 cp949 가 흔하고 우리 픽스처는 utf-8-sig 다.
     # utf-8 을 먼저 두는 순서가 중요하다(app/coating/parse.py 주석 참조).
     coating_csv_encodings: str = "utf-8-sig,cp949"
+    # ── 동특성(지연) 분석 ──
+    # 분 단위 패널의 forward-fill 상한. 값이 계단형이라 빈 분을 직전 값으로 채우는
+    # 것은 맞지만, 설비가 멈춰 관측이 끊긴 구간까지 채우면 있지도 않은 안정 구간이
+    # 생긴다. 그게 노이즈 σ 를 실제보다 작게 만들고, σ 는 지연 판정 전부의
+    # 기준선이라 거기가 낙관적으로 기울면 없는 반응을 있다고 말하게 된다.
+    coating_panel_ffill_max_minutes: int = 30
+    # 이벤트 정렬 창. pre 는 기준선 이전 구간을 눈으로 보기 위한 것이고,
+    # post 는 반응이 정착하기까지 관측할 길이다.
+    coating_response_pre_minutes: int = 15
+    # post 가 시정수 τ 보다 충분히 길지 않으면 최종값이 과소평가되고 τ 도 같이
+    # 작게 나온다(실측: τ=20 을 post=60 으로 보면 15). 리포트가 '안정 도달' 을
+    # 함께 내므로, False 가 뜨면 이 값을 늘린다.
+    coating_response_post_minutes: int = 60
 
     @property
     def resolved_coating_input_path(self) -> str:

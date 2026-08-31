@@ -265,8 +265,28 @@ def require_columns(found, path, hint: str) -> dict[str, str]:
 
 
 def zone_col(z: int) -> str:
-    """wide 테이블의 zone 컬럼명. 1-based."""
+    """wide 테이블의 zone 컬럼명. 1-based. **Wet(출력)** 를 가리킨다."""
     return f"z{z}"
 
 
 ZONE_COLS = [zone_col(z) for z in range(1, N_ZONES + 1)]
+
+
+def gap_col(z: int) -> str:
+    """분 단위 패널의 Gap Offset(입력) zone 컬럼명. 1-based.
+
+    Wet 은 zone_col(z)(= z1..z25)을 그대로 쓴다 - features.wet_wide 가 이미 그
+    이름으로 만들고 패널이 그것을 재사용하기 때문이다. 접두어를 갈라 두어야 입력과
+    출력을 한 표에 나란히 놓아도 섞이지 않는다.
+    """
+    return f"g{z}"
+
+
+GAP_COLS = [gap_col(z) for z in range(1, N_ZONES + 1)]
+
+# 스칼라 제어값의 패널 컬럼명. item_id 를 컬럼명으로 쓰면 모델 계수를 사람이 못
+# 읽으므로 CONTROL_SCALARS 가 붙여 둔 이름을 그대로 쓴다.
+SCALAR_COLS = list(CONTROL_SCALARS.values())
+
+# 패널의 값 컬럼 전부(lot_id·worked_at 제외).
+PANEL_VALUE_COLS = GAP_COLS + ZONE_COLS + SCALAR_COLS
