@@ -85,6 +85,41 @@ def test_missing_required_column_error_lists_found_columns(tmp_path):
     assert "제품" in message
 
 
+ZH_HEADER = ["批次号", "作业时间", "产品", "项目编号", "项目名称", "数值"]
+
+
+def test_chinese_header_passes_the_early_sheet_check(tmp_path):
+    """조기 검증(시트 힌트)도 별칭을 알아야 한다. 여기서 먼저 죽으면 _finalize
+    의 이름 변환까지 가지도 못해, 같은 파일이 csv 로는 되고 xlsx 로는 안 되는
+    상태가 된다."""
+    rows = [ZH_HEADER] + [r for r in ROWS[1:]]
+    df = excel_source.read_long_table(_write_xlsx(tmp_path, rows=rows))
+    # 이름 변환은 여기서 하지 않는다 - parse._finalize 한 곳에서만 일어난다.
+    assert list(df.columns) == ZH_HEADER
+
+
+def test_chinese_header_xlsx_gives_the_same_readings_as_english_xlsx(tmp_path):
+    """두 입력 경로가 갈라지지 않는다는 보증에 언어 축을 하나 더 얹는다.
+    (형식 × 언어) 네 조합이 전부 같은 DataFrame 이어야 한다."""
+    from app.coating import parse
+
+    # _write_xlsx 는 디렉터리 안에 고정된 이름으로 쓴다. 두 파일이 필요하므로
+    # 디렉터리를 나눈다.
+    en_dir, zh_dir = tmp_path / "en", tmp_path / "zh"
+    en_dir.mkdir()
+    zh_dir.mkdir()
+
+    en = parse.load_readings(
+        _write_xlsx(en_dir, ROWS), parse.DEFAULT_DICT_PATH, source="xlsx"
+    )
+    zh = parse.load_readings(
+        _write_xlsx(zh_dir, [ZH_HEADER] + ROWS[1:]),
+        parse.DEFAULT_DICT_PATH,
+        source="xlsx",
+    )
+    pd.testing.assert_frame_equal(en, zh)
+
+
 def test_reads_named_sheet_when_workbook_has_several(tmp_path):
     """MES export 는 안내 시트가 앞에 붙는 경우가 있다. 첫 시트 고정이면
     엉뚱한 시트를 읽고 '컬럼이 없다' 로 죽는다."""

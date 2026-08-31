@@ -4,7 +4,8 @@
 
 item_id 를 문자열로 고정하는 것이 이 파일의 유일한 존재 이유에 가깝다.
 pandas 는 숫자로 보이는 열을 int64 로 읽는데, 그러면 사전(문자열 키)과
-조인이 전부 미매칭이 되고 예외 없이 빈 결과가 나온다.
+조인이 전부 미매칭이 되고 예외 없이 빈 결과가 나온다. 그래서 원본은 전부
+문자열로 읽고, 숫자·시각 변환은 _finalize 가 표준 컬럼명 위에서 한 번에 한다.
 """
 import codecs
 from pathlib import Path
@@ -161,21 +162,33 @@ def load_readings(
     if source == "xlsx":
         raw = excel_source.read_long_table(csv_path, sheet)
     elif source == "csv":
-        raw = read_csv_any(csv_path, encodings, force_encoding, dtype={S.ITEM: str})
+        # 모든 열을 문자열로 읽는다. 숫자·시각 변환은 _finalize 가 표준 이름으로
+        # 바꾼 뒤에 한다 - xlsx 경로(excel_source)와 정확히 같은 계약이다.
+        #
+        # 예전에는 dtype={item_id: str} 로 그 열만 고정했는데, 헤더가 다른 언어면
+        # ("项目编号") 그 키가 파일에 없어 pandas 가 **조용히 무시**한다. 그러면
+        # item_id 가 int64 로 읽히고 사전(문자열 키) 조인이 예외 없이 전부
+        # 미매칭된다. 결측이 섞이면 float64 가 되어 '30030859.0' 까지 된다.
+        raw = read_csv_any(csv_path, encodings, force_encoding, dtype=str)
     else:
         raise ValueError(f"알 수 없는 입력 형식: {source!r} (csv | xlsx)")
     return _finalize(raw, dict_path, encodings, csv_path)
 
 
 def _finalize(raw: pd.DataFrame, dict_path, encodings, path=None) -> pd.DataFrame:
-    """두 입력 경로가 만나는 곳. 검증 + 타입 보정 + 순서 보존 + 사전 조인."""
-    S.require_columns(
+    """두 입력 경로가 만나는 곳. 검증 + 표준명 변환 + 타입 보정 + 순서 보존 + 사전 조인."""
+    mapping = S.require_columns(
         raw.columns,
         path,
         "  첫 행이 헤더인지, 위에 제목 행이 끼어 있지 않은지 확인한다.\n"
         "  헤더 이름이 다르면 원본에서 위 이름으로 바꿔 저장한다.",
     )
+    # 다국어 헤더(批次号·작업일시…)를 표준 이름으로 바꾸는 유일한 지점이다.
+    # 여기서부터 아래로는 아무도 원본이 무슨 언어였는지 몰라도 된다.
+    raw = raw.rename(columns=mapping)
     # 원본에도 item_name 열이 있지만 대부분 비어 있다. 사전 것을 쓴다.
+    # rename 뒤에 와야 "项目名称" 도 같이 버려진다 - 안 그러면 같은 데이터인데
+    # 헤더 언어에 따라 결과 DataFrame 의 컬럼 수가 달라진다.
     raw = raw.drop(columns=[S.ITEM_NAME], errors="ignore")
     raw[S.AT] = pd.to_datetime(raw[S.AT])
     raw[S.VALUE] = pd.to_numeric(raw[S.VALUE], errors="coerce")

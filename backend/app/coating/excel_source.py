@@ -56,6 +56,10 @@ def read_long_table(path: str | Path, sheet: str | None = None) -> pd.DataFrame:
 
     header = [cell_to_text(c) for c in rows[0]]
     # 검증 문장은 CSV 경로와 공유한다. 다만 여기서만 줄 수 있는 힌트(시트)를 붙인다.
+    #
+    # 반환되는 매핑(다국어 헤더 -> 표준명)은 여기서 쓰지 않는다. 이름 변환은
+    # parse._finalize 한 곳에서만 일어나야 두 입력 경로가 갈라지지 않는다.
+    # 여기서 하는 일은 본문을 다 만들기 전에 시트 힌트와 함께 일찍 죽는 것뿐이다.
     S.require_columns(
         header,
         path,

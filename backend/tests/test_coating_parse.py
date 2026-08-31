@@ -214,11 +214,13 @@ def test_csv_path_works_without_xlwings_installed(tmp_path, monkeypatch):
 
 def test_missing_required_column_reports_what_was_found(tmp_path):
     """헤더 이름이 계약이다. 하지만 KeyError: 'worked_at' 한 줄로는 무엇을
-    어떻게 고쳐야 하는지 알 수 없다 — 사내 MES 헤더는 한글이거나 이름이 다르다.
-    필요한 것과 실제로 있던 것을 나란히 보여준다."""
-    csv = tmp_path / "한글헤더.csv"
+    어떻게 고쳐야 하는지 알 수 없다. 필요한 것과 실제로 있던 것을 나란히 보여준다.
+
+    별칭에 하나도 안 걸리는 헤더를 쓴다 — 한글·중국어 헤더는 이제 인식되므로
+    (아래 다국어 테스트들) 그것으로는 이 실패 경로를 만들 수 없다."""
+    csv = tmp_path / "모르는헤더.csv"
     csv.write_text(
-        "LOT번호,작업일시,품명,항목코드,항목명,측정값\n"
+        "구분,비고,수량,담당,기타,합계\n"
         "L1,2026-01-31 18:55,BNB48X1,10030271,,163\n",
         encoding="utf-8-sig",
     )
@@ -226,4 +228,111 @@ def test_missing_required_column_reports_what_was_found(tmp_path):
         parse.load_readings(csv, DICT)
     message = str(e.value)
     assert S.AT in message          # 무엇이 필요한지
-    assert "작업일시" in message     # 무엇이 있었는지
+    assert "구분" in message         # 무엇이 있었는지
+
+
+# ── 다국어 헤더 ─────────────────────────────────────────────────────────
+#
+# 사내 MES·해외 법인 export 는 헤더를 자기 언어로 낸다. 파일마다 사람이 원본을
+# 열어 영문으로 고쳐 저장하던 수작업을 없앤다.
+
+ZH = Path(__file__).parent / "fixtures" / "coating" / "sample_long_zh.csv"
+
+
+def test_chinese_header_gives_exactly_the_same_readings_as_english():
+    """별칭 계층이 뒤 단계에 아무 흔적도 남기지 않는다는 유일한 보증.
+
+    데이터는 같고 헤더 언어만 다른 두 파일이 **완전히 같은** DataFrame 이 돼야
+    pivot·events·features 가 원본이 무슨 언어였는지 몰라도 된다. 컬럼이 하나만
+    더 남아도(예: 项目名称 을 못 알아봐서) 여기서 걸린다."""
+    pd.testing.assert_frame_equal(
+        parse.load_readings(SAMPLE, DICT), parse.load_readings(ZH, DICT)
+    )
+
+
+def test_item_id_stays_string_with_chinese_header():
+    """가장 조용하고 가장 치명적인 실패의 재발 방지.
+
+    예전처럼 dtype={item_id: str} 로 한 열만 고정하면, 헤더가 '项目编号' 일 때
+    그 키가 파일에 없어 pandas 가 **조용히 무시**한다. item_id 가 int64 로
+    읽히고 사전(문자열 키) 조인이 예외 없이 전부 미매칭된다."""
+    r = parse.load_readings(ZH, DICT)
+    assert not pd.api.types.is_numeric_dtype(r[S.ITEM])
+    assert parse.unknown_item_ids(r) == []      # 조인이 실제로 됐다
+
+
+def test_traditional_chinese_header_is_recognized(tmp_path):
+    """NFKC 는 간체↔번체를 바꾸지 않는다. 대만·홍콩 자료는 별도 별칭이 필요하다."""
+    csv = tmp_path / "繁體.csv"
+    csv.write_text(
+        "批次號,作業時間,產品,項目編號,項目名稱,數值\n"
+        "L1,2026-01-31 18:55,BNB48X1,10030271,,163\n",
+        encoding="utf-8-sig",
+    )
+    r = parse.load_readings(csv, DICT)
+    assert list(r[S.ITEM]) == ["10030271"]
+    assert r[S.AT].iloc[0].minute == 55
+
+
+def test_korean_header_is_recognized(tmp_path):
+    """이 헤더는 직전까지 '필수 컬럼이 없다' 로 죽던 것이다(사내 MES 원본)."""
+    csv = tmp_path / "한글헤더.csv"
+    csv.write_text(
+        "LOT번호,작업일시,품명,항목코드,항목명,측정값\n"
+        "L1,2026-01-31 18:55,BNB48X1,10030271,,163\n",
+        encoding="utf-8-sig",
+    )
+    r = parse.load_readings(csv, DICT)
+    assert list(r[S.ITEM]) == ["10030271"]
+    assert r[S.VALUE].iloc[0] == 163
+
+
+def test_korean_header_in_cp949_is_recognized(tmp_path):
+    """인코딩 판별과 별칭이 함께 동작해야 한다. 사내 엑셀 export 는 cp949 가
+    흔하고, 그 파일의 헤더가 곧 한글이다 — 실데이터에서는 늘 같이 온다."""
+    csv = tmp_path / "cp949.csv"
+    csv.write_text(
+        "로트번호,작업시각,제품,항목코드,항목명,측정값\n"
+        "L1,2026-01-31 18:55,BNB48X1,10030271,,163\n",
+        encoding="cp949",
+    )
+    r = parse.load_readings(csv, DICT)
+    assert list(r[S.ITEM]) == ["10030271"]
+
+
+def test_english_spelling_variants_are_recognized(tmp_path):
+    """표기 흔들림은 별칭 표가 아니라 정규화가 흡수한다."""
+    csv = tmp_path / "variants.csv"
+    csv.write_text(
+        "LotID,WorkedAt,Product,Item ID,Item-Name,VALUE\n"
+        "L1,2026-01-31 18:55,BNB48X1,10030271,,163\n",
+        encoding="utf-8-sig",
+    )
+    r = parse.load_readings(csv, DICT)
+    assert list(r[S.ITEM]) == ["10030271"]
+
+
+def test_unit_suffix_in_header_is_tolerated(tmp_path):
+    """MES 는 단위를 헤더 끝 괄호에 붙인다. 이걸 못 떼면 왕복이 생긴다."""
+    csv = tmp_path / "단위.csv"
+    csv.write_text(
+        "批次号,作业时间,产品,项目编号,数值(mg/cm2)\n"
+        "L1,2026-01-31 18:55,BNB48X1,10030271,163\n",
+        encoding="utf-8-sig",
+    )
+    r = parse.load_readings(csv, DICT)
+    assert r[S.VALUE].iloc[0] == 163
+
+
+def test_duplicate_column_after_aliasing_is_rejected(tmp_path):
+    """value 와 数值 가 한 파일에 있으면 어느 쪽이 진짜인지 알 수 없다.
+    조용히 하나를 고르면 잘못된 열로 전체 분석이 돈다."""
+    csv = tmp_path / "중복.csv"
+    csv.write_text(
+        "lot_id,worked_at,product,item_id,value,数值\n"
+        "L1,2026-01-31 18:55,BNB48X1,10030271,163,999\n",
+        encoding="utf-8-sig",
+    )
+    with pytest.raises(ValueError) as e:
+        parse.load_readings(csv, DICT)
+    assert "数值" in str(e.value)
