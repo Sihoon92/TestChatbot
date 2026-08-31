@@ -159,8 +159,26 @@ def load_readings(
     xlsx 경로는 DRM 때문에 존재한다(모듈 excel_source 참고). 읽는 방법만
     다르고 그 뒤 정규화·사전 조인은 완전히 공유한다 - 갈라지면 두 경로의
     결과가 조용히 달라진다."""
-    if source == "xlsx":
-        raw = excel_source.read_long_table(csv_path, sheet)
+    raw = read_source(csv_path, encodings, force_encoding, source=source, sheet=sheet)
+    return _finalize(raw, dict_path, encodings, csv_path)
+
+
+def read_source(
+    path, encodings=None, force_encoding=None, *, source="csv", sheet=None
+) -> pd.DataFrame:
+    """원본을 형식별로 읽기만 한다. 정규화도 사전 조인도 하지 않는다.
+
+    load_readings 와 convert 가 공유한다 - 분기를 복제하면 두 경로가 언젠가
+    달라지고, 그때 변환한 parquet 과 직접 읽은 결과가 조용히 어긋난다.
+    """
+    if source == "parquet":
+        # 이미 normalize 를 거쳐 담긴 파일이다. dtype 이 파일 안에 있어서 지정할
+        # 것이 없다 - item_id 가 int64 로 돌아오는 사고가 구조적으로 불가능하다.
+        # (그래도 _finalize 를 지난다. 손으로 만든 parquet 이 표준 이름이 아니어도
+        #  별칭 표가 그대로 동작하고, 계약 검증도 건너뛰지 않는다.)
+        raw = pd.read_parquet(path)
+    elif source == "xlsx":
+        raw = excel_source.read_long_table(path, sheet)
     elif source == "csv":
         # 모든 열을 문자열로 읽는다. 숫자·시각 변환은 _finalize 가 표준 이름으로
         # 바꾼 뒤에 한다 - xlsx 경로(excel_source)와 정확히 같은 계약이다.
@@ -169,14 +187,47 @@ def load_readings(
         # ("项目编号") 그 키가 파일에 없어 pandas 가 **조용히 무시**한다. 그러면
         # item_id 가 int64 로 읽히고 사전(문자열 키) 조인이 예외 없이 전부
         # 미매칭된다. 결측이 섞이면 float64 가 되어 '30030859.0' 까지 된다.
-        raw = read_csv_any(csv_path, encodings, force_encoding, dtype=str)
+        raw = read_csv_any(path, encodings, force_encoding, dtype=str)
     else:
-        raise ValueError(f"알 수 없는 입력 형식: {source!r} (csv | xlsx)")
-    return _finalize(raw, dict_path, encodings, csv_path)
+        raise ValueError(f"알 수 없는 입력 형식: {source!r} (csv | xlsx | parquet)")
+    return raw
 
 
-def _finalize(raw: pd.DataFrame, dict_path, encodings, path=None) -> pd.DataFrame:
-    """두 입력 경로가 만나는 곳. 검증 + 표준명 변환 + 타입 보정 + 순서 보존 + 사전 조인."""
+# 확장자로 확실히 알 수 있는 것만 적는다. ".txt" 는 CSV 라는 보장이 없어 뺐다 -
+# 모르는 확장자는 추측하지 않고 설정 기본값으로 떨어진다.
+SUFFIX_FORMATS = {
+    ".csv": "csv",
+    ".xlsx": "xlsx",
+    ".xlsm": "xlsx",
+    ".xls": "xlsx",
+    ".parquet": "parquet",
+    ".pq": "parquet",
+}
+
+
+def format_for(path, explicit: str | None = None, default: str | None = None) -> str:
+    """입력 형식을 정한다: 명시(--format) > 확장자 > 설정 기본값.
+
+    확장자를 보는 이유는 형식이 셋으로 늘었기 때문이다. 매번 --format 을 적게 하면
+    빼먹는 일이 생기고, 그 실수는 조용히 지나가기도 한다(csv 에 --format xlsx 를
+    줘도 Excel 이 csv 를 열어줘서 통과한다 - 대신 인코딩 판별 로직을 통째로
+    건너뛴다). 확장자가 이미 답을 알고 있으면 사람에게 다시 묻지 않는다.
+
+    설정을 무시하는 것은 아니다. 확장자를 모르면(사내 MES 가 내리는 '.dat' 같은
+    것) 설정이 정한다.
+    """
+    if explicit:
+        return explicit
+    return SUFFIX_FORMATS.get(Path(path).suffix.lower()) or default or "csv"
+
+
+def normalize(raw: pd.DataFrame, path=None) -> pd.DataFrame:
+    """검증 + 표준명 변환 + 타입 보정까지. 사전과 row_no 는 아직 안 붙인다.
+
+    변환(app.coating.convert)이 parquet 에 담는 것이 딱 여기까지다. 사전을 담으면
+    사전을 고칠 때마다 파일을 다시 만들어야 하고, 그 순간 그 파일은 원본이 아니라
+    파생물이 된다. 사전은 파일 밖에 두고 읽을 때 붙인다.
+    """
     mapping = S.require_columns(
         raw.columns,
         path,
@@ -192,6 +243,18 @@ def _finalize(raw: pd.DataFrame, dict_path, encodings, path=None) -> pd.DataFram
     raw = raw.drop(columns=[S.ITEM_NAME], errors="ignore")
     raw[S.AT] = pd.to_datetime(raw[S.AT])
     raw[S.VALUE] = pd.to_numeric(raw[S.VALUE], errors="coerce")
+    return raw
+
+
+def _finalize(raw: pd.DataFrame, dict_path, encodings, path=None) -> pd.DataFrame:
+    """모든 입력 경로가 만나는 곳. 정규화 + 순서 보존 + 사전 조인.
+
+    이미 정규화된 입력(parquet)에 다시 적용해도 결과가 같다 - require_columns 는
+    항등 매핑이 되고, to_datetime·to_numeric 은 맞은 타입에 no-op 이며, row_no 는
+    parquet 이 행 순서를 보존하므로 같은 값으로 재생성된다. 그래서 parquet 입력에
+    특수 분기가 필요 없다.
+    """
+    raw = normalize(raw, path)
     # 파일에 적힌 순서가 곧 "나중에 찍힌 값" 의 순서다. 인덱스를 열로 박아
     # 정렬·groupby 를 거쳐도 그 순서를 잃지 않게 한다.
     raw[S.ROW_NO] = range(len(raw))

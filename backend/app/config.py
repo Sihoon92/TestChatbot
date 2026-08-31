@@ -81,10 +81,16 @@ class Settings(BaseSettings):
     # 영향행렬 커널 반폭 k. 파라미터 수 = 2k+1.
     coating_kernel_half_width: int = 2
     coating_ridge_alpha: float = 1.0
-    # 입력 소스. 사내 실데이터 CSV 가 DRM 으로 암호화돼 python 이 바이트를 직접
-    # 읽을 수 없는 동안, 같은 데이터를 xlsx 로 만들어 Excel(COM)로 읽는다.
-    # DRM 이 풀리면 이 값만 csv 로 되돌리면 원래 경로로 복귀한다.
-    coating_input_format: str = "csv"  # csv | xlsx
+    # 입력 소스. 확장자로 알 수 없을 때의 기본값이다 - '.csv'·'.xlsx'·'.parquet'
+    # 는 parse.format_for 가 확장자로 판별하므로 이 값을 안 본다(사내 MES 가
+    # '.dat' 로 내리는 것 같은 경우에만 쓰인다).
+    #
+    # xlsx 는 DRM 때문에 있다. 사내 실데이터 CSV 가 암호화돼 python 이 바이트를
+    # 직접 못 읽는 동안 Excel(COM)로 우회한다. 다만 그 경로는 실행할 때마다
+    # Excel 을 띄우고 xlwings 를 요구하므로, 한 번 읽을 수 있게 되면
+    # `python -m app.coating.convert` 로 parquet 을 만들어 그것을 원본으로 쓰는
+    # 편이 낫다 - 그 뒤로는 Excel 도 xlwings 도 필요 없다.
+    coating_input_format: str = "csv"  # csv | xlsx | parquet
     # 원본 파일 경로. 상대경로는 COATING_DATA_DIR 기준이다(raw/ 아래에 둔다).
     coating_input_path: str = "raw/sample_long.csv"
     # 읽을 시트. 비우면 첫 시트. xlsx 일 때만 쓴다.

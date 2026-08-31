@@ -16,8 +16,7 @@ from pathlib import Path
 
 import pytest
 
-# 엑셀로 볼 확장자. 나머지는 CSV 로 읽는다.
-_EXCEL_SUFFIXES = {".xlsx", ".xlsm", ".xls"}
+from app.coating import parse
 
 
 def pytest_addoption(parser):
@@ -60,8 +59,9 @@ def sample_path(pytestconfig) -> Path:
 
 @pytest.fixture(scope="session")
 def sample_source(sample_path: Path) -> str:
-    """csv | xlsx. 확장자로 정한다 - 사람이 같은 것을 두 번 적게 하지 않는다."""
-    return "xlsx" if sample_path.suffix.lower() in _EXCEL_SUFFIXES else "csv"
+    """csv | xlsx | parquet. 판별 규칙은 CLI 와 같은 것을 쓴다 - 여기만 따로
+    들고 있으면 --sample 과 --input 의 동작이 갈라진다."""
+    return parse.format_for(sample_path)
 
 
 @pytest.fixture(scope="session")

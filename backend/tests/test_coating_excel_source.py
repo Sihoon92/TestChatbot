@@ -169,3 +169,22 @@ def test_xlsx_path_and_csv_path_produce_the_same_readings(tmp_path):
         xlsx_path, parse.DEFAULT_DICT_PATH, source="xlsx"
     )
     pd.testing.assert_frame_equal(csv_df, xlsx_df, check_dtype=False)
+
+
+def test_converted_parquet_matches_reading_the_xlsx_directly(tmp_path):
+    """이 기능의 핵심 계약에 xlsx 축을 얹는다. 사내 PC 에서 xlsx 를 변환해
+    넘겼을 때, 받는 쪽이 얻는 결과가 원본을 직접 읽은 것과 같아야 한다.
+
+    check_dtype=False 는 위 test_xlsx_path_and_csv_path_produce_the_same_readings
+    와 같은 이유다. xlsx 경로는 문자열 열을 object 로 주는데 parquet 왕복은
+    str 로 조인다 - 값은 한 칸도 다르지 않고, 오히려 타입이 정밀해진 쪽이다.
+    """
+    from app.coating import convert, parse
+
+    xlsx = _write_xlsx(tmp_path)
+    out = convert.to_parquet(xlsx, tmp_path / "변환본.parquet", source="xlsx")
+    pd.testing.assert_frame_equal(
+        parse.load_readings(xlsx, parse.DEFAULT_DICT_PATH, source="xlsx"),
+        parse.load_readings(out, parse.DEFAULT_DICT_PATH, source="parquet"),
+        check_dtype=False,
+    )

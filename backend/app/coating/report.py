@@ -10,14 +10,13 @@
 """
 import argparse
 import html as html_mod
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from app.coating import events as ev_mod
-from app.coating import features, interim, parse, pivot
+from app.coating import features, parse, pivot
 from app.coating import schemas as S
 from app.coating import segment
 from app.coating.model import profile
@@ -39,9 +38,8 @@ def profile_dataset(
 def profile_readings(readings: pd.DataFrame) -> dict:
     """이미 읽은 readings 로 판정한다. 파일을 만지지 않는다.
 
-    판정을 읽기와 떼어 놓아야 캐시(interim.cached_readings)에서 온 것과 방금
-    파싱한 것이 같은 함수를 지나간다 — 두 경로가 갈라지면 캐시를 쓸 때만
-    결과가 다른, 재현이 가장 어려운 종류의 버그가 생긴다.
+    읽기와 판정을 떼어 놓으면 원본이 csv·xlsx·parquet 중 무엇이었든 같은 함수를
+    지나간다 — 입력 형식마다 판정이 갈라지면 재현이 가장 어려운 버그가 된다.
     """
     s = get_settings()
     deduped = pivot.dedupe_minute(readings)
@@ -193,15 +191,7 @@ def run(
     force_encoding=None,
     source=None,
     sheet=None,
-    cache_dir=None,
-    refresh=False,
 ) -> tuple[str, str]:
-    """cache_dir 을 주면 중간 산출물(parquet)을 쓰고 재사용한다.
-
-    기본은 None(캐시 없음)이다. 캐시 위치를 정하는 것은 설정을 아는 쪽의 일이라
-    main() 이 <COATING_DATA_DIR>/interim 을 넣어준다. 라이브러리로 부를 때까지
-    남의 디렉터리에 파일을 만들지 않는다.
-    """
     s = get_settings()
     root = Path(s.resolved_coating_data_dir)
     # CSV 는 실데이터라 런타임 디렉터리에서, 사전은 스키마라 패키지에서 읽는다.
@@ -211,26 +201,12 @@ def run(
     out.mkdir(parents=True, exist_ok=True)
     # 인코딩 후보도 기본값 결정은 여기 한 곳이다(.env 단일 출처).
     encodings = encodings or s.coating_csv_encoding_list
-    source = source or s.coating_input_format
+    source = parse.format_for(csv_path, source, s.coating_input_format)
     sheet = sheet or s.coating_xlsx_sheet or None
 
-    if cache_dir is None:
-        facts = profile_dataset(
-            csv_path, dict_path, encodings, force_encoding, source=source, sheet=sheet
-        )
-    else:
-        readings, used_cache = interim.cached_readings(
-            csv_path, dict_path, encodings, force_encoding,
-            source=source, sheet=sheet, cache_dir=cache_dir, refresh=refresh,
-        )
-        # 캐시가 조용하면, 원본을 고쳤는데 결과가 그대로일 때 캐시를 의심하지
-        # 못한다. stdout 은 산출물 경로 두 줄이므로 이 줄은 stderr 로 보낸다.
-        where = Path(cache_dir) / interim.CACHE_NAME
-        print(
-            f"중간 산출물 {'사용' if used_cache else '재생성'}: {where}",
-            file=sys.stderr,
-        )
-        facts = profile_readings(readings)
+    facts = profile_dataset(
+        csv_path, dict_path, encodings, force_encoding, source=source, sheet=sheet
+    )
     md_path = out / "data_profile.md"
     html_path = out / "data_profile.html"
     md_path.write_text(render_markdown(facts), encoding="utf-8")
@@ -254,8 +230,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="원본 long 테이블 경로 (생략 시 COATING_INPUT_PATH)",
     )
     p.add_argument(
-        "--format", choices=("csv", "xlsx"), default=None,
-        help="입력 형식 (생략 시 COATING_INPUT_FORMAT)",
+        "--format", choices=("csv", "xlsx", "parquet"), default=None,
+        help="입력 형식. 생략하면 확장자로 판별하고, 모르는 확장자면 COATING_INPUT_FORMAT.",
     )
     p.add_argument(
         "--sheet", default=None,
@@ -276,24 +252,16 @@ def build_parser() -> argparse.ArgumentParser:
             "안 되면 COATING_CSV_ENCODINGS 후보를 차례로 시도한다."
         ),
     )
-    p.add_argument(
-        "--refresh", action="store_true",
-        help=(
-            "중간 산출물(<COATING_DATA_DIR>/interim/readings.parquet)을 무시하고 "
-            "원본에서 다시 만든다. 원본을 덮어썼는데 mtime 이 그대로일 때 쓴다."
-        ),
-    )
-    p.add_argument(
-        "--no-cache", dest="cache", action="store_false",
-        help="중간 산출물을 읽지도 쓰지도 않는다(매번 원본을 파싱한다).",
-    )
     return p
 
 
 def main(argv: list[str] | None = None) -> tuple[str, str]:
     args = build_parser().parse_args(argv)
     s = get_settings()
-    source = args.format or s.coating_input_format
+    source = parse.format_for(
+        args.input_path or _default_input_path(), args.format,
+        s.coating_input_format,
+    )
     in_path = Path(args.input_path) if args.input_path else _default_input_path()
     if not in_path.exists():
         # 기본 입력은 backend/data/ 아래인데 그건 실데이터가 들어가는 곳이라
@@ -320,11 +288,6 @@ def main(argv: list[str] | None = None) -> tuple[str, str]:
             force_encoding=args.encoding,
             source=source,
             sheet=args.sheet,
-            # 캐시 위치는 설정을 아는 이 층에서 정한다. raw/interim/reports 가
-            # 한 루트 아래 모인다는 규약을 여기서도 지킨다.
-            cache_dir=(Path(s.resolved_coating_data_dir) / "interim"
-                       if args.cache else None),
-            refresh=args.refresh,
         )
     except ValueError as e:
         # parse·excel_source 가 원인을 이미 문장으로 만들어 뒀다. 트레이스백을

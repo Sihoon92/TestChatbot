@@ -369,3 +369,31 @@ def test_duplicate_column_after_aliasing_is_rejected(tmp_path):
     with pytest.raises(ValueError) as e:
         parse.load_readings(csv, DICT)
     assert "数值" in str(e.value)
+
+
+# ── 입력 형식 판별 ──────────────────────────────────────────────────────
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("a.csv", "csv"),
+        ("a.CSV", "csv"),
+        ("a.xlsx", "xlsx"), ("a.xlsm", "xlsx"), ("a.xls", "xlsx"),
+        ("a.parquet", "parquet"), ("a.pq", "parquet"),
+    ],
+)
+def test_format_is_taken_from_the_suffix(name, expected):
+    """형식이 셋으로 늘었다. 확장자가 이미 답을 아는데 --format 을 또 치게
+    하면 빼먹는 실수가 생기고, 그 실수는 조용히 지나가기도 한다."""
+    assert parse.format_for(name) == expected
+
+
+def test_explicit_format_wins_over_the_suffix():
+    """자동 판별이 틀리는 파일을 사람이 덮어쓸 수 있어야 override 가 override 다."""
+    assert parse.format_for("a.csv", "xlsx") == "xlsx"
+
+
+def test_unknown_suffix_falls_back_to_the_setting():
+    """사내 MES 가 '.dat' 로 내리는 경우가 있다. 추측하지 않고 .env 로 떨어진다."""
+    assert parse.format_for("a.dat", None, "xlsx") == "xlsx"
+    assert parse.format_for("확장자없음", None, "csv") == "csv"
