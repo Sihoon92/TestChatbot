@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>말밖에 못 하는 친구에게 엑셀을 읽히는 법 — 다섯 가지 궁금증</title>
+<style>
+:root{
+  --bg:#fbfaf8; --panel:#ffffff; --ink:#22262c; --ink-soft:#5c626b;
+  --line:#e5e2dc; --line-strong:#cbc6bd;
+
+  --say:#b4436c;   --say-bg:#fceef3;    /* LLM 이 말한 것 = 출력 */
+  --hear:#2f6f8f;  --hear-bg:#e6f1f7;   /* LLM 이 들은 것 = 입력 */
+  --hand:#1f7a7a;  --hand-bg:#e5f4f4;   /* 우리 코드가 한 일 */
+  --box:#7c5cbf;   --box-bg:#f1ecfa;    /* 서랍(캐시) */
+  --ok:#2f8f5b;    --ok-bg:#e8f5ee;
+  --warn:#b7791f;  --danger:#c05621;
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:17px;line-height:1.85;padding-bottom:96px;-webkit-text-size-adjust:100%;}
+.wrap{max-width:880px;margin:0 auto;padding:0 20px;}
+header.page{background:linear-gradient(160deg,#40506b,#5b6f8a);color:#fff;padding:46px 0 38px;margin-bottom:8px;}
+header.page h1{margin:0 0 12px;font-size:1.85rem;line-height:1.4;letter-spacing:-.01em;}
+header.page p{margin:0;color:#dce5ef;font-size:1rem;}
+header.page .meta{margin-top:16px;font-size:.83rem;color:#b3c2d4;}
+header.page a{color:#ffe9a8;}
+
+h2{margin:60px 0 6px;font-size:1.45rem;line-height:1.4;letter-spacing:-.01em;padding-bottom:9px;border-bottom:2px solid var(--line-strong);}
+h3{margin:34px 0 6px;font-size:1.13rem;}
+h4{margin:24px 0 4px;font-size:1rem;color:var(--ink-soft);}
+p{margin:14px 0;} ul,ol{margin:14px 0;padding-left:1.35em;} li{margin:8px 0;}
+code{font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;font-size:.85em;background:#f1efeb;padding:1px 5px;border-radius:4px;border:1px solid #e3dfd8;}
+a{color:#2b6cb0;} strong{font-weight:700;}
+.small{font-size:.88rem;color:var(--ink-soft);}
+.lead{font-size:1.05rem;}
+
+pre{background:#2a2e36;color:#e8e8e8;padding:16px 18px;border-radius:8px;overflow-x:auto;
+  font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;font-size:.8rem;line-height:1.65;
+  white-space:pre;margin:16px 0;}
+pre.plain{background:#fff;color:var(--ink);border:1px solid var(--line);}
+pre .c{color:#8c95a6;} pre .k{color:#c678dd;} pre .s{color:#98c379;} pre .hi{background:#3e434e;color:#ffd782;}
+pre .say{color:#f4a3c0;} pre .hear{color:#87c8e8;}
+
+.callout{border-left:4px solid var(--line-strong);background:var(--panel);padding:15px 19px;margin:22px 0;border-radius:0 8px 8px 0;box-shadow:0 1px 2px rgba(0,0,0,.04);}
+.callout .tag{display:inline-block;font-size:.73rem;font-weight:700;letter-spacing:.04em;margin-bottom:6px;color:var(--ink-soft);}
+.callout p:first-of-type{margin-top:0;} .callout p:last-child{margin-bottom:0;}
+.callout.key{border-left-color:var(--ok);background:var(--ok-bg);} .callout.key .tag{color:var(--ok);}
+.callout.word{border-left-color:var(--hear);background:var(--hear-bg);} .callout.word .tag{color:var(--hear);}
+.callout.warn{border-left-color:var(--warn);background:#fdf7e8;} .callout.warn .tag{color:var(--warn);}
+.callout.trap{border-left-color:var(--danger);background:#fdefe7;} .callout.trap .tag{color:var(--danger);}
+.callout.real{border-left-color:var(--say);background:var(--say-bg);} .callout.real .tag{color:var(--say);}
+
+nav.toc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 22px;margin:28px 0;}
+nav.toc h2{margin:0 0 8px;font-size:1rem;border:0;padding:0;}
+nav.toc ol{margin:0;padding-left:1.25em;font-size:.95rem;}
+nav.toc a{text-decoration:none;} nav.toc a:hover{text-decoration:underline;}
+nav.toc .qq{color:var(--ink-soft);font-size:.88rem;}
+
+figure{margin:28px 0;}
+figure .frame{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 18px;overflow-x:auto;}
+figcaption{font-size:.86rem;color:var(--ink-soft);margin-top:9px;padding-left:2px;}
+svg{display:block;max-width:100%;height:auto;}
+
+table.data{border-collapse:collapse;width:100%;font-size:.9rem;margin:18px 0;background:var(--panel);}
+table.data th,table.data td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top;}
+table.data th{background:#f3f0ec;font-weight:700;font-size:.85rem;}
+table.data tr.hl td{background:#fffaf0;}
+.tablewrap{overflow-x:auto;}
+
+/* 말풍선 */
+.bub{display:flex;gap:10px;align-items:flex-start;margin:12px 0;}
+.bub .who{font-size:1.6rem;line-height:1;flex:0 0 auto;width:34px;text-align:center;}
+.bub .txt{border-radius:12px;padding:10px 14px;font-size:.92rem;flex:1 1 auto;}
+.bub.say .txt{background:var(--say-bg);border:1.5px solid var(--say);}
+.bub.hear .txt{background:var(--hear-bg);border:1.5px solid var(--hear);}
+.bub.hand .txt{background:var(--hand-bg);border:1.5px solid var(--hand);}
+.bub .tk{display:inline-block;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:20px;margin-left:6px;vertical-align:middle;}
+.tk.out{background:var(--say);color:#fff;}
+.tk.in{background:var(--hear);color:#fff;}
+.tk.free{background:#dfdad2;color:#63605a;}
+
+/* 계단 */
+.stair{display:flex;flex-direction:column;gap:0;}
+.stair .st{display:flex;gap:12px;align-items:flex-start;padding:9px 0;border-top:1px dashed var(--line-strong);}
+.stair .st:first-child{border-top:0;}
+.stair .n{flex:0 0 auto;width:30px;height:30px;border-radius:50%;background:var(--say);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:.82rem;font-weight:700;}
+.stair .n.free{background:var(--hand);}
+.stair .b{flex:1 1 auto;font-size:.9rem;}
+.stair .b b{display:block;font-size:.84rem;color:var(--ink-soft);font-weight:400;margin-top:2px;}
+
+/* 시험지 */
+.form{border:2px solid var(--box);border-radius:10px;background:#fff;padding:14px 16px;font-size:.9rem;}
+.form .row{display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px dotted #ddd8e8;}
+.form .row:last-child{border-bottom:0;}
+.form .lab{flex:0 0 116px;font-weight:700;color:#5b3f96;font-size:.85rem;}
+.form .slot{flex:1 1 auto;border-bottom:2px solid #d8d2e8;min-height:1.5em;padding:0 4px;font-family:"JetBrains Mono",Consolas,monospace;font-size:.83rem;}
+.form .rule{flex:0 0 auto;font-size:.75rem;color:var(--ink-soft);background:#f4f1fa;padding:1px 8px;border-radius:20px;}
+
+/* 서랍 */
+.drawer{border:2px solid var(--box);border-radius:10px;background:var(--box-bg);padding:0;overflow:hidden;}
+.drawer .dh{background:var(--box);color:#fff;padding:7px 14px;font-size:.86rem;font-weight:700;}
+.drawer .card{border-bottom:1px solid #ddd4f0;padding:9px 14px;font-size:.85rem;display:flex;gap:10px;flex-wrap:wrap;align-items:baseline;}
+.drawer .card:last-child{border-bottom:0;}
+.drawer .card .id{font-family:"JetBrains Mono",Consolas,monospace;font-size:.78rem;color:#5b3f96;font-weight:700;flex:0 0 auto;}
+.drawer .card .an{font-family:"JetBrains Mono",Consolas,monospace;font-size:.76rem;color:#4a4553;}
+.drawer .card.dead{background:#f7f5f2;color:#948d84;}
+.drawer .card.dead .id{color:#948d84;}
+
+/* 막대 */
+.barwrap{margin:14px 0;}
+.brow{display:flex;align-items:center;gap:10px;margin:6px 0;font-size:.85rem;}
+.brow .nm{flex:0 0 118px;font-family:"JetBrains Mono",Consolas,monospace;font-size:.8rem;}
+.brow .bar{flex:1 1 auto;height:22px;background:#efece7;border-radius:4px;overflow:hidden;}
+.brow .bar i{display:block;height:100%;background:var(--say);}
+.brow .bar i.sm{background:var(--hand);}
+.brow .vv{flex:0 0 96px;text-align:right;font-size:.8rem;color:var(--ink-soft);}
+
+.flow{display:flex;flex-wrap:wrap;gap:10px;}
+.node{border:1.5px solid var(--line-strong);background:var(--panel);border-radius:8px;padding:11px 13px;font-size:.87rem;flex:1 1 170px;}
+.node .t{font-weight:700;display:block;margin-bottom:3px;}
+.node .d{color:var(--ink-soft);font-size:.81rem;line-height:1.55;}
+.node.say{border-color:var(--say);background:var(--say-bg);}
+.node.hand{border-color:var(--hand);background:var(--hand-bg);}
+.node.box{border-color:var(--box);background:var(--box-bg);}
+.arrowdown{text-align:center;color:var(--line-strong);font-size:1.3rem;line-height:1;margin:6px 0;}
+
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.83rem;margin:12px 0 0;color:var(--ink-soft);}
+.legend span{display:inline-flex;align-items:center;gap:6px;}
+.legend i{width:13px;height:13px;border-radius:3px;display:inline-block;border:1.5px solid;}
+
+.qmemo{border:2px dashed #cbc6bd;background:#f5f3ee;border-radius:10px;padding:14px 16px;margin:26px 0;}
+.qmemo-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:8px;}
+.qmemo-label{font-size:.74rem;font-weight:800;letter-spacing:.06em;color:#7a736a;background:#e7e3db;padding:2px 8px;border-radius:20px;}
+.qmemo-hint{font-size:.78rem;color:#8b857c;}
+.qmemo-question{min-height:2.6em;background:#fff;border:1px solid var(--line);border-radius:6px;padding:9px 12px;font-size:.92rem;outline:none;}
+.qmemo-question:focus{border-color:var(--hear);box-shadow:0 0 0 3px rgba(47,111,143,.12);}
+.qmemo-question:empty:before{content:attr(data-placeholder);color:#b4aea5;}
+.qmemo-answer{margin-top:10px;background:#fff;border-left:3px solid var(--ok);padding:10px 14px;border-radius:0 6px 6px 0;font-size:.92rem;}
+.qmemo[data-status="answered"]{border:2px solid var(--ok);background:var(--ok-bg);}
+.qmemo[data-status="answered"] .qmemo-label{background:var(--ok);color:#fff;}
+
+#qmemo-bar{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(64,80,107,.97);color:#fff;padding:11px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;box-shadow:0 -2px 12px rgba(0,0,0,.18);}
+#qmemo-save-btn{background:#f5c14e;color:#40506b;border:0;border-radius:6px;padding:9px 18px;font-size:.9rem;font-weight:700;cursor:pointer;font-family:inherit;}
+#qmemo-save-btn:hover{background:#ffd370;}
+#qmemo-saymsg{font-size:.78rem;color:#d5dce6;word-break:break-all;}
+
+.quiz{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:22px 0;}
+.quiz .q{font-weight:700;margin:0 0 12px;}
+.quiz .opts{display:flex;flex-direction:column;gap:8px;}
+.quiz button.opt{text-align:left;font-family:inherit;font-size:.92rem;line-height:1.55;background:#f8f6f3;border:1.5px solid var(--line);border-radius:8px;padding:10px 13px;cursor:pointer;color:var(--ink);transition:.12s;}
+.quiz button.opt:hover:not(:disabled){border-color:var(--hear);background:#eef4f8;}
+.quiz button.opt:disabled{cursor:default;}
+.quiz button.opt.right{border-color:#2f8f5b;background:#e8f5ee;}
+.quiz button.opt.wrong{border-color:#c05621;background:#fdefe7;}
+.quiz .fb{margin-top:12px;font-size:.9rem;padding:11px 14px;border-radius:8px;display:none;line-height:1.7;}
+.quiz .fb.show{display:block;}
+.quiz .fb.ok{background:#e8f5ee;border-left:3px solid #2f8f5b;}
+.quiz .fb.no{background:#fdefe7;border-left:3px solid #c05621;}
+
+hr.sep{border:0;border-top:1px solid var(--line);margin:44px 0;}
+
+@media (max-width:640px){
+  body{font-size:16.5px;} header.page h1{font-size:1.4rem;} h2{font-size:1.22rem;}
+  .wrap{padding:0 15px;} figure .frame{padding:14px 12px;}
+  .brow .nm{flex-basis:90px;} .brow .vv{flex-basis:74px;}
+  .form .lab{flex-basis:88px;}
+}
+</style>
+</head>
+<body>
+
+<header class="page">
+  <div class="wrap">
+    <h1>말밖에 못 하는 친구에게<br>엑셀을 읽히는 법</h1>
+    <p>도구 호출·토큰·Pydantic·반복 호출·레이아웃 서랍 — 다섯 가지 궁금증을 아주 쉽게</p>
+    <div class="meta">
+      2026-08-11 · <a href="2026-08-11-explanation-llm-loop-and-context-engineering.html">3편(LLM 루프·컨텍스트 엔지니어링)</a>을 읽다 나온 질문에서 출발한 문서
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<p class="lead">이 문서는 <a href="2026-08-11-explanation-llm-loop-and-context-engineering.html">3편</a>을 읽고 나온
+다섯 개의 질문에서 시작됐다. 3편이 엔지니어를 위한 문서였다면, 이번 것은 <strong>중학생도 끝까지 읽을 수 있게</strong> 썼다.
+어려운 말은 나올 때마다 바로 풀어 쓰고, 그림을 많이 넣었다.</p>
+
+<div class="callout word">
+  <span class="tag">이 페이지 쓰는 법</span>
+  <p>읽다가 또 궁금한 게 생기면 <strong>“질문 메모”</strong> 상자에 적으면 된다. 적는 즉시 이 브라우저에 저장되고,
+  맨 아래 <strong>질문 저장</strong> 버튼을 누르면 질문이 박힌 사본이 내려받아진다. 그 파일로 원본을 덮어쓴 뒤
+  Claude 에게 “질문 답해줘”라고 하면 답이 그 자리에 채워진다.</p>
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#warmup">준비운동 — LLM 은 말밖에 못 하는 친구다</a></li>
+    <li><a href="#q1">Q1. 도구를 부르는 것도 ‘말’인가? <span class="qq">그럼 출력 토큰인가</span></a></li>
+    <li><a href="#q2">Q2. 출력 토큰 10,000개, 대체 어디서 나왔나</a></li>
+    <li><a href="#q3">Q3. Pydantic 을 쓰면 왜 형식에 맞게 나오나 <span class="qq">도구 호출의 원리</span></a></li>
+    <li><a href="#q4">Q4. 시트 하나에 왜 LLM 을 여러 번 부르나</a></li>
+    <li><a href="#q5">Q5. sheet_mapping 서랍은 왜 있나</a></li>
+    <li><a href="#quiz">퀴즈 5문항</a></li>
+    <li><a href="#summary">한 장 요약</a></li>
+  </ol>
+</nav>
+
+<hr class="sep">
+
+<h2 id="warmup">0. 준비운동 — LLM 은 말밖에 못 하는 친구다</h2>
+
+<p>이 다섯 질문의 답은 전부 한 가지 사실에서 나온다. 그러니 이것부터 확실히 하자.</p>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 700 210" role="img" aria-label="LLM은 눈도 손도 기억도 없고 말만 할 수 있다는 것을 보여주는 그림">
+      <circle cx="120" cy="88" r="52" fill="#fceef3" stroke="#b4436c" stroke-width="2.5"/>
+      <text x="120" y="82" text-anchor="middle" font-size="30">🤖</text>
+      <text x="120" y="112" text-anchor="middle" font-size="12" font-weight="700" fill="#8c2f52">LLM</text>
+      <text x="120" y="160" text-anchor="middle" font-size="12.5" fill="#8c2f52">할 수 있는 것: <tspan font-weight="700">말하기</tspan></text>
+      <text x="120" y="180" text-anchor="middle" font-size="11.5" fill="#a86b86">그게 전부다</text>
+
+      <g font-size="13" fill="#8a8479">
+        <text x="250" y="46">👁️ 눈이 없다 — 엑셀 파일을 직접 볼 수 없다</text>
+        <text x="250" y="82">✋ 손이 없다 — 파일을 열거나 계산할 수 없다</text>
+        <text x="250" y="118">🧠 기억이 없다 — 방금 자기가 한 말도 못 외운다</text>
+        <text x="250" y="154">💬 입만 있다 — 오직 글자를 내놓을 수 있다</text>
+      </g>
+      <line x1="205" y1="30" x2="205" y2="170" stroke="#e5e2dc" stroke-width="1.5"/>
+    </svg>
+  </div>
+  <figcaption>“에이전트가 엑셀을 살펴본다”는 말은 편하지만 사실이 아니다. 살펴보는 건 <strong>우리 프로그램</strong>이고,
+  LLM 은 “이걸 봐줘”라고 <em>말할</em> 뿐이다.</figcaption>
+</figure>
+
+<p>기억이 없다는 게 특히 중요하다. 그래서 우리는 편지를 주고받듯 일한다.
+말을 걸 때마다 <strong>지금까지 오간 대화를 처음부터 전부 다시</strong> 적어 보낸다.</p>
+
+<div class="callout word">
+  <span class="tag">알아둘 말 세 개</span>
+  <p><strong>토큰</strong> — 글자를 세는 단위. 대충 한글 한 글자가 1개쯤, 영어는 3~4글자가 1개쯤이다. 요금은 토큰 수로 매겨진다.<br>
+  <strong>입력 토큰</strong> — 우리가 <em>보낸</em> 글자. 대화 기록 + 도구 설명서 전부.<br>
+  <strong>출력 토큰</strong> — LLM 이 <em>말한</em> 글자. 보통 입력보다 비싸다.</p>
+</div>
+
+<div class="qmemo" data-qid="fu-warmup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">준비운동에서 헷갈리는 점이 있으면 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="q1">1. Q1 — 도구를 부르는 것도 ‘말’인가?</h2>
+
+<blockquote style="border-left:3px solid var(--line-strong);margin:0 0 18px;padding:4px 0 4px 16px;color:var(--ink-soft);font-size:.95rem">
+  <code>tool_call</code> 로 <code>submit_layout</code> 을 출력하면 이건 파이썬 함수로 실행될 텐데,
+  <strong>LLM 출력 토큰으로 쓰이는 구조인가?</strong>
+</blockquote>
+
+<p class="lead"><strong>그렇다. 전부 출력 토큰이다.</strong> 그리고 이게 이 시스템에서 <em>가장 비싼</em> 출력이다.</p>
+
+<h3>창문 비유</h3>
+
+<p>친구는 손이 없다. 그래서 창문을 열고 싶으면 이렇게 한다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="bub say">
+      <span class="who">🤖</span>
+      <span class="txt"><strong>“창문 좀 열어줘.”</strong>
+        <span class="tk out">출력 토큰</span><br>
+        <span class="small">— 친구가 <em>말한</em> 것이다. 그러니 출력이다.</span></span>
+    </div>
+    <div class="bub hand">
+      <span class="who">🧑‍💻</span>
+      <span class="txt"><strong>내가 창문을 연다.</strong>
+        <span class="tk free">토큰 0개</span><br>
+        <span class="small">— 파이썬이 실제로 함수를 실행하는 단계. LLM 은 여기 관여하지 않으니 공짜다.</span></span>
+    </div>
+    <div class="bub hear">
+      <span class="who">🧑‍💻</span>
+      <span class="txt"><strong>“열었어. 밖에 비 와.”</strong>
+        <span class="tk in">입력 토큰</span><br>
+        <span class="small">— 결과를 알려주려면 <em>다음 편지에 적어 보내야</em> 한다. 그래서 입력이다.</span></span>
+    </div>
+  </div>
+  <figcaption>도구 호출 한 번에 토큰이 <strong>두 번</strong> 든다. 부탁할 때(출력) 한 번, 결과를 알려줄 때(입력) 한 번.
+  가운데 실제 실행만 공짜다.</figcaption>
+</figure>
+
+<h3>submit_layout 은 왜 특히 비싼가</h3>
+
+<p>“창문 열어줘”는 짧다. 그런데 <code>submit_layout</code> 은 부탁 자체가 아주 길다.
+표의 구조를 <strong>전부 말로 불러줘야</strong> 하기 때문이다.</p>
+
+<figure>
+  <div class="frame">
+<pre class="plain"><span style="color:#8a8479"># 친구가 실제로 '말한' 내용 (로그에서 그대로 가져온 것, 729자)</span>
+submit_layout({
+  'anchors': [{'cell': 'G2', 'text': 'JIG ID'},
+              {'cell': 'H2', 'text': 'JIG명'},
+              {'cell': 'J2', 'text': '설비코드'}],
+  'sheet_name': '기준정보',
+  'tables': [{
+     'name': '설비/금형 기준 정보 매핑 테이블', 'role': 'detail',
+     'header_rows': [2], 'data_start_row': 3, 'data_end_row': 8,
+     'columns': [{'column': 'B', 'field': 'Shop명'},
+                 {'column': 'C', 'field': 'Line Group명'},
+                 {'column': 'D', 'field': 'line'},
+                 … <span style="color:#c05621">열 10개를 전부</span> …
+                 {'column': 'K', 'field': 'equipment'}]
+  }]
+})</pre>
+  </div>
+  <figcaption>이 글자들이 <strong>한 자도 빠짐없이 출력 토큰</strong>이다.
+  이 시트는 열이 10개라 짧은 편이고, 열이 20개인 표는 이보다 3배 넘게 길다.</figcaption>
+</figure>
+
+<div class="callout key">
+  <span class="tag">한 줄 정리</span>
+  <p>LLM 이 도구를 “실행”하는 게 아니다. <strong>도구를 부르는 문장을 지어내는 것</strong>이고,
+  지어낸 문장은 전부 출력 토큰으로 계산된다. 그래서 <strong>부탁이 길수록 비싸다.</strong></p>
+</div>
+
+<div class="qmemo" data-qid="fu-q1" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">Q1 에서 더 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="q2">2. Q2 — 출력 토큰 10,000개, 대체 어디서 나왔나</h2>
+
+<blockquote style="border-left:3px solid var(--line-strong);margin:0 0 18px;padding:4px 0 4px 16px;color:var(--ink-soft);font-size:.95rem">
+  회사 내부에서 LLM 출력 토큰을 10K 이상 썼다는데, <strong>이게 어디서 이렇게 많이 나온 건가?</strong>
+</blockquote>
+
+<p>추측하지 말고 세어보자. <code>backend/logs/llm_calls.log</code> 에 지난 수집 실행이 통째로 남아 있어서,
+LLM 이 말한 글자를 전부 모아 토큰으로 셌다.</p>
+
+<figure>
+  <div class="frame">
+    <div style="font-size:.86rem;font-weight:700;margin-bottom:10px">수집 1회 실행에서 LLM 이 말한 것 — 총 <span style="color:var(--say)">17,491 토큰</span> (112번의 대답)</div>
+    <div class="barwrap">
+      <div class="brow"><span class="nm">submit_layout</span><span class="bar"><i style="width:90.3%"></i></span><span class="vv">15,793 (90.3%)</span></div>
+      <div class="brow"><span class="nm">read_range</span><span class="bar"><i class="sm" style="width:4.7%"></i></span><span class="vv">827 (4.7%)</span></div>
+      <div class="brow"><span class="nm">sheet_outline</span><span class="bar"><i class="sm" style="width:2.5%"></i></span><span class="vv">432 (2.5%)</span></div>
+      <div class="brow"><span class="nm">column_profile</span><span class="bar"><i class="sm" style="width:0.8%"></i></span><span class="vv">143 (0.8%)</span></div>
+      <div class="brow"><span class="nm">list_sheets</span><span class="bar"><i class="sm" style="width:0.7%"></i></span><span class="vv">120 (0.7%)</span></div>
+      <div class="brow"><span class="nm">“완료” (최종답변)</span><span class="bar"><i class="sm" style="width:0.7%"></i></span><span class="vv">114 (0.7%)</span></div>
+      <div class="brow"><span class="nm">find_value</span><span class="bar"><i class="sm" style="width:0.4%"></i></span><span class="vv">62 (0.4%)</span></div>
+    </div>
+  </div>
+  <figcaption>답은 명확하다. <strong>출력 토큰의 90.3% 가 <code>submit_layout</code> 한 도구에서 나왔다.</strong>
+  나머지 도구는 다 합쳐도 10% 가 안 된다.</figcaption>
+</figure>
+
+<p>왜 이렇게 차이가 날까? 다른 도구는 <strong>부탁이 짧고 답이 길다</strong>. 반대로 <code>submit_layout</code> 은
+<strong>부탁이 길고 답이 짧다</strong>. 그리고 요금이 붙는 건 부탁(출력) 쪽이다.</p>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:26%">도구</th><th style="width:26%">LLM 이 말하는 것 (출력)</th><th>도구가 돌려주는 것 (입력)</th></tr>
+  <tr><td><code>read_range</code></td><td><code>{'sheet':'기준정보','address':'B2:K8'}</code><br>평균 <strong>30 토큰</strong></td><td>표 전체 (수백~수천 글자)</td></tr>
+  <tr class="hl"><td><code>submit_layout</code></td><td>레이아웃 전체<br>평균 <strong>526 토큰</strong> (최대 2,535자)</td><td>“레이아웃을 접수했다.” (한 줄)</td></tr>
+</table>
+</div>
+
+<h3>그런데 왜 30번이나 불렀을까 — 세 가지가 곱해진다</h3>
+
+<p>시트 하나에 한 번이면 될 것 같은데, 로그에는 <code>submit_layout</code> 이 <strong>30번</strong> 찍혀 있다.
+세 가지 이유가 곱셈으로 쌓인다.</p>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 700 200" role="img" aria-label="시트 수 곱하기 재제출 횟수 곱하기 레이아웃 크기가 출력 토큰을 만든다">
+      <rect x="14" y="30" width="150" height="70" rx="9" fill="#e6f1f7" stroke="#2f6f8f" stroke-width="1.8"/>
+      <text x="89" y="55" text-anchor="middle" font-size="13" font-weight="700" fill="#26586f">① 시트가 많다</text>
+      <text x="89" y="76" text-anchor="middle" font-size="11.5" fill="#31647c">워크북 하나에 시트 20개</text>
+      <text x="89" y="92" text-anchor="middle" font-size="11.5" fill="#31647c">→ 각각 제출해야 한다</text>
+
+      <text x="180" y="72" text-anchor="middle" font-size="22" fill="#8a8479">×</text>
+
+      <rect x="196" y="30" width="150" height="70" rx="9" fill="#fdf7e8" stroke="#b7791f" stroke-width="1.8"/>
+      <text x="271" y="55" text-anchor="middle" font-size="13" font-weight="700" fill="#8a5b12">② 퇴짜를 맞는다</text>
+      <text x="271" y="76" text-anchor="middle" font-size="11.5" fill="#96631a">30번 중 9번이 “다시 내라”</text>
+      <text x="271" y="92" text-anchor="middle" font-size="11.5" fill="#96631a">→ 처음부터 통째로 다시</text>
+
+      <text x="362" y="72" text-anchor="middle" font-size="22" fill="#8a8479">×</text>
+
+      <rect x="378" y="30" width="160" height="70" rx="9" fill="#fceef3" stroke="#b4436c" stroke-width="1.8"/>
+      <text x="458" y="55" text-anchor="middle" font-size="13" font-weight="700" fill="#8c2f52">③ 한 번이 길다</text>
+      <text x="458" y="76" text-anchor="middle" font-size="11.5" fill="#a33f63">열이 20개면 그걸 다 말한다</text>
+      <text x="458" y="92" text-anchor="middle" font-size="11.5" fill="#a33f63">평균 526 토큰</text>
+
+      <text x="554" y="72" text-anchor="middle" font-size="22" fill="#8a8479">=</text>
+
+      <rect x="570" y="24" width="118" height="82" rx="9" fill="#2a2e36"/>
+      <text x="629" y="56" text-anchor="middle" font-size="16" font-weight="700" fill="#f4a3c0">15,793</text>
+      <text x="629" y="76" text-anchor="middle" font-size="11.5" fill="#cfd6df">출력 토큰</text>
+      <text x="629" y="94" text-anchor="middle" font-size="10.5" fill="#8c95a6">전체의 90.3%</text>
+
+      <text x="350" y="140" text-anchor="middle" font-size="12" fill="#5c626b">②번이 특히 아프다 — 열 하나를 빠뜨렸다고 <tspan font-weight="700">레이아웃 전체를 다시 말해야</tspan> 한다.</text>
+      <text x="350" y="162" text-anchor="middle" font-size="12" fill="#5c626b">“그 열만 추가할게”가 안 된다. 도구 호출은 언제나 <tspan font-weight="700">통짜</tspan>다.</text>
+      <text x="350" y="188" text-anchor="middle" font-size="11.5" fill="#948d84">그래서 퇴짜 횟수를 2회로 제한해 뒀다.</text>
+    </svg>
+  </div>
+  <figcaption>“어디서 토큰이 많이 나갔나”의 답: <strong>양식을 처음 배우는 순간</strong>이다.
+  한 번 배우고 나면 다음부터는 0 토큰이다 — 그 이야기가 <a href="#q5">Q5</a>다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="tag">줄이는 방법은 셋뿐이다</span>
+  <p>① <strong>캐시를 맞히기</strong> — 양식이 그대로면 LLM 을 아예 안 부른다. 가장 효과가 크다(100% 절약).<br>
+  ② <strong>퇴짜를 줄이기</strong> — 프롬프트를 고쳐 한 번에 맞게 내도록. 지금 상한은 2회다.<br>
+  ③ <strong>스키마를 작게</strong> — 필드가 많을수록 말할 게 많아진다. 다만 필요한 정보는 줄일 수 없다.</p>
+</div>
+
+<div class="qmemo" data-qid="fu-q2" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">토큰 계산이나 절약 방법에 대해 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="q3">3. Q3 — Pydantic 을 쓰면 왜 형식에 맞게 나오나</h2>
+
+<blockquote style="border-left:3px solid var(--line-strong);margin:0 0 18px;padding:4px 0 4px 16px;color:var(--ink-soft);font-size:.95rem">
+  Pydantic 으로 스키마를 정하면 LLM 출력이 어떻게 거기 맞게 나오나? 원리가 뭔가?
+  <strong>그냥 “JSON 으로 줘” 하고 받은 걸 구조에 끼워 맞추는 건가?</strong>
+</blockquote>
+
+<p class="lead">끼워 맞추는 게 <strong>아니다.</strong> 세 겹으로 되어 있다 — <strong>양식을 보여주고, 벗어나지 못하게 막고, 마지막에 채점한다.</strong></p>
+
+<h3>1겹: 파이썬 클래스를 ‘빈칸 시험지’로 바꾼다</h3>
+
+<p>Pydantic 모델은 사실 <strong>양식</strong>이다. 자기소개서 같은 것이다.</p>
+
+<figure>
+  <div class="frame">
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+      <div style="flex:1 1 280px">
+        <div style="font-size:.8rem;color:var(--ink-soft);font-weight:700;margin-bottom:6px">우리가 파이썬으로 쓴 것</div>
+<pre class="plain" style="margin:0;font-size:.76rem"><span class="k">class</span> ColumnMap(BaseModel):
+    field:  str = Field(
+      description=<span class="s">"고정 어휘 또는 헤더 텍스트 그대로"</span>)
+    column: str = Field(
+      description=<span class="s">'열 문자. 예: "C"'</span>)</pre>
+      </div>
+      <div style="flex:0 0 auto;align-self:center;font-size:1.5rem;color:var(--line-strong)">→</div>
+      <div style="flex:1 1 280px">
+        <div style="font-size:.8rem;color:var(--ink-soft);font-weight:700;margin-bottom:6px">LLM 이 받는 ‘시험지’</div>
+        <div class="form">
+          <div class="row"><span class="lab">field</span><span class="slot">&nbsp;</span><span class="rule">글자</span></div>
+          <div class="row"><span class="lab">column</span><span class="slot">&nbsp;</span><span class="rule">글자</span></div>
+          <div class="row" style="border-top:1px dotted #ddd8e8"><span style="font-size:.78rem;color:var(--ink-soft)">칸마다 설명이 붙어 있다: “열 문자. 예: <code>C</code>”</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption><code>model_json_schema()</code> 가 이 변환을 한다. <strong>중요한 점:</strong>
+  <code>description</code> 에 적은 한국어 문장이 시험지에 <em>그대로</em> 적혀 나간다.
+  그래서 설명문을 고치는 것은 <strong>프롬프트를 고치는 것</strong>과 같다.</figcaption>
+</figure>
+
+<h3>2겹: 시험지를 함께 보내고, 벗어나지 못하게 막는다</h3>
+
+<p>편지에 시험지를 동봉한다. 그리고 두 가지가 작동한다.</p>
+
+<div class="flow">
+  <div class="node say"><span class="t">① 모델이 그렇게 배웠다</span>
+    <span class="d">요즘 모델은 “도구를 부를 땐 이런 형식으로 말해”를 훈련 단계에서 익혔다.
+    그래서 대체로 알아서 맞춘다 — 하지만 <strong>대체로</strong>일 뿐이다.</span></div>
+  <div class="node hand"><span class="t">② 프로그램이 글자 단위로 막기도 한다</span>
+    <span class="d">모델이 다음 글자를 고를 때, 시험지에서 벗어나는 글자를 <strong>아예 고를 수 없게</strong>
+    막는 기능이 있다. 숫자 칸이면 숫자 아닌 글자를 후보에서 지워버리는 식이다.</span></div>
+</div>
+
+<div class="callout key">
+  <span class="tag">여기가 “그냥 JSON 달라고 하기”와 갈리는 지점</span>
+  <p>“JSON 으로 답해줘”는 <strong>부탁</strong>이다. 모델이 설명문을 덧붙이거나 코드블록으로 감싸면 파싱이 깨진다.<br>
+  도구 호출은 <strong>약속된 통로</strong>다. 답이 문장 속에 섞여 오지 않고, <code>이름 + 인자</code>라는
+  정해진 자리에 담겨서 온다. 우리 코드는 정규식으로 뜯을 필요 없이 그 자리를 바로 읽는다.</p>
+</div>
+
+<h3>3겹: 그래도 틀릴 수 있으니 채점한다</h3>
+
+<p>막아도 완벽하진 않다. 그래서 마지막에 Pydantic 이 <strong>채점</strong>한다.
+실제로 틀린 답을 넣어 실행해 봤다.</p>
+
+<figure>
+  <div class="frame">
+<pre class="plain"><span style="color:#2f8f5b">■ 시험지대로 냈을 때</span>
+  → "레이아웃을 접수했다. 더 이상 도구를 호출하지 말고 '완료'라고만 답하라."
+
+<span style="color:#c05621">■ 필수 칸(anchors)을 비웠을 때</span>
+  → ValidationError: 1 validation error for SheetLayout
+     <span class="hi">anchors  Field required</span> [type=missing, input_value={'sheet_name': 'S1'}]
+
+<span style="color:#c05621">■ 숫자 칸에 글자를 썼을 때 (data_start_row = "세번째줄")</span>
+  → ValidationError: 1 validation error for SheetLayout
+     <span class="hi">tables.0.data_start_row  Input should be a valid integer</span>
+     unable to parse string as an integer [input_value='세번째줄']</pre>
+  </div>
+  <figcaption>실제로 돌려본 결과다. 오류 메시지가 <strong>어느 칸이 왜 틀렸는지</strong> 정확히 말해준다.</figcaption>
+</figure>
+
+<p>그리고 이 오류 문장은 버려지지 않는다. <strong>그대로 편지에 담겨 친구에게 되돌아간다.</strong>
+친구는 그걸 읽고 고쳐서 다시 낸다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="bub say"><span class="who">🤖</span><span class="txt">submit_layout({...<span style="color:#c05621">data_start_row: "세번째줄"</span>...})</span></div>
+    <div class="bub hand"><span class="who">⚖️</span><span class="txt"><strong>Pydantic 채점</strong> → 탈락. 숫자여야 하는데 글자다.</span></div>
+    <div class="bub hear"><span class="who">🧑‍💻</span><span class="txt">“<code>tables.0.data_start_row</code> 는 정수여야 합니다.”
+      <span class="tk in">입력 토큰</span></span></div>
+    <div class="bub say"><span class="who">🤖</span><span class="txt">submit_layout({...<span style="color:#2f8f5b">data_start_row: 3</span>...}) — 고쳐서 다시</span></div>
+  </div>
+  <figcaption>이 되먹임 덕분에 형식 오류는 사람 손을 거치지 않고 스스로 고쳐진다.
+  다만 <a href="#q2">Q2</a>에서 봤듯 <strong>다시 낼 때마다 레이아웃 전체를 다시 말해야</strong> 해서 토큰이 든다.</figcaption>
+</figure>
+
+<div class="callout key">
+  <span class="tag">Q3 한 줄 정리</span>
+  <p><strong>부탁(시험지 보여주기) + 강제(벗어나지 못하게 막기) + 채점(Pydantic 검증) — 세 겹이다.</strong>
+  “JSON 받아서 끼워 맞추기”는 첫 겹만 있는 방식이고, 그래서 잘 깨진다.</p>
+</div>
+
+<div class="qmemo" data-qid="fu-q3" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">스키마·검증 원리에서 더 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="q4">4. Q4 — 시트 하나에 왜 LLM 을 여러 번 부르나</h2>
+
+<blockquote style="border-left:3px solid var(--line-strong);margin:0 0 18px;padding:4px 0 4px 16px;color:var(--ink-soft);font-size:.95rem">
+  시트마다 <code>submit_layout</code> 이 하나씩 생기는데, 그 하나를 만드는 데 LLM 이 여러 번 호출된다.
+  <strong>어떤 원리로 여러 번 불리는 건가?</strong>
+</blockquote>
+
+<p class="lead">규칙은 딱 하나다. <strong>LLM 은 한 번 말하면 그 차례가 끝난다.</strong>
+답을 들으려면 새로 말을 걸어야 한다.</p>
+
+<h3>스무고개와 똑같다</h3>
+
+<p>친구는 눈이 없다. 그래서 한 번에 하나씩만 물어볼 수 있고, 물어본 뒤에는 <em>답을 들어야</em> 다음 질문을 정할 수 있다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="stair">
+      <div class="st"><span class="n">1</span><span class="b">🤖 “시트 전체 모양 보여줘” → <code>sheet_outline</code>
+        <b>우리가 실행 → “2행에 10칸, B~K, Shop명·Line Group명…” 이라고 알려준다</b></span></div>
+      <div class="st"><span class="n">2</span><span class="b">🤖 “그럼 <code>B2:K8</code> 을 읽어줘” → <code>read_range</code>
+        <b>1번 답을 보고 나서야 어디를 읽을지 정할 수 있었다. 그래서 <strong>미리 못 물어본다</strong></b></span></div>
+      <div class="st"><span class="n">3</span><span class="b">🤖 “다 봤다. 이게 레이아웃이야” → <code>submit_layout</code>
+        <b>우리가 검사 → “접수했다”</b></span></div>
+      <div class="st"><span class="n">4</span><span class="b">🤖 “완료”
+        <b>도구를 안 불렀다 → <strong>여기서 루프가 끝난다</strong></b></span></div>
+    </div>
+  </div>
+  <figcaption>실제 로그의 <code>기준정보</code> 시트다. LLM 4번, 도구 3번.
+  각각 18.0초 · 6.8초 · 17.5초 · 9.1초가 걸렸다.</figcaption>
+</figure>
+
+<div class="callout key">
+  <span class="tag">외우면 편한 공식</span>
+  <p style="font-size:1.05rem;text-align:center;margin:8px 0">
+    <strong>LLM 호출 횟수 = 도구 호출 횟수 + 1</strong>
+  </p>
+  <p style="text-align:center;font-size:.88rem;color:var(--ink-soft);margin:0">
+    마지막 +1 은 “도구를 더 안 부르고 끝내겠다”고 말하는 차례다.</p>
+</div>
+
+<h3>그림으로 보는 루프</h3>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 660 220" role="img" aria-label="LLM 노드와 도구 노드를 오가는 루프, 도구를 안 부르면 종료">
+      <defs><marker id="fa" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#8a8479"/></marker></defs>
+
+      <rect x="150" y="26" width="170" height="60" rx="10" fill="#fceef3" stroke="#b4436c" stroke-width="2"/>
+      <text x="235" y="50" text-anchor="middle" font-size="14" font-weight="700" fill="#8c2f52">🤖 LLM 이 말한다</text>
+      <text x="235" y="70" text-anchor="middle" font-size="11" fill="#a33f63">평균 18.8초 · 돈이 든다</text>
+
+      <path d="M320,40 C390,14 450,14 508,40" fill="none" stroke="#b4436c" stroke-width="1.8" marker-end="url(#fa)"/>
+      <text x="414" y="14" text-anchor="middle" font-size="11" fill="#8c2f52">도구를 불렀으면</text>
+
+      <rect x="510" y="26" width="140" height="60" rx="10" fill="#e5f4f4" stroke="#1f7a7a" stroke-width="2"/>
+      <text x="580" y="50" text-anchor="middle" font-size="14" font-weight="700" fill="#155f5f">🧑‍💻 우리가 한다</text>
+      <text x="580" y="70" text-anchor="middle" font-size="11" fill="#237272">평균 0.021초 · 공짜</text>
+
+      <path d="M508,74 C450,102 390,102 322,74" fill="none" stroke="#1f7a7a" stroke-width="1.8" marker-end="url(#fa)"/>
+      <text x="414" y="112" text-anchor="middle" font-size="11" fill="#155f5f">결과를 편지에 붙여 <tspan font-weight="700">반드시</tspan> 되돌아간다</text>
+
+      <path d="M235,88 L235,140" stroke="#8a8479" stroke-width="1.7" marker-end="url(#fa)"/>
+      <text x="246" y="118" font-size="11" fill="#8a8479">도구를 안 불렀으면</text>
+      <rect x="163" y="142" width="144" height="38" rx="9" fill="#e8f5ee" stroke="#2f8f5b" stroke-width="1.8"/>
+      <text x="235" y="166" text-anchor="middle" font-size="13" font-weight="700" fill="#1f6b41">끝 🎉</text>
+
+      <rect x="345" y="136" width="305" height="52" rx="9" fill="#fdf7e8" stroke="#b7791f" stroke-width="1.5"/>
+      <text x="358" y="156" font-size="11.5" font-weight="700" fill="#8a5b12">안전장치: 40바퀴를 넘으면 강제로 멈춘다</text>
+      <text x="358" y="175" font-size="11" fill="#96631a">모델이 끝을 못 내고 뱅뱅 돌 때 영원히 도는 걸 막는다</text>
+
+      <text x="20" y="210" font-size="11" fill="#948d84">화살표가 한 바퀴 돌 때마다 편지가 길어진다 — 앞의 대화를 전부 다시 보내니까.</text>
+    </svg>
+  </div>
+  <figcaption>도구 쪽에서 LLM 쪽으로 가는 화살표에는 조건이 없다. <strong>도구를 부르는 한 루프는 계속된다.</strong></figcaption>
+</figure>
+
+<h3>퇴짜를 맞으면 한 바퀴가 더 는다</h3>
+
+<p><code>submit_layout</code> 을 냈다고 바로 끝나는 게 아니다. 우리 코드가 <strong>진짜 엑셀 격자와 대조</strong>해서
+빠진 열이 있으면 돌려보낸다.</p>
+
+<figure>
+  <div class="frame">
+<pre class="plain">--- TOOL RESULT: submit_layout (35ms) ---
+<span style="background:#fdefe7;color:#c05621">아직 접수하지 않았다. 레이아웃에 덮이지 않은 곳이 있다.</span>
+- 표 '이벤트 로그 대장' 에서 값이 있는데 columns 에 없는 열:
+  L(상세 구분1), M(상세 구분2), N(규격(Spec)), O(규격 단위), P(제조 업체),
+  Q(생산 유형), R(폐기 기준), S(1차 경고 주기), T(2차 경고 주기),
+  U(3차 경고 주기), V(설명), W(수정자 사번), X(수정자)
+고쳐서 submit_layout 을 다시 호출하라.</pre>
+  </div>
+  <figcaption>실제 로그다. 열 <strong>13개</strong>를 빠뜨려서 퇴짜를 맞았다.
+  그러면 LLM 호출이 2번 더 늘고(다시 내기 + 마무리), 레이아웃 전체를 다시 말하니 토큰도 그만큼 더 든다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="tag">왜 격자와 대조하나 — 프롬프트로는 안 되나</span>
+  <p>프롬프트에 “표의 오른쪽 끝까지 가라”고 <strong>세 번</strong> 적어놨는데도 13개를 빠뜨렸다.
+  격자는 표가 어디서 끝나는지 <em>알고 있고</em>, 모델은 <em>추측한다</em>. 아는 쪽이 확인해야 한다.</p>
+  <p>다만 퇴짜는 <strong>2번까지만</strong>이다. 무한정 돌리면 못 맞추는 모델을 만났을 때
+  40바퀴를 다 쓰고 레이아웃을 <em>하나도</em> 못 얻는다. 몇 열 빠진 레이아웃이 그것보다는 낫다.</p>
+</div>
+
+<div class="qmemo" data-qid="fu-q4" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">루프가 도는 방식에서 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="q5">5. Q5 — sheet_mapping 서랍은 왜 있나</h2>
+
+<blockquote style="border-left:3px solid var(--line-strong);margin:0 0 18px;padding:4px 0 4px 16px;color:var(--ink-soft);font-size:.95rem">
+  에이전트가 돌고 나서 <code>sheet_mapping</code> 에 저장한다는데, 배경을 잘 모르겠다.
+  <strong>왜 저장하고, 언제, 어떻게 쓰이나?</strong>
+</blockquote>
+
+<p class="lead">한 문장으로: <strong>비싸게 얻은 지도를 서랍에 넣어두고, 다음엔 꺼내 쓰는 것이다.</strong></p>
+
+<h3>이야기로 보는 배경</h3>
+
+<figure>
+  <div class="frame">
+    <div class="stair">
+      <div class="st"><span class="n">1</span><span class="b"><strong>처음 보는 엑셀이 왔다.</strong>
+        <b>어느 칸에 뭐가 있는지 아무도 모른다. 사람이 매번 알려줄 수도 없다.</b></span></div>
+      <div class="st"><span class="n">2</span><span class="b"><strong>탐험대(LLM 에이전트)를 보낸다.</strong>
+        <b>도구를 4~5번 부르며 시트를 더듬는다. <span style="color:var(--say);font-weight:700">약 50초, 토큰 수백 개</span> 소모.</b></span></div>
+      <div class="st"><span class="n">3</span><span class="b"><strong>지도(레이아웃)를 그려온다.</strong>
+        <b>“금형번호는 G열, 표는 3행부터, 이 표는 상세표” — 좌표만 적힌 지도다.</b></span></div>
+      <div class="st"><span class="n">4</span><span class="b"><strong>지도를 서랍에 넣는다.</strong> ← <code>sheet_mapping</code>
+        <b>여기가 질문의 핵심이다. 안 넣으면 <span style="color:var(--danger);font-weight:700">내일 또 50초를 쓴다.</span></b></span></div>
+      <div class="st"><span class="n">5</span><span class="b"><strong>다음에 같은 엑셀이 오면 서랍부터 연다.</strong>
+        <b>지도가 맞으면 그대로 쓴다. <span style="color:var(--ok);font-weight:700">0.02초, 토큰 0개.</span></b></span></div>
+    </div>
+  </div>
+  <figcaption>2단계와 5단계의 차이가 <strong>2,500배</strong>다. 서랍 하나가 그 차이를 만든다.</figcaption>
+</figure>
+
+<h3>“지도가 아직 맞는지” 어떻게 아나 — 표지판 3개</h3>
+
+<p>건물을 고쳤을 수도 있다. 옛 지도를 그대로 믿으면 엉뚱한 칸을 읽는다.
+그래서 탐험대는 지도를 그릴 때 <strong>표지판 3개</strong>를 함께 적어온다. 이게 <strong>앵커</strong>다.</p>
+
+<figure>
+  <div class="frame">
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      <div style="flex:1 1 250px">
+        <div style="font-size:.82rem;font-weight:700;color:var(--ink-soft);margin-bottom:6px">지도에 적힌 표지판</div>
+        <div class="form" style="border-color:var(--ok)">
+          <div class="row"><span class="lab">B2 칸에</span><span class="slot">“Shop명”</span></div>
+          <div class="row"><span class="lab">G2 칸에</span><span class="slot">“JIG ID”</span></div>
+          <div class="row"><span class="lab">K2 칸에</span><span class="slot">“설비명”</span></div>
+        </div>
+      </div>
+      <div style="flex:1 1 250px">
+        <div style="font-size:.82rem;font-weight:700;color:var(--ink-soft);margin-bottom:6px">오늘 온 엑셀을 확인</div>
+        <div class="form" style="border-color:var(--ok)">
+          <div class="row"><span class="lab">B2 칸</span><span class="slot">“Shop명” ✅</span></div>
+          <div class="row"><span class="lab">G2 칸</span><span class="slot">“JIG ID” ✅</span></div>
+          <div class="row"><span class="lab">K2 칸</span><span class="slot">“설비명” ✅</span></div>
+          <div class="row"><span style="font-size:.85rem;color:var(--ok);font-weight:700">3개 다 맞음 → 지도 재사용, LLM 0회</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption>글자 3개를 비교하는 데 걸리는 시간은 사실상 0이다. 하나라도 다르면 “양식이 바뀌었다”고 보고 탐험대를 다시 보낸다.</figcaption>
+</figure>
+
+<div class="callout key">
+  <span class="tag">표지판은 왜 ‘머리글’이어야 하나</span>
+  <p>표지판으로 <strong>데이터 칸</strong>을 골랐다면, 행이 하나 추가될 때마다 값이 달라져서 매번 “지도가 틀렸다”가 된다.
+  머리글(제목 줄)은 행이 늘어도 그대로 있다. 그래서 프롬프트가 “<strong>데이터 값이 아니라 헤더 텍스트를 골라라</strong>”라고
+  못 박아 두었다.</p>
+</div>
+
+<h3>실제 서랍 속을 열어보면</h3>
+
+<p>지금 <code>molds.db</code> 의 <code>sheet_mapping</code> 에는 지도 5장이 들어 있다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="drawer">
+      <div class="dh">🗄️ sheet_mapping — 지금까지 그린 지도 5장 (지우지 않고 쌓기만 한다)</div>
+      <div class="card"><span class="id">#5 iqc</span><span class="an">B33=“No” · C33=“입고 시간” · D33=“금형 번호”</span><span class="small">표 4개짜리 시트</span></div>
+      <div class="card"><span class="id">#4 mes</span><span class="an">D4=“라인” · E4=“설비코드” · G4=“투입수량”</span><span class="small">지금 쓰는 지도 ✅</span></div>
+      <div class="card dead"><span class="id">#3 mes</span><span class="an">D4=“공정” · I4=“금형번호” · F4=“라인”</span><span class="small">옛 양식 — 이제 안 맞는다 💤</span></div>
+      <div class="card dead"><span class="id">#2 ees</span><span class="an">B2=“JIG ID” · C2=“이벤트시간” · H2=“설비명”</span><span class="small">옛 양식 — 이제 안 맞는다 💤</span></div>
+      <div class="card"><span class="id">#1 jig_master</span><span class="an">B2=“Shop명” · G2=“JIG ID” · K2=“설비명”</span><span class="small">지금 쓰는 지도 ✅</span></div>
+    </div>
+  </div>
+  <figcaption>번호가 큰 것이 최신이고, <strong>최신부터 순서대로</strong> 표지판을 맞춰본다.
+  옛 지도(#2·#3)는 표지판이 안 맞아서 그냥 통과된다 — 지워지지 않고 잠들어 있을 뿐이다.</figcaption>
+</figure>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th style="width:30%">질문</th><th>답</th></tr>
+  <tr><td><strong>왜 옛 지도를 안 버리나?</strong></td>
+      <td>“그때는 이 양식을 이렇게 읽었다”가 나중에 숫자를 의심할 때 <strong>유일한 증거</strong>이기 때문이다.
+      대신 최신부터 맞춰봐서 옛 규칙이 먼저 걸리는 일을 막는다.</td></tr>
+  <tr><td><strong>언제 저장하나?</strong></td>
+      <td><strong>파싱에 성공한 뒤에만.</strong> 순서를 바꿔 먼저 저장하면, 못 쓰는 지도가 서랍에 박혀
+      그 파일이 영원히 실패한다(저장은 즉시 확정돼서 되돌릴 수도 없다).</td></tr>
+  <tr><td><strong>서랍을 어떤 이름으로 찾나?</strong></td>
+      <td><strong>종류(<code>kind</code>)로만</strong> 찾는다. 시트 이름으로는 안 찾는다 — 아래 사고 이야기 참고.</td></tr>
+  <tr><td><strong>지도가 틀렸으면?</strong></td>
+      <td>파싱하다 실패하면 <strong>딱 한 번</strong> 탐험대를 다시 보내 새 지도를 그린다. 스스로 회복하는 장치다.</td></tr>
+</table>
+</div>
+
+<h3>서랍을 못 연 사고 — 진짜 있었던 일</h3>
+
+<p>로그에 이런 장면이 찍혀 있다. 관리대장 워크북의 시트 7개가 <strong>양식이 전부 똑같은데도</strong>
+탐험대가 일곱 번 나갔다.</p>
+
+<figure>
+  <div class="frame">
+<pre class="plain">21:33:03  시트 '#RX39513' → 탐험대 출동 → 지도 완성   <span style="color:#8a8479">(LLM 4회)</span>
+21:34:09  시트 '#RX28312' → 탐험대 출동 → 지도 완성   <span style="color:#8a8479">(LLM 4회)</span>
+21:34:54  시트 '#RX28315' → 탐험대 출동 → 지도 완성   <span style="color:#8a8479">(LLM 4회)</span>
+21:35:37  시트 '#RX50177' → 탐험대 출동 → 지도 완성   <span style="color:#8a8479">(LLM 4회)</span>
+   …                                                <span style="color:#c05621">7시트 × 4회 ≒ 30회, 약 9분</span></pre>
+  </div>
+  <figcaption>양식은 일곱 시트 모두 <code>B=이벤트시간 · C=활동 · D=수량 · E=위치</code> 로 동일했다.</figcaption>
+</figure>
+
+<p>범인은 <strong>서랍을 찾는 방법</strong>이었다.</p>
+
+<figure>
+  <div class="frame">
+    <div class="flow" style="flex-direction:column">
+      <div class="node" style="border-color:var(--danger);background:#fdefe7">
+        <span class="t">그때 — 서랍을 “종류 + 시트 이름”으로 찾았다</span>
+        <span class="d">그런데 이 워크북은 <strong>시트 이름이 곧 금형 번호</strong>다(<code>#RX39513</code>, <code>#RX28312</code> …).
+        시트마다 이름이 다르니 “<code>#RX28312</code> 지도 있어?”라고 물으면 <strong>항상 없다</strong>.
+        표지판을 맞춰볼 기회조차 없었다.</span></div>
+      <div class="arrowdown">▼</div>
+      <div class="node box">
+        <span class="t">지금 — 서랍을 “종류”로만 찾는다 <span class="small">(커밋 <code>1d932df</code>)</span></span>
+        <span class="d">“<code>ees</code> 지도 전부 꺼내와” → 표지판을 맞춰본다 → 첫 시트가 그린 지도가 <strong>나머지 6개에도 맞는다.</strong><br>
+        어느 지도가 맞는지 <em>판정하는 일은 원래 표지판의 몫</em>인데, 찾는 단계에서 미리 걸러버린 게 문제였다.</span></div>
+    </div>
+  </div>
+  <figcaption>고친 뒤에는 LLM 호출이 30회에서 4~5회로 줄어든다(약 9분 → 약 1.5분).
+  <strong>배울 점:</strong> “느리다”를 프롬프트 탓으로 접근했다면 못 고쳤다. 호출 로그를 세어본 것이 원인을 드러냈다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="fu-q5" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">서랍(캐시) 이야기에서 궁금한 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="quiz">6. 퀴즈 5문항</h2>
+
+<p>답을 누르면 바로 채점과 해설이 나온다.</p>
+
+<div class="quiz" data-answer="1">
+  <p class="q">Q1. LLM 이 <code>submit_layout({...})</code> 이라고 말했다. 이 글자들은 무엇으로 계산되나?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">파이썬이 실행하는 것이므로 토큰이 들지 않는다</button>
+    <button class="opt" data-i="1"><strong>출력 토큰</strong>이다 — LLM 이 지어낸 말이기 때문</button>
+    <button class="opt" data-i="2">입력 토큰이다 — 결국 도구로 들어가는 값이므로</button>
+    <button class="opt" data-i="3">도구 이름만 토큰으로 세고 인자는 세지 않는다</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>LLM 은 도구를 실행하지 않는다. <b>도구를 부르는 문장을 지어낼</b> 뿐이고, 지어낸 글자는 전부 출력 토큰이다. 실제 실행(파이썬)은 공짜이고, 그 <b>결과</b>가 다음 편지에 실려 갈 때 비로소 입력 토큰이 된다. 즉 도구 한 번에 토큰이 두 번 든다 — 부탁할 때와 결과를 알려줄 때.</div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q2. 수집 1회에서 출력 토큰 17,491개를 썼다. 가장 많이 쓴 곳은?</p>
+  <div class="opts">
+    <button class="opt" data-i="0"><code>read_range</code> — 표를 통째로 읽어오니까</button>
+    <button class="opt" data-i="1"><code>sheet_outline</code> — 시트 전체를 훑으니까</button>
+    <button class="opt" data-i="2"><code>submit_layout</code> — 전체의 90.3%</button>
+    <button class="opt" data-i="3">최종 답변 — 설명이 길어서</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>①②가 헷갈리기 쉬운데, 그 도구들은 <b>부탁이 짧고 답이 길다</b>. <code>read_range</code> 를 부르는 말은 <code>{'sheet':'기준정보','address':'B2:K8'}</code> 뿐이라 평균 30 토큰이다. 돌아오는 표가 아무리 길어도 그건 <b>입력</b> 쪽이다. 반대로 <code>submit_layout</code> 은 레이아웃 전체를 말해야 해서 평균 526 토큰이고, 30번 불려 15,793 토큰을 썼다. ④는 실제로 “완료” 두 글자라 20번 합쳐 114 토큰뿐이다.</div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q">Q3. Pydantic 스키마를 쓰면 형식에 맞는 출력이 나오는 원리는?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">모델이 자유롭게 쓴 JSON 을 정규식으로 뜯어서 구조에 끼워 맞춘다</button>
+    <button class="opt" data-i="1">Pydantic 이 모델 내부를 직접 제어해 틀린 글자를 못 만들게 한다</button>
+    <button class="opt" data-i="2">틀리면 사람이 확인하고 고쳐 넣는다</button>
+    <button class="opt" data-i="3">스키마를 시험지처럼 함께 보내고(부탁) + 벗어나기 어렵게 막고(강제) + 도착한 값을 검증한다(채점)</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>세 겹이다. ①은 “JSON 으로 답해줘”만 하는 방식인데, 모델이 설명문이나 코드블록을 덧붙이면 깨진다. 도구 호출은 <b>약속된 통로</b>라 답이 <code>이름 + 인자</code> 자리에 담겨 오고, 마지막에 Pydantic 이 채점한다. 실제로 <code>data_start_row</code> 에 “세번째줄”을 넣어보면 <code>Input should be a valid integer</code> 라는 오류가 나는데, 이 문장이 그대로 모델에게 되돌아가 스스로 고치게 만든다.</div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <p class="q">Q4. 어떤 시트에서 LLM 이 5번 호출됐다. 도구는 몇 번 불렸을까? (퇴짜는 없었다고 하자)</p>
+  <div class="opts">
+    <button class="opt" data-i="0">4번 — 마지막 1번은 “끝내겠다”고 말하는 차례라서</button>
+    <button class="opt" data-i="1">5번 — LLM 호출마다 도구가 하나씩 붙으므로</button>
+    <button class="opt" data-i="2">1번 — <code>submit_layout</code> 만 도구다</button>
+    <button class="opt" data-i="3">10번 — 부를 때와 결과를 받을 때 각각 세므로</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden><b>LLM 호출 = 도구 호출 + 1</b> 이다. 도구를 부를 때마다 결과를 들으려고 다시 말을 걸어야 하고, 마지막에는 도구를 안 부르고 “완료”라고만 말한다 — 그 순간 루프가 끝난다. 실제 <code>기준정보</code> 시트는 LLM 4번 / 도구 3번이었다. 퇴짜를 맞으면 여기에 2번이 더 붙는다(다시 내기 + 마무리).</div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q5. 양식이 똑같은 시트 7개인데 탐험대가 일곱 번 나갔다. 왜였나?</p>
+  <div class="opts">
+    <button class="opt" data-i="0">표지판(앵커)을 매번 다르게 골라서</button>
+    <button class="opt" data-i="1">지도를 배치가 다 끝난 뒤에 한꺼번에 저장해서</button>
+    <button class="opt" data-i="2">서랍을 “종류 + 시트 이름”으로 찾았는데, 이 워크북은 시트 이름이 금형 번호라 매번 달랐기 때문</button>
+    <button class="opt" data-i="3">시트마다 표지판을 맞춰봤지만 전부 틀렸기 때문</button>
+  </div>
+  <div class="fb"></div>
+  <div class="fbtext" hidden>표지판은 <b>맞춰볼 기회조차 없었다</b>. 서랍을 “<code>#RX28312</code> 지도 있어?”라고 찾으니 항상 없다고 나왔기 때문이다. 지금은 종류(<code>ees</code>)로만 찾아서 지도를 전부 꺼낸 뒤 표지판으로 판정한다 — 원래 표지판이 하라고 만든 일이다. ①은 틀렸다: 표지판은 머리글에서 고르므로 시트가 달라도 같게 나온다. ②도 반대다 — 지도는 <b>그 자리에서 바로</b> 저장되므로 다음 시트가 즉시 꺼내 쓸 수 있다.</div>
+</div>
+
+<div class="qmemo" data-qid="fu-quiz" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제나 이해 안 되는 해설을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<h2 id="summary">7. 한 장 요약</h2>
+
+<figure>
+  <div class="frame">
+    <div class="flow" style="flex-direction:column">
+      <div class="node say"><span class="t">Q1 · 도구 호출도 ‘말’이다</span>
+        <span class="d">LLM 은 도구를 실행하지 않는다. 부르는 문장을 지어낼 뿐이고, 그 글자는 전부 <strong>출력 토큰</strong>이다.
+        실제 실행은 공짜, 결과를 알려주는 건 입력 토큰.</span></div>
+      <div class="node say"><span class="t">Q2 · 출력 토큰의 90.3% 는 submit_layout</span>
+        <span class="d">수집 1회에 17,491 토큰. 그중 15,793 이 레이아웃 제출이다.
+        <strong>시트 수 × 퇴짜 횟수 × 레이아웃 크기</strong>가 곱해진 결과다.</span></div>
+      <div class="node box"><span class="t">Q3 · 형식은 세 겹으로 지켜진다</span>
+        <span class="d"><strong>부탁</strong>(스키마를 시험지처럼 동봉) + <strong>강제</strong>(형식을 벗어나기 어렵게)
+        + <strong>채점</strong>(Pydantic 검증 → 오류 문장이 모델에게 되돌아감).</span></div>
+      <div class="node hand"><span class="t">Q4 · LLM 호출 = 도구 호출 + 1</span>
+        <span class="d">한 번 말하면 차례가 끝나므로, 결과를 들으려면 다시 말을 걸어야 한다.
+        마지막 +1 은 “도구 그만 부르겠다”고 말하는 차례다.</span></div>
+      <div class="node box"><span class="t">Q5 · sheet_mapping 은 지도 서랍이다</span>
+        <span class="d">50초 들여 그린 지도를 넣어두고 다음엔 0.02초에 꺼내 쓴다.
+        지도가 아직 맞는지는 <strong>표지판(앵커) 3개</strong>로 판정한다.</span></div>
+    </div>
+  </div>
+  <figcaption>다섯 답이 결국 한 문장으로 모인다 — <strong>LLM 은 비싸고 느리니, 꼭 필요할 때만 부르고, 부를 땐 형식을 강제하고, 결과는 재사용한다.</strong></figcaption>
+</figure>
+
+<h3>더 읽을거리</h3>
+<ul>
+  <li><a href="2026-08-11-explanation-llm-loop-and-context-engineering.html">3편 — LLM 루프·컨텍스트 엔지니어링</a>
+    <span class="small">(이 문서의 원본. 같은 내용을 엔지니어 눈높이로)</span></li>
+  <li><a href="2026-08-11-explanation-excel-to-db-and-row-change.html">2편 — DB 저장 프로세스와 행 변경 파급</a></li>
+  <li><a href="2026-08-11-explanation-mold-ingest-excel-agent.html">1편 — 전체 동작 원리와 Excel Agent</a></li>
+</ul>
+
+<div class="qmemo" data-qid="fu-summary" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">문서 전체를 읽고 남은 질문을 여기에 모아 적어도 좋습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<p class="small" style="margin:40px 0 20px">
+토큰·시간 수치는 <code>backend/logs/llm_calls.log</code> 의 2026-07-29 실행분(LLM 112회)을 집계한 것이다.
+토큰은 <code>cl100k_base</code> 기준으로 셌으므로 실제 모델의 토크나이저와 다소 다를 수 있다.
+그 로그는 서랍 찾는 방법을 고치기(<code>1d932df</code>) <strong>전</strong>의 것이라, 지금 다시 돌리면 호출 수가 크게 줄어든다.
+</p>
+
+</div>
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-08-11-explanation-llm-loop-and-context-engineering-followup.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\TestProject\\docs\\understanding\\2026-08-11-explanation-llm-loop-and-context-engineering-followup.html';
+  });
+})();
+
+(function () {
+  document.querySelectorAll('.quiz').forEach(function (quiz) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var fb = quiz.querySelector('.fb');
+    var fbtext = quiz.querySelector('.fbtext');
+    var buttons = quiz.querySelectorAll('button.opt');
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (quiz.dataset.done === '1') return;
+        quiz.dataset.done = '1';
+        var picked = parseInt(btn.dataset.i, 10);
+        var ok = picked === answer;
+        buttons.forEach(function (b) {
+          b.disabled = true;
+          var i = parseInt(b.dataset.i, 10);
+          if (i === answer) b.classList.add('right');
+          else if (i === picked) b.classList.add('wrong');
+        });
+        fb.className = 'fb show ' + (ok ? 'ok' : 'no');
+        fb.innerHTML = (ok ? '<strong>정답입니다.</strong> ' : '<strong>아쉽습니다.</strong> 정답은 위에 초록으로 표시된 항목입니다. ')
+                     + fbtext.innerHTML;
+      });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

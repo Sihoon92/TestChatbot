@@ -200,6 +200,16 @@ hr.sep{border:0;border-top:1px solid var(--line);margin:40px 0;}
   그 파일로 원본을 덮어쓴 뒤 Claude 에게 “질문 답해줘”라고 하면 답이 그 자리에 채워진다.</p>
 </div>
 
+<div class="callout real">
+  <span class="tag">쉬운 버전이 따로 있다</span>
+  <p>이 문서를 읽고 나온 다섯 질문 — <strong>도구 호출도 출력 토큰인가 · 출력 토큰 10K 는 어디서 나왔나 ·
+  Pydantic 은 어떻게 형식을 맞추나 · 왜 LLM 을 여러 번 부르나 · <code>sheet_mapping</code> 은 왜 있나</strong> —
+  에 대한 답이 아래 초록색 “질문 메모” 상자들에 채워져 있다.</p>
+  <p>같은 내용을 <strong>비유와 그림 위주로 훨씬 쉽게</strong> 풀어 쓴 문서도 있다:
+  <a href="2026-08-11-explanation-llm-loop-and-context-engineering-followup.html">말밖에 못 하는 친구에게 엑셀을 읽히는 법</a>.
+  이 문서가 어렵게 느껴지면 그쪽을 먼저 읽어도 좋다.</p>
+</div>
+
 <nav class="toc">
   <h2>목차</h2>
   <ol>
@@ -445,13 +455,25 @@ hr.sep{border:0;border-top:1px solid var(--line);margin:40px 0;}
   <strong>도구를 늘리거나 프롬프트를 늘릴 때는 <code>num_ctx</code> 를 함께 올려야 한다.</strong></p>
 </div>
 
-<div class="qmemo" data-qid="in-context-budget" data-status="open">
+<div class="qmemo" data-qid="in-context-budget" data-status="answered">
   <div class="qmemo-head">
     <span class="qmemo-label">질문 메모</span>
     <span class="qmemo-hint">컨텍스트 예산 그림에서 궁금한 점을 적어두세요.</span>
   </div>
-  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
-  <div class="qmemo-answer" hidden></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요...">tool_call 로 submit_layout 을 출력하면 이것은 파이썬 호출함수로 실행될텐데, llm output 토큰으로 사용되는 구조인가?</div>
+  <div class="qmemo-answer">
+    <p><strong>그렇다. 전부 출력 토큰이다.</strong> LLM 은 도구를 <em>실행</em>하지 않는다 — 도구를 부르는 문장(이름 + 인자 JSON)을
+    <em>지어낼</em> 뿐이고, 지어낸 글자는 한 자도 빠짐없이 completion(출력) 토큰으로 계산된다.</p>
+    <p>도구 한 번에 토큰이 <strong>두 번</strong> 든다.</p>
+    <ul style="margin:6px 0">
+      <li><strong>출력</strong> — 모델이 <code>submit_layout({...})</code> 이라고 말하는 순간 (실측 평균 <strong>526 토큰</strong>, 최대 2,535자)</li>
+      <li><strong>0 토큰</strong> — 파이썬이 실제로 그 함수를 실행하는 단계. LLM 이 관여하지 않으므로 공짜다</li>
+      <li><strong>입력</strong> — 반환값(<code>"레이아웃을 접수했다…"</code>)이 <code>ToolMessage</code> 로 붙어 <em>다음</em> 호출의 입력에 실린다</li>
+    </ul>
+    <p><code>submit_layout</code> 이 유독 비싼 이유는 이 방향성 때문이다. <code>read_range</code> 는 <em>부탁이 짧고 답이 길지만</em>
+    (출력 평균 30토큰), <code>submit_layout</code> 은 <em>부탁이 길고 답이 짧다</em> — 그리고 비싼 쪽은 부탁이다.</p>
+    <p>→ 그림과 함께 더 쉽게: <a href="2026-08-11-explanation-llm-loop-and-context-engineering-followup.html#q1">후속 문서 Q1</a></p>
+  </div>
 </div>
 
 <h3 id="in-cost">2.3 루프 한 바퀴의 진짜 비용</h3>
@@ -604,13 +626,32 @@ agent.invoke(
   <code>recursion_limit</code> 같은 하드 상한이 별도로 필요하다.</p>
 </div>
 
-<div class="qmemo" data-qid="im-prompt-rules" data-status="open">
+<div class="qmemo" data-qid="im-prompt-rules" data-status="answered">
   <div class="qmemo-head">
     <span class="qmemo-label">질문 메모</span>
     <span class="qmemo-hint">프롬프트 규칙 중 “왜 이렇게 썼지?” 싶은 문장이 있으면 적어두세요.</span>
   </div>
-  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
-  <div class="qmemo-answer" hidden></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요...">pydantic으로 스키마를 설정하면 llm 출력이 어떻게 해당 스키마에 맞게 출력을 할 수 있는 것인가? 원리가 어떻게되나? 그냥 json으로 출력해달라고 해서 나온 것을 구조에 맞추는 작업을 하는 것인가? 즉, 도구 호출의 원리 및 pydantic의 원리에 대한 설명 필요.</div>
+  <div class="qmemo-answer">
+    <p><strong>“받아서 끼워 맞추는” 것이 아니다.</strong> 세 겹으로 되어 있다.</p>
+    <p><strong>1겹 — 스키마를 프롬프트로 만든다.</strong> <code>SheetLayout.model_json_schema()</code> 가 Pydantic 클래스를
+    JSON Schema(실측 5,314자)로 바꾸고, 그것이 도구 정의에 담겨 모델에게 간다.
+    <code>Field(description=...)</code> 에 적은 한국어가 그 스키마 안에 문자열로 그대로 실린다 —
+    <code>ColumnMap</code> 의 docstring 이 “에이전트는 Python 주석이 아니라 JSON 스키마만 본다”고 직접 적어둔 이유다.</p>
+    <p><strong>2겹 — 형식을 벗어나기 어렵게 만든다.</strong> 두 가지가 겹쳐 작동한다.
+    ① 요즘 모델은 도구 호출 형식을 훈련 단계에서 익혔고,
+    ② 런타임이 스키마를 문법(grammar)으로 바꿔 <em>토큰 선택 단계에서</em> 벗어나는 글자를 후보에서 지우기도 한다.
+    그래서 “JSON 으로 답해줘”와 달리 답이 문장 속에 섞여 오지 않고 <code>이름 + args</code> 라는 정해진 자리에 담겨 온다 —
+    정규식으로 뜯을 필요가 없다.</p>
+    <p><strong>3겹 — 그래도 틀릴 수 있으니 검증한다.</strong> <code>args_schema=SheetLayout</code> 이므로 LangChain 이
+    도착한 <code>args</code> 를 Pydantic 으로 검증한다. 실제로 돌려본 결과:</p>
+    <pre style="font-size:.74rem;margin:8px 0">anchors 누락    → ValidationError: anchors  Field required
+data_start_row  → ValidationError: tables.0.data_start_row
+   = "세번째줄"        Input should be a valid integer</pre>
+    <p>이 오류 문장은 버려지지 않는다. <code>ToolNode</code> 가 <code>repr(e)</code> 로 감싼 <code>ToolMessage</code> 로 만들어
+    <strong>다음 호출의 입력에 넣어주고</strong>, 모델이 그걸 읽고 고쳐서 다시 낸다. 형식 오류가 사람 손 없이 수렴하는 이유다.</p>
+    <p>→ 시험지 비유와 그림으로: <a href="2026-08-11-explanation-llm-loop-and-context-engineering-followup.html#q3">후속 문서 Q3</a></p>
+  </div>
 </div>
 
 <h3 id="im-schema">3.3 숨은 프롬프트: 도구 스키마</h3>
@@ -845,13 +886,33 @@ agent.invoke(
   “표가 30행에서 끝난다”고 결론 내린다 — 그 오판이 레이아웃에 박히면 데이터가 조용히 사라진다.</p>
 </div>
 
-<div class="qmemo" data-qid="im-loop-context" data-status="open">
+<div class="qmemo" data-qid="im-loop-context" data-status="answered">
   <div class="qmemo-head">
     <span class="qmemo-label">질문 메모</span>
     <span class="qmemo-hint">루프 중첩이나 컨텍스트 압축에서 궁금한 점을 적어두세요.</span>
   </div>
-  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
-  <div class="qmemo-answer" hidden></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요...">시트별로 submit_layout 생성되는데 submit_layout 마다 llm이 여러번 호출되는데, 어떤 원리로 여러번 호출되는 것인지 로직에 대해 설명해줘</div>
+  <div class="qmemo-answer">
+    <p>규칙은 하나다. <strong>모델은 한 번 응답하면 그 턴이 끝난다.</strong> 도구 결과를 “보려면” 그 결과를 메시지로 붙여
+    <em>다시 호출</em>하는 수밖에 없다. 그래서 도구를 부를 때마다 LLM 호출이 정확히 하나씩 더 생긴다.</p>
+    <p style="text-align:center;font-weight:700;margin:10px 0">LLM 호출 횟수 = 도구 호출 횟수 + 1</p>
+    <p>마지막 +1 은 “더 이상 도구를 안 부르겠다”고 말하는 턴이고, <strong>그 응답에 <code>tool_calls</code> 가 비어 있는 것이
+    곧 종료 조건</strong>이다(<code>agent</code> 노드의 조건부 엣지가 그것만 본다).</p>
+    <p>실제 로그의 <code>기준정보</code> 시트 — LLM 4회 / 도구 3회:</p>
+    <pre style="font-size:.74rem;margin:8px 0">1회 (msgs 2)  18,055ms → sheet_outline('기준정보')
+2회 (msgs 4)   6,771ms → read_range('B2:K8')     ← 1회 답을 보고서야 범위를 정할 수 있다
+3회 (msgs 6)  17,534ms → submit_layout({...})
+4회 (msgs 8)   9,133ms → "완료"                   ← tool_calls 없음 → END</pre>
+    <p>여기에 두 가지가 더 붙을 수 있다.</p>
+    <ul style="margin:6px 0">
+      <li><strong>되돌려보내기</strong> — <code>find_layout_gaps</code> 가 빠진 열을 찾으면 문자열로 돌려보내고,
+        모델이 고쳐 재제출한다. 그때마다 LLM 호출이 2회씩 늘어난다(재제출 + 마무리). 상한은 2회.</li>
+      <li><strong>모델이 지시를 안 따를 때</strong> — 실제로 <code>#RX39513</code> 시트에서 이미 “접수했다”를 받고도
+        <code>submit_layout</code> 을 한 번 더 불렀다(메시지 8 → 10). 프롬프트로 종료를 <em>요청</em>할 수는 있어도
+        <em>강제</em>할 수는 없어서, <code>recursion_limit=40</code> 이라는 하드 상한이 따로 필요하다.</li>
+    </ul>
+    <p>→ 스무고개 비유와 계단 그림으로: <a href="2026-08-11-explanation-llm-loop-and-context-engineering-followup.html#q4">후속 문서 Q4</a></p>
+  </div>
 </div>
 
 <hr class="sep">
@@ -995,13 +1056,32 @@ content="<span class="hi">아직 접수하지 않았다. 레이아웃에 덮이�
   <strong>호출 로그를 세어보니 같은 양식을 일곱 번 분석하고 있었다</strong> — 관측이 먼저다.</p>
 </div>
 
-<div class="qmemo" data-qid="change-llm-paths" data-status="open">
+<div class="qmemo" data-qid="change-llm-paths" data-status="answered">
   <div class="qmemo-head">
     <span class="qmemo-label">질문 메모</span>
     <span class="qmemo-hint">LLM 실행 경로 A/B/C 나 관측된 사고에 대해 궁금한 점을 적어두세요.</span>
   </div>
-  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
-  <div class="qmemo-answer" hidden></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요...">에이전트가 돌고 sheet_mapping 에 내용을 저장한다는 내용이 있다. 이 배경 스토리를 잘 모르겠다. sheet_mapping 에 왜 저장을 하는지, 언제/어떻게 사용하는지 등</div>
+  <div class="qmemo-answer">
+    <p><strong>왜 저장하나:</strong> 에이전트 1회가 <strong>약 50초 · 출력 토큰 수백 개</strong>다(실측 평균 18.8초 × 4회 왕복).
+    그런데 양식은 대개 안 바뀐다. 같은 양식을 매번 다시 분석하는 것은 순수한 낭비라, <em>비싸게 얻은 결과를 재사용</em>하려고
+    <code>sheet_mapping</code> 테이블에 넣는다. 저장되는 것은 값이 아니라 <strong>좌표뿐</strong>이다(어느 열이 무엇인지, 표가 몇 행부터인지).</p>
+    <p><strong>언제 저장하나:</strong> <code>_read_file</code> 에서 <strong><code>parse_rows</code> 가 성공한 뒤에만</strong>, 그리고
+    <code>save_layout</code> 이 <em>즉시 커밋</em>한다. 순서가 중요하다 — 저장을 파싱보다 앞에 두면 파싱 불가능한 레이아웃이
+    캐시에 박히는데, 즉시 커밋이라 배치 롤백으로도 못 지운다(그 파일은 영구 실패).
+    즉시 커밋이라서 얻는 이득도 있다: <strong>같은 배치의 다음 시트가 바로 꺼내 쓸 수 있다.</strong></p>
+    <p><strong>어떻게 쓰나:</strong> 시트를 열 때마다 <code>pick_layout(grid, top_left, load_layouts(conn, kind))</code> 이
+    돈다. <code>kind</code> 로만 조회해 <code>ORDER BY id DESC</code>(최신순)로 받고, 각 레이아웃의 <strong>앵커 3개</strong>를
+    격자와 대조해 전부 일치하는 첫 레이아웃을 쓴다. 맞으면 <strong>LLM 호출 0회</strong> — 프롬프트조차 만들어지지 않는다.</p>
+    <p><strong>옛 레이아웃을 안 지우는 이유:</strong> “언제 양식이 바뀌었고 그때 어떻게 해석했는가”가 나중에 추출값을 의심할 때
+    유일한 근거다. 안 맞는 레이아웃은 앵커에서 걸러지므로 그냥 잠들어 있을 뿐이다 —
+    지금 DB 의 5장 중 <code>#2 ees</code>·<code>#3 mes</code> 가 그런 상태다.</p>
+    <p><strong>배경 사고 하나:</strong> 예전에는 조회 키가 <code>(kind, sheet_name)</code> 이었다. 그런데 관리대장은
+    시트 이름이 곧 금형번호라 시트마다 달라서 <strong>서랍을 열어보지도 못하고</strong> 7개 시트가 각각 에이전트를 돌렸다
+    (약 30회 호출 ≒ 9분). 커밋 <code>1d932df</code> 가 <code>kind</code> 만 남겨 고쳤고, “어느 레이아웃이 맞는지는 앵커가 판정한다 —
+    원래 그러라고 만든 장치다”가 그 커밋의 논리다.</p>
+    <p>→ 지도·서랍·표지판 비유로: <a href="2026-08-11-explanation-llm-loop-and-context-engineering-followup.html#q5">후속 문서 Q5</a></p>
+  </div>
 </div>
 
 <hr class="sep">
@@ -1150,13 +1230,35 @@ print(json.dumps(SheetLayout.model_json_schema(), ensure_ascii=False, indent=2))
   <li><code>backend/app/observability/debug_callback.py</code> — 이 로그를 만드는 콜백</li>
 </ul>
 
-<div class="qmemo" data-qid="appendix-llm-log" data-status="open">
+<div class="qmemo" data-qid="appendix-llm-log" data-status="answered">
   <div class="qmemo-head">
     <span class="qmemo-label">질문 메모</span>
     <span class="qmemo-hint">문서 전체를 읽고 남은 질문을 여기에 모아 적어도 좋습니다.</span>
   </div>
-  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
-  <div class="qmemo-answer" hidden></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요...">회사 내부에서 LLM output 토큰으로 10K 이상 사용했다고 하는데, 이게 어디서 이렇게 출력 토큰이 많이 사용된 것인가?</div>
+  <div class="qmemo-answer">
+    <p>로그를 <code>cl100k_base</code> 로 실제로 세어봤다. <strong>수집 1회 실행에 출력 토큰 17,491개</strong>(LLM 112회 응답)다.
+    “10K 이상”과 자릿수가 맞는다. 그리고 어디서 나갔는지는 명확하다.</p>
+    <div class="tablewrap">
+    <table class="data" style="margin:8px 0">
+      <tr><th>도구</th><th>횟수</th><th>출력 토큰</th><th>평균</th><th>비중</th></tr>
+      <tr class="hl"><td><code>submit_layout</code></td><td>30</td><td><strong>15,793</strong></td><td>526</td><td><strong>90.3%</strong></td></tr>
+      <tr><td><code>read_range</code></td><td>27</td><td>827</td><td>30</td><td>4.7%</td></tr>
+      <tr><td><code>sheet_outline</code></td><td>20</td><td>432</td><td>21</td><td>2.5%</td></tr>
+      <tr><td>나머지 4종 + 최종답변</td><td>35</td><td>439</td><td>–</td><td>2.5%</td></tr>
+    </table>
+    </div>
+    <p>세 가지가 <strong>곱해져서</strong> 이 숫자가 된다.</p>
+    <ol style="margin:6px 0">
+      <li><strong>시트 수</strong> — 워크북마다 시트가 여러 개이고 시트마다 한 번씩 제출한다(이 실행은 20개)</li>
+      <li><strong>재제출</strong> — 30번 중 <strong>9번</strong>이 “덮이지 않은 열이 있다”로 되돌려보내졌고,
+        도구 인자는 <em>부분 수정이 불가능</em>해서 <strong>레이아웃 전체를 처음부터 다시</strong> 말해야 한다</li>
+      <li><strong>레이아웃 크기</strong> — 열이 20개인 표는 컬럼 매핑만으로도 수백 토큰이다</li>
+    </ol>
+    <p>줄이는 방법은 사실상 <strong>캐시를 맞히는 것</strong> 하나다(맞으면 100% 절약).
+    되돌려보내기 상한 2회도 같은 목적의 장치다.</p>
+    <p>→ 곱셈 구조를 그림으로: <a href="2026-08-11-explanation-llm-loop-and-context-engineering-followup.html#q2">후속 문서 Q2</a></p>
+  </div>
 </div>
 
 <p class="small" style="margin:40px 0 20px">
