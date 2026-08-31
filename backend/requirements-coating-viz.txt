@@ -1,0 +1,19 @@
+﻿# KEEP THIS FILE AS UTF-8 WITH BOM. On Korean Windows, pip decodes requirements
+# files with the cp949 locale codec and dies on these comments without the BOM.
+# 브라우저 뷰어(app/coating/dashboard.py)에만 필요한 추가 설치 세트.
+#
+#   python -m pip install -r requirements-coating-viz.txt
+#   streamlit run app/coating/dashboard.py
+#
+# 왜 requirements-coating.txt 에 합치지 않는가:
+# 그 파일은 "코팅이 실제로 import 하는 것만" 이라는 원칙으로 최소 세트를 유지한다.
+# 사내 폐쇄망/프록시에서는 받아야 할 패키지 수가 곧 실패 확률이기 때문이다.
+# streamlit 은 tornado·altair·pillow·protobuf·watchdog 등 전이 의존성을 수십 개
+# 끌고 온다. 파이프라인(convert·report)만 돌릴 사람에게 그 부담을 지우지 않는다.
+#
+# 이 파일은 requirements-coating.txt 를 **대체하지 않는다**. 둘 다 설치한다:
+#   python -m pip install -r requirements-coating.txt
+#   python -m pip install -r requirements-coating-viz.txt
+
+streamlit>=1.28        # AppTest(st.testing.v1)가 1.28 부터다 - 스모크 테스트가 이걸 쓴다
+plotly>=5.20           # make_subplots(shared_xaxes) 로 시간축을 공유한다
