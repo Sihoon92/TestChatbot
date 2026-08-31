@@ -60,9 +60,13 @@ def test_cli_defaults_are_none_so_run_stays_single_source():
 
 
 def test_cli_writes_both_files_with_explicit_paths(tmp_path):
-    """실데이터를 넣으려고 python -c 로 우회해야 하면 CLI 가 아니다."""
+    """실데이터를 넣으려고 python -c 로 우회해야 하면 CLI 가 아니다.
+
+    --no-cache 를 주는 이유는 기능 검증이 아니라 위생이다. CLI 는 기본으로
+    <COATING_DATA_DIR>/interim 에 중간 산출물을 쓰는데, 테스트가 tmp_path
+    밖에 파일을 남기면 안 된다(캐시 동작은 test_coating_interim.py 가 본다)."""
     md_path, html_path = report.main(
-        ["--csv", str(SAMPLE), "--dict", str(DICT), "--out", str(tmp_path)]
+        ["--csv", str(SAMPLE), "--dict", str(DICT), "--out", str(tmp_path), "--no-cache"]
     )
     assert Path(md_path).exists()
     assert Path(html_path).exists()
@@ -95,7 +99,7 @@ def _write_cp949(path):
 def test_cli_runs_on_cp949_csv_without_extra_flags(tmp_path):
     """사내 실데이터가 cp949 라는 이유만으로 CLI 가 죽으면 안 된다."""
     csv = _write_cp949(tmp_path / "실데이터.csv")
-    md_path, _ = report.main(["--csv", str(csv), "--out", str(tmp_path)])
+    md_path, _ = report.main(["--csv", str(csv), "--out", str(tmp_path), "--no-cache"])
     assert Path(md_path).exists()
 
 
