@@ -146,6 +146,14 @@ def test_every_aliasable_column_is_recognized_by_its_own_name():
         ("數值", S.VALUE),
         ("작업일시", S.AT),
         ("측정값", S.VALUE),
+        # 실제 사내 MES 헤더. 띄어쓰기는 정규화가 흡수하므로 원본 표기 그대로
+        # 표에 적고, "제품약칭"·"프로젝트코드" 처럼 붙여 쓴 것도 함께 걸린다.
+        ("작업일", S.AT),
+        ("제품 약칭", S.PRODUCT),
+        ("제품약칭", S.PRODUCT),
+        ("프로젝트 코드", S.ITEM),
+        ("프로젝트코드", S.ITEM),
+        ("프로젝트명", S.ITEM_NAME),
     ],
 )
 def test_simplified_and_traditional_both_map(header, expected):

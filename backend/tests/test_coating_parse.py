@@ -287,6 +287,39 @@ def test_korean_header_is_recognized(tmp_path):
     assert r[S.VALUE].iloc[0] == 163
 
 
+def test_mes_project_style_korean_header_is_recognized(tmp_path):
+    """실제 사내 MES 헤더. 계측 항목을 '프로젝트' 라고 부르고 제품은 '약칭' 으로
+    적는다. 띄어쓰기도 원본 그대로 온다."""
+    csv = tmp_path / "MES원본.csv"
+    csv.write_text(
+        "로트번호,작업일,제품 약칭,프로젝트 코드,프로젝트명,측정값\n"
+        "L1,2026-01-31,BNB48X1,10030271,A면 OS Gap,163\n",
+        encoding="utf-8-sig",
+    )
+    r = parse.load_readings(csv, DICT)
+    assert list(r[S.ITEM]) == ["10030271"]
+    assert r[S.PRODUCT].iloc[0] == "BNB48X1"
+    assert r[S.AT].iloc[0].day == 31           # 날짜만 있어도 읽힌다
+    assert S.ITEM_NAME in r.columns            # 원본 것은 버리고 사전 것을 쓴다
+    assert r[S.ITEM_NAME].iloc[0] == "[PV] A면 OS Gap"
+
+
+def test_date_only_and_time_columns_together_are_rejected(tmp_path):
+    """'작업일'(날짜)과 '작업시간'(시각)이 따로 있는 원본이 있다. 둘을 합치는
+    것은 추측이라 파서가 할 일이 아니다 — 어느 쪽이 worked_at 인지 사람이
+    정하게 시끄럽게 실패한다."""
+    csv = tmp_path / "날짜시각분리.csv"
+    csv.write_text(
+        "로트번호,작업일,작업시간,제품 약칭,프로젝트 코드,측정값\n"
+        "L1,2026-01-31,18:55,BNB48X1,10030271,163\n",
+        encoding="utf-8-sig",
+    )
+    with pytest.raises(ValueError) as e:
+        parse.load_readings(csv, DICT)
+    message = str(e.value)
+    assert "작업일" in message and "작업시간" in message
+
+
 def test_korean_header_in_cp949_is_recognized(tmp_path):
     """인코딩 판별과 별칭이 함께 동작해야 한다. 사내 엑셀 export 는 cp949 가
     흔하고, 그 파일의 헤더가 곧 한글이다 — 실데이터에서는 늘 같이 온다."""
