@@ -1,0 +1,1230 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>손잡이를 돌리면 언제 물이 뜨거워질까 — 코팅 반영 지연(타임 시프트) 찾아내기</title>
+<style>
+:root{
+  --bg:#faf9f7; --panel:#ffffff; --ink:#23262b; --ink-soft:#5b6068;
+  --line:#e3e0da; --line-strong:#c9c4bb;
+
+  --inp:#b45309;  --inp-bg:#fdf2e2;
+  --out:#2f6f8f;  --out-bg:#e6f1f7;
+  --avg:#6b46c1;  --avg-bg:#f1ecfa;
+  --noise:#8b857c; --noise-bg:#f1efeb;
+  --good:#2f8f5b; --good-bg:#e8f5ee;
+  --bad:#c05621;  --bad-bg:#fdefe7;
+  --warn:#b7791f;
+  --pure:#1f7a7a; --pure-bg:#e5f4f4;
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16.5px;line-height:1.8;padding-bottom:96px;-webkit-text-size-adjust:100%;}
+.wrap{max-width:940px;margin:0 auto;padding:0 20px;}
+
+header.page{background:linear-gradient(160deg,#26414f,#1f6f6f);color:#fff;padding:46px 0 38px;margin-bottom:8px;}
+header.page h1{margin:0 0 12px;font-size:1.85rem;line-height:1.35;letter-spacing:-.01em;}
+header.page p{margin:0;color:#cfe6e6;font-size:1rem;}
+header.page .meta{margin-top:18px;font-size:.82rem;color:#9fc4c4;}
+header.page code{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.22);color:#fff;}
+
+h2{margin:60px 0 4px;font-size:1.42rem;line-height:1.4;letter-spacing:-.01em;padding-bottom:8px;border-bottom:2px solid var(--line-strong);}
+h3{margin:36px 0 6px;font-size:1.14rem;letter-spacing:-.01em;}
+h4{margin:24px 0 4px;font-size:1rem;color:var(--ink-soft);}
+p{margin:13px 0;} ul,ol{margin:13px 0;padding-left:1.35em;} li{margin:7px 0;}
+code{font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;font-size:.85em;background:#f0eeea;padding:1px 5px;border-radius:4px;border:1px solid #e2ded7;}
+a{color:#2b6cb0;} strong{font-weight:700;}
+.small{font-size:.88rem;color:var(--ink-soft);}
+.lead{font-size:1.05rem;}
+
+pre{background:#282c34;color:#e6e6e6;padding:16px 18px;border-radius:8px;overflow-x:auto;
+  font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;font-size:.79rem;line-height:1.65;
+  white-space:pre;margin:18px 0;}
+pre.plain{background:#fff;color:var(--ink);border:1px solid var(--line);white-space:pre-wrap;}
+pre .c{color:#8a93a5;} pre .k{color:#c678dd;} pre .s{color:#98c379;} pre .n{color:#d19a66;}
+pre .hi{background:#3a3f4a;color:#ffd782;}
+
+.callout{border-left:4px solid var(--line-strong);background:var(--panel);padding:14px 18px;margin:22px 0;border-radius:0 8px 8px 0;box-shadow:0 1px 2px rgba(0,0,0,.04);}
+.callout .tag{display:inline-block;font-size:.72rem;font-weight:800;letter-spacing:.05em;margin-bottom:6px;color:var(--ink-soft);}
+.callout p:first-of-type{margin-top:0;} .callout p:last-child{margin-bottom:0;}
+.callout.key{border-left-color:var(--pure);background:var(--pure-bg);} .callout.key .tag{color:var(--pure);}
+.callout.def{border-left-color:var(--out);background:var(--out-bg);} .callout.def .tag{color:var(--out);}
+.callout.warn{border-left-color:var(--warn);background:#fdf9ee;} .callout.warn .tag{color:var(--warn);}
+.callout.trap{border-left-color:var(--bad);background:var(--bad-bg);} .callout.trap .tag{color:var(--bad);}
+.callout.win{border-left-color:var(--good);background:var(--good-bg);} .callout.win .tag{color:var(--good);}
+
+nav.toc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 22px;margin:28px 0;}
+nav.toc h2{margin:0 0 8px;font-size:1rem;border:0;padding:0;}
+nav.toc ol{margin:0;padding-left:1.2em;font-size:.94rem;}
+nav.toc a{text-decoration:none;} nav.toc a:hover{text-decoration:underline;}
+
+figure{margin:28px 0;}
+figure .frame{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 16px;overflow-x:auto;}
+figcaption{font-size:.86rem;color:var(--ink-soft);margin-top:9px;padding-left:2px;}
+svg{display:block;max-width:100%;height:auto;}
+.svgmin{min-width:640px;}
+
+table.data{border-collapse:collapse;width:100%;font-size:.9rem;margin:18px 0;background:var(--panel);}
+table.data th,table.data td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top;}
+table.data th{background:#f2efeb;font-weight:700;font-size:.85rem;}
+.tablewrap{overflow-x:auto;}
+
+.flow{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch;}
+.node{border:1.5px solid var(--line-strong);background:var(--panel);border-radius:8px;padding:10px 13px;font-size:.85rem;flex:1 1 160px;min-width:150px;}
+.node .t{font-weight:700;display:block;margin-bottom:2px;font-size:.87rem;}
+.node .d{color:var(--ink-soft);font-size:.79rem;line-height:1.55;}
+.node.inp{border-color:var(--inp);background:var(--inp-bg);}
+.node.out{border-color:var(--out);background:var(--out-bg);}
+.node.avg{border-color:var(--avg);background:var(--avg-bg);}
+.node.jud{border-color:var(--good);background:var(--good-bg);}
+.arrowdown{text-align:center;color:var(--line-strong);font-size:1.4rem;line-height:1;margin:4px 0;}
+
+.steps{list-style:none;padding:0;margin:18px 0;counter-reset:s;}
+.steps li{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--out);border-radius:0 8px 8px 0;
+  padding:11px 15px;margin:9px 0;font-size:.93rem;}
+.steps li b{display:block;font-size:.95rem;}
+.steps li .f{font-family:"JetBrains Mono",Consolas,monospace;font-size:.78rem;color:var(--pure);}
+
+details.qa{background:var(--panel);border:1px solid var(--line);border-radius:9px;margin:12px 0;padding:0;}
+details.qa summary{cursor:pointer;padding:13px 16px;font-weight:700;font-size:.96rem;list-style:none;display:flex;gap:9px;align-items:flex-start;}
+details.qa summary::-webkit-details-marker{display:none;}
+details.qa summary:before{content:"Q";flex:none;display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:50%;background:var(--inp);color:#fff;font-size:.75rem;font-weight:800;margin-top:3px;}
+details.qa[open] summary{border-bottom:1px solid var(--line);}
+details.qa .body{padding:14px 16px 16px;font-size:.94rem;}
+details.qa .body>p:first-child{margin-top:0;}
+details.qa .body>p:last-child{margin-bottom:0;}
+
+.qmemo{border:2px dashed #c9c4bb;background:#f4f2ed;border-radius:10px;padding:14px 16px;margin:26px 0;}
+.qmemo-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:8px;}
+.qmemo-label{font-size:.74rem;font-weight:800;letter-spacing:.06em;color:#7a736a;background:#e6e2da;padding:2px 8px;border-radius:20px;}
+.qmemo-hint{font-size:.78rem;color:#8b857c;}
+.qmemo-question{min-height:2.6em;background:#fff;border:1px solid var(--line);border-radius:6px;padding:9px 12px;font-size:.92rem;outline:none;}
+.qmemo-question:focus{border-color:var(--out);box-shadow:0 0 0 3px rgba(47,111,143,.14);}
+.qmemo-question:empty:before{content:attr(data-placeholder);color:#b3ada4;}
+.qmemo-answer{margin-top:10px;background:#fff;border-left:3px solid var(--pure);padding:10px 14px;border-radius:0 6px 6px 0;font-size:.92rem;}
+.qmemo[data-status="answered"]{border:2px solid var(--pure);background:var(--pure-bg);}
+.qmemo[data-status="answered"] .qmemo-label{background:var(--pure);color:#fff;}
+
+#qmemo-bar{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(31,63,79,.97);color:#fff;padding:11px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;box-shadow:0 -2px 12px rgba(0,0,0,.18);}
+#qmemo-save-btn{background:#f5c14e;color:#26414f;border:0;border-radius:6px;padding:9px 18px;font-size:.9rem;font-weight:700;cursor:pointer;font-family:inherit;}
+#qmemo-save-btn:hover{background:#ffd370;}
+#qmemo-saymsg{font-size:.78rem;color:#cfe0e6;word-break:break-all;}
+
+.quiz{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:22px 0;}
+.quiz .q{font-weight:700;margin:0 0 12px;}
+.quiz .opts{display:flex;flex-direction:column;gap:8px;}
+.quiz button.opt{text-align:left;font-family:inherit;font-size:.92rem;line-height:1.55;background:#f7f5f2;border:1.5px solid var(--line);border-radius:8px;padding:10px 13px;cursor:pointer;color:var(--ink);transition:.12s;}
+.quiz button.opt:hover:not(:disabled){border-color:var(--out);background:#eef5f9;}
+.quiz button.opt:disabled{cursor:default;}
+.quiz button.opt.right{border-color:var(--good);background:var(--good-bg);}
+.quiz button.opt.wrong{border-color:var(--bad);background:var(--bad-bg);}
+.quiz .fb{margin-top:12px;font-size:.9rem;padding:11px 14px;border-radius:8px;display:none;line-height:1.7;}
+.quiz .fb.show{display:block;}
+.quiz .fb.ok{background:var(--good-bg);border-left:3px solid var(--good);}
+.quiz .fb.no{background:var(--bad-bg);border-left:3px solid var(--bad);}
+
+.student{background:#fff8ee;border:1px solid #f0dcbb;border-radius:10px;padding:14px 17px;margin:20px 0;font-size:.95rem;}
+.student .who{font-weight:800;color:var(--inp);font-size:.82rem;letter-spacing:.02em;display:block;margin-bottom:4px;}
+.student p{margin:6px 0;}
+.student p:last-child{margin-bottom:0;}
+.me{background:var(--pure-bg);border-color:#a9d3d3;}
+.me .who{color:var(--pure);}
+
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:.82rem;color:var(--ink-soft);margin:12px 0 0;}
+.legend span{display:inline-flex;align-items:center;gap:6px;}
+.legend i{width:18px;height:4px;border-radius:2px;display:inline-block;}
+</style>
+</head>
+<body>
+
+<header class="page">
+  <div class="wrap">
+    <h1>손잡이를 돌리면, 물은 언제 뜨거워질까?</h1>
+    <p>코팅 설비의 조정 → 반영 지연(타임 시프트)을 데이터에서 찾아내는 방법 — 아주 쉽게</p>
+    <div class="meta">대상 코드: <code>backend/app/coating/panel.py</code> · <code>response.py</code> · <code>report.py</code> — 커밋 <code>8b06bcf</code> (2026-08-31)</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<p class="lead">이 문서는 <strong>중학생도 읽을 수 있게</strong> 쓰였습니다. 수식은 딱 하나만 나오고, 그것도 왜 그런 모양인지를 말로 다 풀어 놨습니다. 그림을 따라가며 읽으세요.</p>
+
+<div class="callout key">
+  <span class="tag">이 문서를 읽는 법</span>
+  <p>중간중간 회색 점선 상자 <strong>질문 메모</strong>가 나옵니다. 읽다가 막히면 바로 거기에 타이핑하세요. 브라우저에 자동 저장되고, 맨 아래 <strong>질문 저장</strong> 버튼을 누르면 질문이 그대로 박힌 HTML이 <strong>같은 파일 이름으로</strong> 다운로드됩니다. 그 파일로 원본을 덮어쓴 뒤 Claude에게 "질문에 답해줘"라고 하면 이 페이지 안에 답이 채워집니다.</p>
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#intro">우리가 답하려는 질문 한 줄</a></li>
+    <li><a href="#bg">배경 — 이 기계가 하는 일</a></li>
+    <li><a href="#intuition">핵심 아이디어 — 그림으로</a></li>
+    <li><a href="#code">코드는 실제로 어떻게 도는가</a></li>
+    <li><a href="#report">결과지 읽는 법 — 네 가지 답</a></li>
+    <li><a href="#qa">가상 학생 지우의 질문 12개</a></li>
+    <li><a href="#quiz">이해도 점검 퀴즈 5문항</a></li>
+    <li><a href="#next">아직 없는 것</a></li>
+  </ol>
+</nav>
+
+<h2 id="intro">1. 우리가 답하려는 질문 한 줄</h2>
+
+<p>공장에 코팅 기계가 있습니다. 작업자가 손잡이를 돌려 <strong>gap</strong>(틈)을 조절하면, 종이 위에 발리는 액체의 두께 <strong>Wet</strong>이 바뀝니다.</p>
+
+<div class="callout def">
+  <span class="tag">우리가 답하려는 질문</span>
+  <p><strong>손잡이를 돌린 뒤, 몇 분이 지나야 결과가 실제로 바뀌기 시작하는가?</strong></p>
+  <p>이 시간을 <strong>순수 지연</strong>(dead time), 줄여서 <strong>L</strong>이라고 부릅니다. 이 문서에서 말하는 "타임 시프트"가 바로 이겁니다.</p>
+</div>
+
+<p>왜 중요할까요? 샤워를 떠올려 보세요. 손잡이를 돌렸는데 물이 바로 안 뜨거워지죠. 참지 못하고 또 돌리고, 또 돌리면 어떻게 될까요? 잠시 뒤 <strong>펄펄 끓는 물</strong>이 쏟아집니다. 세 번 돌린 효과가 한꺼번에 몰려온 겁니다.</p>
+
+<p>공장도 똑같습니다. L을 모르면 사람도 자동 제어 프로그램도 "아직 안 변했네?" 하면서 계속 손을 대고, 결국 넘치거나 모자랍니다. 그래서 <strong>무엇을 얼마나 바꿀지 정하기 전에, 언제 반영되는지부터</strong> 알아야 합니다.</p>
+
+<div class="student">
+  <span class="who">가상 학생 · 지우</span>
+  <p>그럼 그냥 공장 가서 손잡이 한 번 돌려 보고 스톱워치로 재면 되는 거 아니에요?</p>
+</div>
+<div class="student me">
+  <span class="who">답</span>
+  <p>그게 제일 정확합니다. 문제는 <strong>돌아가는 공장을 마음대로 세우고 실험할 수 없다</strong>는 것. 실험 한 번 하려면 제품을 버려야 하니까요.</p>
+  <p>그래서 다른 길로 갑니다 — <strong>이미 쌓여 있는 기록 속에서 그 실험을 찾아내는 것.</strong> 이 문서 전체가 그 이야기입니다.</p>
+</div>
+
+<div class="qmemo" data-qid="intro-question" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">L이 왜 필요한가에서 걸리는 점이 있으면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="bg">2. 배경 — 이 기계가 하는 일</h2>
+
+<h3>2.1 아주 기초부터 (아는 분은 건너뛰세요)</h3>
+
+<p>코팅 기계는 넓은 종이나 필름 위에 액체를 얇게 바릅니다. 폭이 넓어서 <strong>25개 구역</strong>으로 나누고, 구역마다 손잡이가 하나씩 있습니다. 이 구역을 <strong>zone</strong>이라 부릅니다.</p>
+
+<figure>
+  <div class="frame">
+    <svg class="svgmin" viewBox="0 0 860 252" role="img" aria-label="코팅 기계 구조 그림">
+      <text x="10" y="22" font-size="13" font-weight="700" fill="#b45309">입력 — 내가 돌리는 손잡이 (gap, 25개)</text>
+      <rect x="10" y="34" width="840" height="48" rx="7" fill="#fdf2e2" stroke="#b45309" stroke-width="1.5"/>
+      <g>
+        <circle cx="48" cy="58" r="12" fill="#fff" stroke="#b45309" stroke-width="2"/><line x1="48" y1="58" x2="48" y2="48" stroke="#b45309" stroke-width="2.2"/>
+        <circle cx="118" cy="58" r="12" fill="#fff" stroke="#b45309" stroke-width="2"/><line x1="118" y1="58" x2="125" y2="51" stroke="#b45309" stroke-width="2.2"/>
+        <circle cx="188" cy="58" r="12" fill="#fff" stroke="#b45309" stroke-width="2"/><line x1="188" y1="58" x2="181" y2="51" stroke="#b45309" stroke-width="2.2"/>
+        <circle cx="258" cy="58" r="12" fill="#fff" stroke="#b45309" stroke-width="2"/><line x1="258" y1="58" x2="258" y2="48" stroke="#b45309" stroke-width="2.2"/>
+        <circle cx="328" cy="58" r="12" fill="#fff" stroke="#b45309" stroke-width="2"/><line x1="328" y1="58" x2="336" y2="54" stroke="#b45309" stroke-width="2.2"/>
+      </g>
+      <text x="368" y="63" font-size="14" fill="#b45309">· · ·   총 25개 (zone 1 ~ zone 25)</text>
+
+      <line x1="430" y1="88" x2="430" y2="120" stroke="#8b857c" stroke-width="2" stroke-dasharray="5 4"/>
+      <polygon points="430,128 424,116 436,116" fill="#8b857c"/>
+      <text x="446" y="112" font-size="12.5" fill="#5b6068">액체가 발린다 → 종이가 이동한다 → 측정기를 지난다</text>
+
+      <rect x="10" y="132" width="840" height="36" rx="5" fill="#f1efeb" stroke="#c9c4bb"/>
+      <text x="26" y="155" font-size="13" fill="#5b6068">▶  코팅된 종이가 흘러간다  —  바로 여기서 시간이 잡아먹힌다</text>
+
+      <text x="10" y="194" font-size="13" font-weight="700" fill="#2f6f8f">출력 — 나중에 측정되는 결과 (Wet, 25개)</text>
+      <rect x="10" y="204" width="840" height="40" rx="7" fill="#e6f1f7" stroke="#2f6f8f" stroke-width="1.5"/>
+      <g font-size="13" fill="#2f6f8f" font-family="monospace">
+        <text x="34" y="229">18.2</text><text x="104" y="229">18.4</text><text x="174" y="229">18.1</text>
+        <text x="244" y="229">18.3</text><text x="314" y="229">18.2</text>
+        <text x="384" y="229">· · ·   1분마다 25칸이 기록된다</text>
+      </g>
+    </svg>
+  </div>
+  <figcaption>손잡이(gap)를 돌리면 → 액체가 발리고 → 종이가 이동해 측정기를 지나야 → 아래 숫자(Wet)가 바뀝니다. <strong>가운데 회색 띠에서 잡아먹히는 시간</strong>이 우리가 찾는 L입니다.</figcaption>
+</figure>
+
+<div class="callout def">
+  <span class="tag">용어 세 개만 외우면 됩니다</span>
+  <ul style="margin:6px 0 0;">
+    <li><strong>gap</strong> — 내가 돌리는 손잡이. <em>입력</em>. 사람이 바꾸는 값.</li>
+    <li><strong>Wet</strong> — 나중에 재지는 코팅 두께. <em>출력</em>. 결과.</li>
+    <li><strong>zone</strong> — 폭 방향 25개 구역. 손잡이도 25개, 측정값도 25개.</li>
+  </ul>
+</div>
+
+<h3>2.2 어제까지 할 수 있던 것, 못 하던 것</h3>
+
+<p>이 프로젝트는 이미 <strong>얼마나</strong> 바뀌는지는 계산할 수 있었습니다. 손잡이를 3만큼 돌리면 두께가 0.02만큼 바뀐다 — 이런 <strong>크기</strong> 이야기죠. 심지어 5번 손잡이를 돌리면 옆의 4번·6번도 조금 따라 움직인다는 이웃 효과까지 다룹니다.</p>
+
+<p>그런데 <strong>언제</strong>가 통째로 비어 있었습니다. 이유가 재미있습니다. 기존 코드는 저장 공간을 아끼려고 <strong>값이 바뀐 순간만</strong> 기록해 뒀거든요.</p>
+
+<figure>
+  <div class="frame">
+    <svg class="svgmin" viewBox="0 0 860 212" role="img" aria-label="변화점만 저장한 표와 1분 간격 표의 비교">
+      <text x="10" y="20" font-size="13" font-weight="700" fill="#c05621">예전 표 — 값이 바뀐 순간만 (구멍이 숭숭)</text>
+      <rect x="10" y="30" width="392" height="80" rx="6" fill="#fff" stroke="#c9c4bb"/>
+      <g font-family="monospace" font-size="12.5">
+        <text x="26" y="52" fill="#23262b">09:00   gap=250   Wet=18.2</text>
+        <text x="26" y="72" fill="#23262b">09:07   gap=253</text>
+        <text x="26" y="92" fill="#23262b">09:19             Wet=18.4</text>
+      </g>
+      <text x="12" y="132" font-size="12.5" fill="#c05621">09:07 의 8분 뒤가 표에 아예 없다.</text>
+      <text x="12" y="152" font-size="12.5" fill="#c05621">→ 밀어서 볼 수가 없다 = 지연 분석 불가능</text>
+
+      <text x="450" y="20" font-size="13" font-weight="700" fill="#2f8f5b">새 표 — 1분마다 한 줄씩 (빈틈 없음)</text>
+      <rect x="450" y="30" width="400" height="148" rx="6" fill="#fff" stroke="#c9c4bb"/>
+      <g font-family="monospace" font-size="12.5">
+        <text x="466" y="52" fill="#23262b">09:00   gap=250   Wet=18.2</text>
+        <text x="466" y="70" fill="#23262b">09:01   gap=250   Wet=18.2</text>
+        <text x="466" y="88" fill="#8b857c">  ⋮        ⋮          ⋮</text>
+        <text x="466" y="108" fill="#b45309">09:07   gap=253   Wet=18.2   ← 돌렸다</text>
+        <text x="466" y="126" fill="#23262b">09:08   gap=253   Wet=18.2</text>
+        <text x="466" y="144" fill="#8b857c">  ⋮        ⋮          ⋮</text>
+        <text x="466" y="164" fill="#2f6f8f">09:15   gap=253   Wet=18.3   ← 움직였다</text>
+      </g>
+      <text x="452" y="200" font-size="12.5" fill="#2f8f5b">줄을 세면 곧 분이다. 8칸 뒤 = 8분 뒤.</text>
+    </svg>
+  </div>
+  <figcaption>왼쪽 표로는 "7분 뒤에 뭐가 됐나"를 물을 수가 없습니다. 줄 자체가 없으니까요. 그래서 어제 한 첫 번째 일이 <strong>빈 분을 메워 1분마다 한 줄 있는 표를 만드는 것</strong>이었습니다 (<code>panel.py</code>).</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="tag">여기 함정이 하나</span>
+  <p>빈 칸을 메울 때는 <strong>직전 값을 그대로 복사</strong>합니다. 손잡이는 내가 다시 돌리기 전까지 그 자리에 있으니 맞는 방법이죠. 그런데 <strong>기계가 멈춰서 기록이 끊긴 구간</strong>까지 복사하면, 실제로는 없었던 "아주 조용한 시간"이 가짜로 생깁니다. 그러면 뒤에 나올 <em>세상의 소음 크기</em>를 실제보다 작게 재게 되고, 없는 반응을 있다고 말하게 됩니다. 그래서 <strong>최대 30분까지만</strong> 메웁니다(<code>COATING_PANEL_FFILL_MAX_MINUTES</code>).</p>
+</div>
+
+<div class="qmemo" data-qid="bg-panel-why" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">왜 1분 간격 표가 꼭 필요한가에서 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="intuition">3. 핵심 아이디어 — 그림으로</h2>
+
+<h3>3.1 실험은 이미 데이터 안에 수백 번 들어 있다</h3>
+
+<p>가장 중요한 생각의 전환은 이겁니다.</p>
+
+<div class="callout key">
+  <span class="tag">핵심 발상</span>
+  <p>작업자가 손잡이를 돌린 순간 하나하나가 <strong>이미 실험 한 번</strong>이다.</p>
+  <p>일부러 실험할 필요가 없습니다. 지난 몇 달 기록 안에 <strong>수백 번의 실험</strong>이 이미 들어 있고, 우리는 그걸 찾아서 읽기만 하면 됩니다.</p>
+</div>
+
+<p>실험 하나는 이렇게 생겼습니다.</p>
+
+<figure>
+  <div class="frame">
+    <svg class="svgmin" viewBox="0 0 860 250" role="img" aria-label="손잡이를 돌린 뒤 결과가 늦게 움직이는 타임라인">
+      <text x="8" y="56" font-size="12.5" font-weight="700" fill="#b45309" text-anchor="start">손잡이</text>
+      <text x="8" y="72" font-size="11" fill="#b45309" text-anchor="start">(gap)</text>
+      <text x="8" y="186" font-size="12.5" font-weight="700" fill="#2f6f8f" text-anchor="start">결과</text>
+      <text x="8" y="202" font-size="11" fill="#2f6f8f" text-anchor="start">(Wet)</text>
+
+      <line x1="110" y1="215" x2="838" y2="215" stroke="#c9c4bb" stroke-width="1.5"/>
+      <g font-size="11" fill="#8b857c" text-anchor="middle">
+        <text x="110" y="234">0분</text><text x="230" y="234">15</text><text x="350" y="234">30</text>
+        <text x="470" y="234">45</text><text x="590" y="234">60</text><text x="710" y="234">75</text><text x="830" y="234">90</text>
+      </g>
+
+      <line x1="350" y1="28" x2="350" y2="212" stroke="#b45309" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <line x1="414" y1="28" x2="414" y2="212" stroke="#2f6f8f" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <text x="350" y="22" font-size="12" font-weight="700" fill="#b45309" text-anchor="middle">돌렸다!</text>
+      <text x="418" y="22" font-size="12" font-weight="700" fill="#2f6f8f" text-anchor="start">움직이기 시작</text>
+
+      <polyline points="110,78 350,78 350,48 838,48" fill="none" stroke="#b45309" stroke-width="2.6"/>
+
+      <line x1="350" y1="118" x2="414" y2="118" stroke="#23262b" stroke-width="1.4"/>
+      <polygon points="350,118 358,114 358,122" fill="#23262b"/>
+      <polygon points="414,118 406,114 406,122" fill="#23262b"/>
+      <text x="424" y="122" font-size="12.5" font-weight="700" fill="#23262b">L = 8분 — 아무 일도 일어나지 않는 시간</text>
+
+      <polyline fill="none" stroke="#2f6f8f" stroke-width="2.2"
+        points="110,191 130,188 150,192 170,189 190,193 210,190 230,187 250,191 270,189 290,192 310,188 330,191 350,189 370,192 390,188 410,191 414,190 430,183 446,177 462,172 478,167 494,164 510,161 526,159 542,157 558,155 574,156 590,153 606,154 622,152 638,155 654,153 670,151 686,154 702,152 718,155 734,153 750,151 766,154 782,152 798,155 814,153 830,152"/>
+    </svg>
+    <div class="legend">
+      <span><i style="background:#b45309"></i> 입력 — 계단처럼 딱 한 번 올라간다</span>
+      <span><i style="background:#2f6f8f"></i> 출력 — 8분 늦게, 서서히 따라 올라간다</span>
+    </div>
+  </div>
+  <figcaption>이 모양을 <strong>계단 응답</strong>이라고 부릅니다. 입력이 계단처럼 한 번 올라갔을 때 출력이 어떻게 따라오는지를 그린 것이죠. 여기서 앞의 평평한 구간이 L입니다.</figcaption>
+</figure>
+
+<div class="callout def">
+  <span class="tag">그림에서 읽어내는 숫자 세 개</span>
+  <ul style="margin:6px 0 0;">
+    <li><strong>L (순수 지연)</strong> — 돌린 뒤 <em>아무 일도 안 일어나는</em> 시간. 종이가 측정기까지 가는 데 걸리는 시간이라 <strong>순수한 물리 시간</strong>입니다.</li>
+    <li><strong>τ (타우, 시정수)</strong> — 움직이기 시작한 뒤 <em>얼마나 굼뜨게</em> 올라가는지. 최종 변화의 63%까지 가는 데 걸리는 시간으로 잽니다.</li>
+    <li><strong>T_s (정착 시간)</strong> — 완전히 자리 잡을 때까지의 시간. <strong>다음 조정까지 최소한 이만큼은 기다려야</strong> 두 조정이 안 섞입니다.</li>
+  </ul>
+</div>
+
+<div class="student">
+  <span class="who">가상 학생 · 지우</span>
+  <p>63%는 왜 하필 63이에요? 50%나 90%면 안 돼요?</p>
+</div>
+<div class="student me">
+  <span class="who">답</span>
+  <p>돼요. 다만 이런 식으로 서서히 올라가는 곡선은 수학적으로 아주 흔한 모양(지수 곡선)이고, 그 모양에서 <strong>63.2%</strong>라는 지점이 특별히 계산하기 편합니다. 온 세상의 공학자가 같은 지점을 쓰기 때문에, 우리 결과를 남에게 보여줄 때도 설명이 필요 없다는 게 진짜 이유예요.</p>
+</div>
+
+<h3>3.2 문제 — 실험 한 번으로는 안 보인다</h3>
+
+<p>위 그림은 너무 착합니다. 진짜 데이터는 이렇게 생겼습니다.</p>
+
+<figure>
+  <div class="frame">
+    <svg class="svgmin" viewBox="0 0 860 220" role="img" aria-label="깨끗한 신호와 노이즈에 묻힌 신호 비교">
+      <text x="10" y="18" font-size="12.5" font-weight="700" fill="#2f8f5b">교과서 (깨끗함)</text>
+      <rect x="10" y="26" width="400" height="150" rx="7" fill="#fff" stroke="#c9c4bb"/>
+      <line x1="150" y1="34" x2="150" y2="168" stroke="#b45309" stroke-width="1.4" stroke-dasharray="4 4"/>
+      <polyline fill="none" stroke="#2f6f8f" stroke-width="2.2"
+        points="26,140 60,140 95,140 130,140 150,140 175,140 195,128 215,116 235,106 255,98 275,92 300,88 330,86 360,85 395,85"/>
+      <text x="26" y="196" font-size="12" fill="#2f8f5b">계단이 딱 보인다 → L을 눈으로 짚을 수 있다</text>
+
+      <text x="450" y="18" font-size="12.5" font-weight="700" fill="#c05621">현실 (소음투성이)</text>
+      <rect x="450" y="26" width="400" height="150" rx="7" fill="#fff" stroke="#c9c4bb"/>
+      <line x1="590" y1="34" x2="590" y2="168" stroke="#b45309" stroke-width="1.4" stroke-dasharray="4 4"/>
+      <polyline fill="none" stroke="#8b857c" stroke-width="1.8"
+        points="466,138 478,152 490,126 502,148 514,131 526,155 538,128 550,144 562,133 574,150 586,127 598,146 610,120 622,140 634,112 646,134 658,105 670,126 682,98 694,118 706,92 718,110 730,88 742,104 754,84 766,100 778,82 790,96 802,80 814,94 826,83 838,90"/>
+      <text x="466" y="196" font-size="12" fill="#c05621">어디서부터 올라간 건지 아무도 못 짚는다</text>
+    </svg>
+  </div>
+  <figcaption>측정값은 매 순간 조금씩 흔들립니다(종이 두께 자체의 편차, 측정기 오차, 잉크 농도 변화…). 이 흔들림을 <strong>노이즈</strong>라고 부르고, 크기를 <strong>σ</strong>(시그마)라고 씁니다. 한 번의 실험만 보면 반응이 노이즈에 묻혀 버립니다.</figcaption>
+</figure>
+
+<h3>3.3 해결 — 여러 번을 겹쳐서 평균낸다</h3>
+
+<p>여기서 이 프로젝트의 <strong>진짜 아이디어</strong>가 나옵니다. 반투명 필름 사진 여러 장을 정확히 겹쳐 쌓는다고 상상해 보세요. <strong>매번 똑같이 있는 것</strong>은 겹칠수록 진해지고, <strong>매번 다른 것</strong>은 서로 지워집니다.</p>
+
+<figure>
+  <div class="frame">
+    <svg class="svgmin" viewBox="0 0 860 420" role="img" aria-label="여러 조정 이벤트를 시각 0에 정렬해 겹쳐 쌓는 그림">
+      <text x="10" y="16" font-size="12.5" font-weight="700" fill="#5b6068">① 서로 다른 시각에 일어난 조정들 (원래 기록)</text>
+
+      <g font-size="11.5" fill="#5b6068" text-anchor="end">
+        <text x="140" y="42">이벤트 A</text><text x="140" y="80">이벤트 B</text>
+        <text x="140" y="118">이벤트 C</text><text x="140" y="156">이벤트 D</text>
+      </g>
+      <g>
+        <rect x="150" y="26" width="670" height="22" rx="4" fill="#f1efeb" stroke="#c9c4bb"/>
+        <rect x="150" y="64" width="670" height="22" rx="4" fill="#f1efeb" stroke="#c9c4bb"/>
+        <rect x="150" y="102" width="670" height="22" rx="4" fill="#f1efeb" stroke="#c9c4bb"/>
+        <rect x="150" y="140" width="670" height="22" rx="4" fill="#f1efeb" stroke="#c9c4bb"/>
+      </g>
+      <g stroke="#b45309" stroke-width="3">
+        <line x1="300" y1="26" x2="300" y2="48"/>
+        <line x1="520" y1="64" x2="520" y2="86"/>
+        <line x1="230" y1="102" x2="230" y2="124"/>
+        <line x1="650" y1="140" x2="650" y2="162"/>
+      </g>
+      <g font-size="10" fill="#b45309" text-anchor="middle">
+        <text x="300" y="22">10:14</text><text x="520" y="60">11:02</text>
+        <text x="230" y="98">13:47</text><text x="650" y="136">15:20</text>
+      </g>
+
+      <g stroke="#b45309" stroke-width="1.2" stroke-dasharray="4 4" opacity=".75">
+        <line x1="300" y1="50" x2="326" y2="196"/>
+        <line x1="520" y1="88" x2="326" y2="196"/>
+        <line x1="230" y1="126" x2="326" y2="196"/>
+        <line x1="650" y1="164" x2="326" y2="196"/>
+      </g>
+      <text x="352" y="186" font-size="12.5" font-weight="700" fill="#b45309">② 돌린 순간을 전부 0분에 맞춰 겹친다</text>
+
+      <line x1="200" y1="382" x2="838" y2="382" stroke="#c9c4bb" stroke-width="1.4"/>
+      <line x1="326" y1="210" x2="326" y2="392" stroke="#b45309" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <g font-size="11" fill="#8b857c" text-anchor="middle">
+        <text x="242" y="400">-10분</text><text x="326" y="400">0</text><text x="410" y="400">10</text>
+        <text x="494" y="400">20</text><text x="578" y="400">30</text><text x="662" y="400">40</text>
+        <text x="746" y="400">50</text><text x="830" y="400">60</text>
+      </g>
+
+      <g fill="none" stroke="#8b857c" stroke-width="1.5" opacity=".42">
+        <polyline points="200,372 242,388 284,364 326,384 368,366 393,380 410,352 452,332 494,296 536,300 578,258 620,268 662,238 704,254 746,236 788,246 830,232"/>
+        <polyline points="200,388 242,368 284,384 326,370 368,386 393,368 410,378 452,348 494,320 536,286 578,286 620,252 662,266 704,240 746,258 788,238 830,262"/>
+        <polyline points="200,366 242,384 284,372 326,388 368,370 393,386 410,362 452,354 494,300 536,312 578,266 620,282 662,248 704,262 746,244 788,260 830,240"/>
+        <polyline points="200,384 242,370 284,390 326,374 368,382 393,372 410,368 452,340 494,312 536,278 578,278 620,258 662,258 704,244 746,250 788,232 830,250"/>
+      </g>
+
+      <polyline fill="none" stroke="#6b46c1" stroke-width="3.4"
+        points="200,380 242,380 284,380 326,380 368,379 393,378 410,368 452,340 494,310 536,288 578,272 620,260 662,253 704,250 746,250 788,250 830,250"/>
+
+      <text x="352" y="224" font-size="12.5" font-weight="700" fill="#6b46c1">③ 겹친 것들의 평균 = 굵은 보라색 선</text>
+    </svg>
+    <div class="legend">
+      <span><i style="background:#8b857c;opacity:.5"></i> 이벤트 하나하나 (제각각, 지저분함)</span>
+      <span><i style="background:#6b46c1"></i> 전부의 평균 (계단 모양이 또렷해진다)</span>
+    </div>
+  </div>
+  <figcaption>이게 이 분석의 심장입니다. 흐린 선 하나만 보면 아무것도 모르겠지만, 여러 개를 <strong>돌린 순간(0분)에 정렬해서 평균</strong>내면 공통된 계단 모양이 떠오릅니다.</figcaption>
+</figure>
+
+<div class="callout key">
+  <span class="tag">왜 평균이 노이즈를 이기는가</span>
+  <p>노이즈는 <strong>매번 방향이 제멋대로</strong>라서 더할수록 서로 상쇄됩니다. 반면 진짜 반응은 <strong>매번 같은 방향</strong>이라 그대로 남습니다.</p>
+  <p>수학적으로는, 표본이 <strong>m개</strong>면 노이즈는 <strong>√m분의 1</strong>로 줄어듭니다. 100개를 모으면 노이즈가 10분의 1이 되는 거죠. 반응 크기는 그대로니까, 100번 모으면 <strong>또렷함이 10배</strong>가 됩니다.</p>
+</div>
+
+<div class="student">
+  <span class="who">가상 학생 · 지우</span>
+  <p>그러면 표본 100개를 모으려면 조정을 100번 해야 하나요? 그렇게 많이 안 할 것 같은데요.</p>
+</div>
+<div class="student me">
+  <span class="who">답</span>
+  <p>날카로운 질문! 그래서 여기 <strong>영리한 수 하나</strong>가 들어갑니다. L은 종이가 측정기까지 이동하는 시간이니까, <strong>1번 구역이든 25번 구역이든 똑같아야</strong> 합니다. 물리적으로 다를 이유가 없죠.</p>
+  <p>그래서 zone별로 따로 재지 않고 <strong>25개를 전부 한 통에 붓습니다</strong>. 조정 20번만 있어도 표본은 20 × (실제 조정된 zone 수)가 됩니다. 표본이 몇 배로 불어나요.</p>
+</div>
+
+<div class="qmemo" data-qid="in-stacking" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">겹쳐 쌓기 그림에서 헷갈리는 점을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>3.4 겹치기 전에 반드시 해야 하는 준비 세 가지</h3>
+
+<p>그냥 겹치면 안 됩니다. 세 가지를 먼저 손봐야 하는데, 하나라도 빠뜨리면 <strong>신호가 통째로 사라집니다</strong>.</p>
+
+<h4>준비 ① 각자의 출발선을 0으로 맞춘다 (기준선 빼기)</h4>
+
+<figure>
+  <div class="frame">
+    <svg class="svgmin" viewBox="0 0 860 200" role="img" aria-label="기준선 빼기 전과 후 비교">
+      <text x="10" y="18" font-size="12.5" font-weight="700" fill="#c05621">그냥 겹치면 — 출발 높이가 제각각</text>
+      <rect x="10" y="26" width="400" height="140" rx="7" fill="#fff" stroke="#c9c4bb"/>
+      <line x1="150" y1="34" x2="150" y2="158" stroke="#b45309" stroke-width="1.3" stroke-dasharray="4 4"/>
+      <polyline fill="none" stroke="#8b857c" stroke-width="2" points="26,60 90,60 150,60 200,54 260,46 330,42 396,41"/>
+      <polyline fill="none" stroke="#8b857c" stroke-width="2" points="26,100 90,100 150,100 200,94 260,86 330,82 396,81"/>
+      <polyline fill="none" stroke="#8b857c" stroke-width="2" points="26,138 90,138 150,138 200,132 260,124 330,120 396,119"/>
+      <g font-size="10.5" fill="#8b857c"><text x="30" y="54">18.5</text><text x="30" y="94">18.2</text><text x="30" y="132">17.9</text></g>
+      <text x="12" y="186" font-size="12" fill="#c05621">평균 내면 제품마다 다른 높이가 섞여 뭉개진다</text>
+
+      <text x="450" y="18" font-size="12.5" font-weight="700" fill="#2f8f5b">직전 5분 평균을 빼면 — 전부 0에서 출발</text>
+      <rect x="450" y="26" width="400" height="140" rx="7" fill="#fff" stroke="#c9c4bb"/>
+      <line x1="590" y1="34" x2="590" y2="158" stroke="#b45309" stroke-width="1.3" stroke-dasharray="4 4"/>
+      <line x1="466" y1="120" x2="838" y2="120" stroke="#c9c4bb" stroke-width="1.2"/>
+      <text x="452" y="124" font-size="10.5" fill="#8b857c">0</text>
+      <polyline fill="none" stroke="#2f6f8f" stroke-width="2" points="466,120 530,119 590,120 640,112 700,102 770,97 838,96"/>
+      <polyline fill="none" stroke="#2f6f8f" stroke-width="2" points="466,121 530,120 590,121 640,114 700,105 770,100 838,99"/>
+      <polyline fill="none" stroke="#2f6f8f" stroke-width="2" points="466,119 530,121 590,119 640,110 700,100 770,94 838,93"/>
+      <text x="452" y="186" font-size="12" fill="#2f8f5b">세 곡선이 포개진다 → 평균이 또렷해진다</text>
+    </svg>
+  </div>
+  <figcaption>제품마다, 날마다 기본 두께가 다릅니다. 그 절대 높이는 우리 관심사가 아니에요. 우리가 보고 싶은 건 <strong>조정 직전 대비 얼마나 변했나</strong>뿐입니다. 그래서 각 이벤트마다 <strong>직전 5분의 평균</strong>을 빼서 출발점을 0으로 맞춥니다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="tag">왜 한 점이 아니라 5분 평균인가</span>
+  <p>딱 한 점(조정 직전 1분)을 빼면, <strong>그 한 점에 낀 노이즈가 이후 모든 시점에 그대로 따라붙습니다</strong>. 5분 평균을 빼면 그 노이즈가 √5배 줄어든 채로 붙죠. 기준선을 잘못 잡으면 곡선 전체가 위나 아래로 통째로 밀립니다.</p>
+</div>
+
+<h4>준비 ② 올린 것과 내린 것의 방향을 맞춘다 (부호 정렬)</h4>
+
+<figure>
+  <div class="frame">
+    <svg class="svgmin" viewBox="0 0 860 210" role="img" aria-label="부호 정렬 전후 비교">
+      <text x="10" y="18" font-size="12.5" font-weight="700" fill="#c05621">그대로 평균내면 — 서로 지운다</text>
+      <rect x="10" y="26" width="400" height="150" rx="7" fill="#fff" stroke="#c9c4bb"/>
+      <line x1="26" y1="101" x2="396" y2="101" stroke="#c9c4bb" stroke-width="1.2"/>
+      <line x1="140" y1="34" x2="140" y2="168" stroke="#b45309" stroke-width="1.3" stroke-dasharray="4 4"/>
+      <polyline fill="none" stroke="#2f6f8f" stroke-width="2.2" points="26,101 100,101 140,101 190,88 250,68 320,58 396,56"/>
+      <text x="330" y="50" font-size="10.5" fill="#2f6f8f">올린 조정 (+)</text>
+      <polyline fill="none" stroke="#c05621" stroke-width="2.2" points="26,101 100,101 140,101 190,114 250,134 320,144 396,146"/>
+      <text x="330" y="162" font-size="10.5" fill="#c05621">내린 조정 (−)</text>
+      <polyline fill="none" stroke="#23262b" stroke-width="3" stroke-dasharray="6 4" points="26,101 396,101"/>
+      <text x="12" y="196" font-size="12" fill="#c05621">평균 = 0 → 반응이 없는 것처럼 보인다!</text>
+
+      <text x="450" y="18" font-size="12.5" font-weight="700" fill="#2f8f5b">내린 것에 −1을 곱한 뒤 평균 — 살아난다</text>
+      <rect x="450" y="26" width="400" height="150" rx="7" fill="#fff" stroke="#c9c4bb"/>
+      <line x1="466" y1="146" x2="836" y2="146" stroke="#c9c4bb" stroke-width="1.2"/>
+      <line x1="580" y1="34" x2="580" y2="168" stroke="#b45309" stroke-width="1.3" stroke-dasharray="4 4"/>
+      <polyline fill="none" stroke="#2f6f8f" stroke-width="2.2" points="466,146 540,146 580,146 630,124 690,92 760,76 836,72"/>
+      <polyline fill="none" stroke="#c05621" stroke-width="2.2" points="466,147 540,147 580,147 630,128 690,98 760,82 836,78"/>
+      <polyline fill="none" stroke="#6b46c1" stroke-width="3.2" points="466,146 540,146 580,146 630,126 690,95 760,79 836,75"/>
+      <text x="452" y="196" font-size="12" fill="#2f8f5b">둘 다 위로 → 평균도 위로 (보라색)</text>
+    </svg>
+  </div>
+  <figcaption>손잡이를 올린 조정은 두께가 늘고, 내린 조정은 줄어듭니다. 그냥 평균내면 정확히 <strong>상쇄되어 0</strong>이 됩니다. 그래서 내린 조정에는 −1을 곱해 방향을 뒤집습니다. 이걸 <strong>부호 정렬</strong>이라고 합니다.</figcaption>
+</figure>
+
+<h4>준비 ③ 실제로 만진 구역만 쓴다</h4>
+
+<p>5번 손잡이를 돌리면 4번·6번 구역도 조금 따라 움직입니다(액체가 옆으로 번지니까요). 하지만 <strong>이웃의 움직임은 원인 시각이 다릅니다</strong> — 한 번 더 건너오는 시간이 붙거든요. 그걸 섞으면 지연이 흐려집니다. 그래서 <strong>실제로 손잡이를 돌린 구역만</strong> 씁니다. 이웃으로 번지는 <em>크기</em>는 이미 다른 코드(영향행렬)가 맡고 있습니다.</p>
+
+<div class="qmemo" data-qid="in-three-preps" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">준비 3단계 중 헷갈리는 것이 있으면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>3.5 평균 곡선에서 숫자 세 개를 읽는다</h3>
+
+<p>이제 겹쳐서 평균낸 곡선이 손에 있습니다. 여기서 L, τ, T_s를 읽어냅니다.</p>
+
+<figure>
+  <div class="frame">
+    <svg class="svgmin" viewBox="0 0 860 320" role="img" aria-label="응답 곡선에서 L, tau, T_s 를 읽는 방법">
+      <line x1="110" y1="278" x2="838" y2="278" stroke="#c9c4bb" stroke-width="1.5"/>
+      <line x1="110" y1="40" x2="110" y2="278" stroke="#c9c4bb" stroke-width="1.5"/>
+      <g font-size="11" fill="#8b857c" text-anchor="middle">
+        <text x="110" y="296">0분</text><text x="230" y="296">10</text><text x="350" y="296">20</text>
+        <text x="470" y="296">30</text><text x="590" y="296">40</text><text x="710" y="296">50</text><text x="830" y="296">60</text>
+      </g>
+      <text x="446" y="315" font-size="11.5" fill="#5b6068" text-anchor="middle">조정하고 나서 지난 시간 (분)</text>
+      <text x="20" y="52" font-size="11.5" fill="#5b6068">평균 반응</text>
+
+      <rect x="110" y="258" width="728" height="20" fill="#f1efeb"/>
+      <line x1="110" y1="258" x2="838" y2="258" stroke="#8b857c" stroke-width="1.3" stroke-dasharray="5 4"/>
+      <text x="834" y="252" font-size="11" fill="#8b857c" text-anchor="end">문턱선 = 노이즈의 2배 (이 밑은 우연일 수 있다)</text>
+
+      <line x1="110" y1="92" x2="838" y2="92" stroke="#2f8f5b" stroke-width="1.2" stroke-dasharray="5 4"/>
+      <rect x="110" y="83" width="728" height="18" fill="#2f8f5b" opacity=".10"/>
+      <text x="834" y="78" font-size="11" fill="#2f8f5b" text-anchor="end">최종 도달값 (±5% 밴드)</text>
+
+      <line x1="110" y1="160" x2="338" y2="160" stroke="#6b46c1" stroke-width="1.2" stroke-dasharray="4 4"/>
+      <text x="116" y="154" font-size="11" fill="#6b46c1">63% 높이</text>
+
+      <polyline fill="none" stroke="#6b46c1" stroke-width="3.2"
+        points="110,278 134,277 158,279 182,277 206,278 218,268 230,254 242,240 254,226 266,214 278,202 290,190 302,180 314,170 326,164 338,160 350,150 362,144 374,138 386,132 398,128 410,124 434,117 458,111 482,106 506,102 530,99 554,96 578,95 602,93 626,92 650,91 674,92 698,91 722,91 746,90 770,91 794,90 818,91 838,90"/>
+
+      <line x1="206" y1="52" x2="206" y2="288" stroke="#c05621" stroke-width="1.8" stroke-dasharray="5 4"/>
+      <text x="206" y="44" font-size="12.5" font-weight="700" fill="#c05621" text-anchor="middle">L = 8분</text>
+      <text x="198" y="30" font-size="11" fill="#c05621" text-anchor="end">여기서 처음 문턱을 넘는다</text>
+
+      <line x1="338" y1="120" x2="338" y2="288" stroke="#6b46c1" stroke-width="1.4" stroke-dasharray="4 4"/>
+      <line x1="206" y1="200" x2="338" y2="200" stroke="#6b46c1" stroke-width="1.4"/>
+      <polygon points="206,200 214,196 214,204" fill="#6b46c1"/>
+      <polygon points="338,200 330,196 330,204" fill="#6b46c1"/>
+      <text x="272" y="216" font-size="12" font-weight="700" fill="#6b46c1" text-anchor="middle">τ = 11분</text>
+
+      <line x1="566" y1="60" x2="566" y2="288" stroke="#2f8f5b" stroke-width="1.8" stroke-dasharray="5 4"/>
+      <text x="566" y="52" font-size="12.5" font-weight="700" fill="#2f8f5b" text-anchor="middle">T_s = 38분</text>
+      <text x="576" y="70" font-size="11" fill="#2f8f5b">여기부터 밴드 안에 머문다</text>
+    </svg>
+  </div>
+  <figcaption><strong>L</strong>: 곡선이 회색 문턱선을 처음 확실히 넘는 시점. <strong>τ</strong>: 거기서 최종값의 63% 높이에 닿을 때까지. <strong>T_s</strong>: 초록 밴드(최종값 ±5%) 안에 들어와 다시는 안 나오는 시점.</figcaption>
+</figure>
+
+<div class="callout def">
+  <span class="tag">현장에서 이 숫자를 쓰는 법</span>
+  <ul style="margin:6px 0 0;">
+    <li><strong>L = 8분</strong> → 조정 후 8분 동안은 화면을 봐도 소용없다. 기다려라.</li>
+    <li><strong>τ = 11분</strong> → 그 뒤로 11분이면 변화의 3분의 2가 나타난다.</li>
+    <li><strong>T_s = 38분</strong> → <strong>다음 조정은 최소 38분 뒤에.</strong> 그전에 또 만지면 두 효과가 겹쳐서 원인을 알 수 없게 된다.</li>
+  </ul>
+</div>
+
+<div class="qmemo" data-qid="in-reading-curve" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">L·τ·T_s 를 읽는 그림에서 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>3.6 조심 — 첫 번째로 문턱을 넘은 지점을 믿으면 안 된다</h3>
+
+<p>여기서 실제로 <strong>버그가 났었습니다</strong>. 그리고 이건 데이터를 다루는 사람이라면 누구나 한 번은 밟는 지뢰라, 따로 볼 값어치가 있습니다.</p>
+
+<p>동전을 70번 던진다고 해보세요. 앞면이 연속 세 번 나올 확률은 낮지만, <strong>어딘가에서 우연히 한 번쯤 튀는 것</strong>은 거의 확실합니다. 우리 곡선도 lag을 70개나 훑으면서 매번 "문턱 넘었나?"를 묻습니다. 그러면 <strong>순전히 우연으로 서너 번은 넘습니다</strong>.</p>
+
+<figure>
+  <div class="frame">
+    <svg class="svgmin" viewBox="0 0 860 175" role="img" aria-label="단발 초과와 연속 초과의 구분">
+      <text x="10" y="20" font-size="12.5" fill="#5b6068">각 칸 = 1분. 색칠 = 그 시점에 문턱을 넘음</text>
+      <g>
+        <rect x="110" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="122" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="134" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="146" y="40" width="11" height="28" rx="2" fill="#c05621"/>
+        <rect x="158" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="170" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="182" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="194" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="206" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="218" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="230" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="242" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="254" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="266" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="278" y="40" width="11" height="28" rx="2" fill="#c05621"/>
+        <rect x="290" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="302" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="314" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="326" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="338" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="350" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="362" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="374" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="386" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="398" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="410" y="40" width="11" height="28" rx="2" fill="#c05621"/>
+        <rect x="422" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="434" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="446" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="458" y="40" width="11" height="28" rx="2" fill="#eceae5"/>
+        <rect x="470" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="482" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="494" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="506" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="518" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="530" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="542" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="554" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="566" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="578" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="590" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="602" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="614" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="626" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="638" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="650" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="662" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="674" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="686" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="698" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="710" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="722" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="734" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="746" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="758" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="770" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="782" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="794" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="806" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+        <rect x="818" y="40" width="11" height="28" rx="2" fill="#2f6f8f"/>
+      </g>
+      <line x1="151" y1="72" x2="151" y2="96" stroke="#c05621" stroke-width="1.4"/>
+      <text x="151" y="112" font-size="11.5" font-weight="700" fill="#c05621" text-anchor="middle">첫 초과</text>
+      <text x="151" y="128" font-size="11" fill="#c05621" text-anchor="middle">우연히 튄 것!</text>
+      <text x="151" y="146" font-size="11.5" font-weight="700" fill="#c05621" text-anchor="middle">여기를 집으면 L=3분 (오답)</text>
+
+      <line x1="475" y1="72" x2="475" y2="96" stroke="#2f6f8f" stroke-width="1.4"/>
+      <text x="500" y="112" font-size="11.5" font-weight="700" fill="#2f6f8f" text-anchor="start">여기부터 쭉 이어진다</text>
+      <text x="500" y="130" font-size="11" fill="#2f6f8f" text-anchor="start">연속 3칸 이상 = 진짜 반응</text>
+      <text x="500" y="150" font-size="11.5" font-weight="700" fill="#2f6f8f" text-anchor="start">정답 L = 30분</text>
+    </svg>
+  </div>
+  <figcaption>주황 칸은 우연히 튄 것이고, 파랑 구간이 진짜 반응입니다. 처음에 짠 코드는 <strong>맨 앞의 주황 칸</strong>을 집었습니다. 그래서 지연 8분을 일부러 심어 둔 시험 데이터에서 <strong>L = 2분</strong>이라고 답했습니다.</figcaption>
+</figure>
+
+<div class="callout win">
+  <span class="tag">고친 방법 — 게다가 물리적으로도 맞다</span>
+  <p><strong>연속으로 3번 이상 문턱을 넘어야</strong> 반응으로 인정합니다. 통계적으로는 우연이 3번 연달아 날 확률이 아주 낮기 때문이고, 물리적으로도 <strong>계단 응답은 한 번 올라가면 다시 내려오지 않기</strong> 때문입니다. 넘었다 말았다 하는 건 반응이 아닙니다.</p>
+</div>
+
+<div class="student">
+  <span class="who">가상 학생 · 지우</span>
+  <p>그럼 진짜 반응이 딱 2분만 지속되는 경우엔 못 잡는 거 아니에요?</p>
+</div>
+<div class="student me">
+  <span class="who">답</span>
+  <p>맞아요, 못 잡습니다. 그런데 그건 <strong>일부러 그렇게 만든 것</strong>입니다. 2분 반짝하고 사라지는 건 이 물리 시스템에서 반응일 수가 없어요 — 종이가 계속 흘러가는데 두께가 2분만 변하고 원래대로 돌아온다는 건 말이 안 되니까요. 그래서 <strong>못 잡는 게 아니라 잡으면 안 되는 것</strong>입니다.</p>
+</div>
+
+<div class="qmemo" data-qid="in-run-of-three" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">우연히 튀는 것과 진짜 반응을 가르는 규칙에서 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>3.7 가장 중요한 원칙 — 숫자보다 판정이 먼저다</h3>
+
+<p>이 코드에는 조금 특이한 성격이 있습니다. <strong>답을 낼 자신이 없으면 답을 지웁니다.</strong></p>
+
+<div class="callout trap">
+  <span class="tag">왜 그렇게까지 하는가</span>
+  <p>실험 3번으로 낸 평균도 화면에는 <strong>똑같이 숫자로 보입니다</strong>. "L = 5분"이라고 적혀 있으면 사람은 그냥 믿어요. 그리고 그 5분에 맞춰 공장 운영을 바꿉니다.</p>
+  <p>그래서 이 코드는 이렇게 판단합니다 — <strong>근거 없는 숫자는 없는 것보다 나쁘다.</strong></p>
+</div>
+
+<p>그래서 순서를 거꾸로 뒤집었습니다. 보통은 숫자를 먼저 내고 신뢰도를 나중에 따지는데, 여기서는:</p>
+
+<figure>
+  <div class="frame">
+    <div class="flow">
+      <div class="node out"><span class="t">① 소음을 먼저 잰다</span><span class="d">조정이 하나도 없어도 잴 수 있다. 조정 근처를 다 빼고 남은 조용한 구간의 흔들림 = σ</span></div>
+      <div class="node out"><span class="t">② 필요한 표본 수를 계산</span><span class="d">σ와 반응 크기로 "이 정도 소음에서 1분을 가르려면 표본이 몇 개 필요한가"를 먼저 구한다</span></div>
+      <div class="node out"><span class="t">③ 실제와 비교</span><span class="d">지금 가진 표본이 그 수에 도달했는가?</span></div>
+      <div class="node jud"><span class="t">④ 되면 숫자, 안 되면 처방</span><span class="d">통과 → L·τ·T_s / 미달 → "무엇이 몇 개 더 필요한지"</span></div>
+    </div>
+  </div>
+  <figcaption>이 순서가 핵심입니다. ①이 조정 이벤트 없이도 계산된다는 점이 좋습니다 — 데이터가 아무리 나빠도 최소한 "지금 이 데이터로 볼 수 있는 최소 반응 크기"는 항상 말해 줄 수 있거든요.</figcaption>
+</figure>
+
+<p>②에서 쓰는 게 이 문서의 <strong>유일한 수식</strong>입니다. 겁먹지 말고 한 줄씩 보세요.</p>
+
+<pre class="plain">필요한 표본 수  m  &gt;  ( 2 × √2 × σ × τ  ÷  반응크기 )²</pre>
+
+<div class="callout def">
+  <span class="tag">이 식을 말로 풀면</span>
+  <ul style="margin:6px 0 0;">
+    <li><strong>σ(소음)가 클수록</strong> → 표본이 더 필요하다. 시끄러운 교실에서는 더 여러 번 들어야 하니까.</li>
+    <li><strong>반응이 작을수록</strong> → 표본이 더 필요하다. 속삭임은 여러 번 들어야 하니까. (분모에 있고, 제곱이라 영향이 큽니다.)</li>
+    <li><strong>τ가 길수록</strong> → 표본이 더 필요하다. 천천히 올라가면 1분 사이의 차이가 작아서 구분하기 어렵거든요.</li>
+    <li>전체가 <strong>제곱</strong>인 이유는 3.3에서 본 √m 법칙 때문입니다. 또렷함을 2배 하려면 표본은 4배가 필요합니다.</li>
+  </ul>
+</div>
+
+<div class="qmemo" data-qid="in-verdict-first" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"숫자보다 판정이 먼저"와 필요 표본 수 식에서 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="code">4. 코드는 실제로 어떻게 도는가</h2>
+
+<p>이제 그림을 코드에 붙여 봅시다. 사내 PC에서 실행하는 명령은 딱 한 줄입니다.</p>
+
+<pre><span class="c"># backend 폴더에서</span>
+python -m app.coating.report --input raw/실데이터.xlsx --sheet 데이터
+
+<span class="c"># 결과로 파일 두 개가 만들어진다</span>
+data/coating/reports/data_profile.md
+data/coating/reports/data_profile.html   <span class="c">← 브라우저로 열면 됨</span></pre>
+
+<div class="callout warn">
+  <span class="tag">한 번 읽히면 parquet 으로 바꾸세요</span>
+  <p>xlsx 경로는 사내 DRM 때문에 <strong>실행할 때마다 Excel을 띄웁니다</strong>. 느리고 번거로워요. 한 번 성공적으로 읽혔다면 <code>python -m app.coating.convert</code> 로 parquet 파일을 만들고 그걸 입력으로 쓰세요. 그 뒤로는 Excel도 xlwings도 필요 없습니다.</p>
+</div>
+
+<h3>4.1 안에서 벌어지는 11단계</h3>
+
+<p>명령 한 줄을 치면 안에서 이런 일이 순서대로 벌어집니다. 앞의 다섯 개는 원래 있던 것이고, <strong>6번부터가 어제 새로 만든 부분</strong>입니다.</p>
+
+<ol class="steps">
+  <li><b>1. 원본 파일 읽기</b> <span class="f">parse.load_readings</span><br>한글·중국어 헤더를 알아보고, 인코딩을 자동 판별해서 표로 만든다.</li>
+  <li><b>2. 같은 분 중복 정리</b> <span class="f">pivot.dedupe_minute</span><br>1분 안에 여러 번 기록된 것을 한 줄로 정리한다.</li>
+  <li><b>3. 값이 바뀐 시점만 뽑기</b> <span class="f">pivot.compress_runs</span><br>2.2절에서 본 그 압축된 표. 조정이 언제 있었는지는 여기서 안다.</li>
+  <li><b>4. 조정 이벤트 만들기</b> <span class="f">events.build_events</span><br>2분 안에 여러 손잡이를 돌렸으면 <strong>한 번의 조작</strong>으로 묶는다. 사람은 보통 여러 구역을 연달아 만지니까.</li>
+  <li><b>5. 더러운 이벤트 걸러내기</b> <span class="f">events.annotate_settling</span><br>다음 조정이 너무 빨리 와서 효과가 겹친 것(<code>overlapped</code>), 30분 안에 안정되지 않은 것(<code>no_settle</code>)을 표시해 뺀다.</li>
+  <li><b>6. 1분 간격 표 만들기</b> <span class="f">panel.build_panel</span> ★신규<br>2.2절의 그 표. 빈 분을 직전 값으로 최대 30분까지 메운다. 여기가 없으면 나머지가 전부 불가능하다.</li>
+  <li><b>7. 소음 크기 σ 재기</b> <span class="f">response.noise_floor</span> ★신규<br>모든 조정 근처 ±60분을 뺀 <strong>조용한 구간</strong>에서 1분당 변화량의 표준편차를 잰다.</li>
+  <li><b>8. 이벤트를 0분에 정렬</b> <span class="f">response.align_events</span> ★신규<br>3.3~3.4절 전부가 여기 있다 — 겹치기, 기준선 빼기, 부호 정렬, 만진 구역만 남기기.</li>
+  <li><b>9. lag별 평균 곡선</b> <span class="f">response.response_curve</span> ★신규<br>각 시점별로 평균·오차·<strong>표본 수</strong>를 낸다. 표본 수를 함께 내는 게 중요하다.</li>
+  <li><b>10. L·τ·T_s 뽑기</b> <span class="f">response.dynamics</span> ★신규<br>3.5절의 읽기 규칙. 연속 3회 규칙도 여기 있다.</li>
+  <li><b>11. 말해도 되는지 판정</b> <span class="f">response.verdict</span> ★신규<br>3.7절. 표본이 모자라면 숫자를 지우고 "무엇이 얼마나 더 필요한지"로 바꾼다.</li>
+</ol>
+
+<h3>4.2 파일 세 개의 역할 분담</h3>
+
+<div class="tablewrap">
+<table class="data">
+  <tr><th>파일</th><th>역할</th><th>비유</th></tr>
+  <tr>
+    <td><code>panel.py</code><br><span class="small">123줄, 신규</span></td>
+    <td>1분 간격 표를 만든다. 파일도 설정도 만지지 않는 순수 계산.</td>
+    <td><strong>모눈종이를 까는 사람.</strong> 눈금이 있어야 재기 시작할 수 있다.</td>
+  </tr>
+  <tr>
+    <td><code>response.py</code><br><span class="small">303줄, 신규</span></td>
+    <td>겹치기·평균·σ·L·τ·T_s·판정. 이 문서 3장 전체가 이 파일이다.</td>
+    <td><strong>자를 대고 읽는 사람.</strong> 그리고 못 읽겠으면 못 읽겠다고 말하는 사람.</td>
+  </tr>
+  <tr>
+    <td><code>report.py</code><br><span class="small">94줄 추가</span></td>
+    <td>파일을 읽고, 위 둘을 순서대로 부르고, 사람이 읽을 문장으로 바꾼다.</td>
+    <td><strong>보고서를 쓰는 사람.</strong> 계산은 안 하고 전달만 한다.</td>
+  </tr>
+</table>
+</div>
+
+<div class="callout key">
+  <span class="tag">왜 이렇게 나눠 놓았나</span>
+  <p><code>panel.py</code>와 <code>response.py</code>는 <strong>파일도 설정도 건드리지 않습니다</strong>. 숫자를 받아서 숫자를 내놓을 뿐이죠. 그래서 <strong>가짜 데이터로 시험할 수 있습니다</strong> — 지연 8분을 일부러 심은 데이터를 넣고 8이 나오는지 확인하는 것. 실제로 그 시험이 (8,10)·(3,5)·(12,8) 세 조합으로 코드에 박혀 있습니다.</p>
+</div>
+
+<div class="qmemo" data-qid="code-pipeline" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">11단계 중 무슨 일이 벌어지는지 모르겠는 단계가 있으면 번호와 함께 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="report">5. 결과지 읽는 법 — 네 가지 답</h2>
+
+<p>실행하면 리포트의 <strong>동특성 (조정 → 반영까지)</strong> 섹션에 네 가지 중 하나가 나옵니다. 어떤 게 나오든 <strong>다음에 할 일이 정해져 있다</strong>는 게 이 설계의 핵심입니다.</p>
+
+<figure>
+  <div class="frame">
+    <svg class="svgmin" viewBox="0 0 860 300" role="img" aria-label="네 가지 판정 분기도">
+      <rect x="310" y="14" width="240" height="40" rx="8" fill="#f1efeb" stroke="#8b857c" stroke-width="1.5"/>
+      <text x="430" y="39" font-size="13" font-weight="700" fill="#23262b" text-anchor="middle">리포트를 돌린다</text>
+
+      <line x1="430" y1="54" x2="430" y2="78" stroke="#8b857c" stroke-width="1.5"/>
+      <line x1="110" y1="78" x2="750" y2="78" stroke="#8b857c" stroke-width="1.5"/>
+      <g stroke="#8b857c" stroke-width="1.5">
+        <line x1="110" y1="78" x2="110" y2="100"/><line x1="323" y1="78" x2="323" y2="100"/>
+        <line x1="537" y1="78" x2="537" y2="100"/><line x1="750" y1="78" x2="750" y2="100"/>
+      </g>
+
+      <rect x="20" y="100" width="180" height="84" rx="8" fill="#e8f5ee" stroke="#2f8f5b" stroke-width="1.8"/>
+      <text x="110" y="122" font-size="12.5" font-weight="700" fill="#2f8f5b" text-anchor="middle">성공</text>
+      <text x="110" y="142" font-size="11.5" fill="#23262b" text-anchor="middle">L = 8분</text>
+      <text x="110" y="159" font-size="11.5" fill="#23262b" text-anchor="middle">τ = 11분</text>
+      <text x="110" y="176" font-size="11.5" fill="#23262b" text-anchor="middle">T_s = 38분</text>
+
+      <rect x="233" y="100" width="180" height="84" rx="8" fill="#fdefe7" stroke="#c05621" stroke-width="1.8"/>
+      <text x="323" y="122" font-size="12.5" font-weight="700" fill="#c05621" text-anchor="middle">no_events</text>
+      <text x="323" y="144" font-size="11.5" fill="#23262b" text-anchor="middle">깨끗한 조정이</text>
+      <text x="323" y="161" font-size="11.5" fill="#23262b" text-anchor="middle">한 건도 없다</text>
+
+      <rect x="447" y="100" width="180" height="84" rx="8" fill="#fdf9ee" stroke="#b7791f" stroke-width="1.8"/>
+      <text x="537" y="122" font-size="12.5" font-weight="700" fill="#b7791f" text-anchor="middle">no_response</text>
+      <text x="537" y="144" font-size="11.5" fill="#23262b" text-anchor="middle">소음에 묻혀서</text>
+      <text x="537" y="161" font-size="11.5" fill="#23262b" text-anchor="middle">안 보인다</text>
+
+      <rect x="660" y="100" width="180" height="84" rx="8" fill="#f1ecfa" stroke="#6b46c1" stroke-width="1.8"/>
+      <text x="750" y="122" font-size="12.5" font-weight="700" fill="#6b46c1" text-anchor="middle">underpowered</text>
+      <text x="750" y="144" font-size="11.5" fill="#23262b" text-anchor="middle">보이긴 하는데</text>
+      <text x="750" y="161" font-size="11.5" fill="#23262b" text-anchor="middle">표본이 모자라다</text>
+
+      <g stroke="#8b857c" stroke-width="1.4" stroke-dasharray="4 3">
+        <line x1="110" y1="184" x2="110" y2="206"/><line x1="323" y1="184" x2="323" y2="206"/>
+        <line x1="537" y1="184" x2="537" y2="206"/><line x1="750" y1="184" x2="750" y2="206"/>
+      </g>
+
+      <rect x="20" y="206" width="180" height="72" rx="8" fill="#fff" stroke="#c9c4bb"/>
+      <text x="110" y="228" font-size="11.5" font-weight="700" fill="#5b6068" text-anchor="middle">다음 할 일</text>
+      <text x="110" y="250" font-size="11" fill="#23262b" text-anchor="middle">제어 주기 설계에</text>
+      <text x="110" y="266" font-size="11" fill="#23262b" text-anchor="middle">바로 쓴다</text>
+
+      <rect x="233" y="206" width="180" height="72" rx="8" fill="#fff" stroke="#c9c4bb"/>
+      <text x="323" y="228" font-size="11.5" font-weight="700" fill="#5b6068" text-anchor="middle">다음 할 일</text>
+      <text x="323" y="250" font-size="11" fill="#23262b" text-anchor="middle">튜닝이 실제로 있던</text>
+      <text x="323" y="266" font-size="11" fill="#23262b" text-anchor="middle">기간을 다시 받는다</text>
+
+      <rect x="447" y="206" width="180" height="72" rx="8" fill="#fff" stroke="#c9c4bb"/>
+      <text x="537" y="228" font-size="11.5" font-weight="700" fill="#5b6068" text-anchor="middle">다음 할 일</text>
+      <text x="537" y="250" font-size="11" fill="#23262b" text-anchor="middle">조정 폭을 키운다</text>
+      <text x="537" y="266" font-size="11" fill="#c05621" text-anchor="middle">(개수 늘려도 소용없음)</text>
+
+      <rect x="660" y="206" width="180" height="72" rx="8" fill="#fff" stroke="#c9c4bb"/>
+      <text x="750" y="228" font-size="11.5" font-weight="700" fill="#5b6068" text-anchor="middle">다음 할 일</text>
+      <text x="750" y="250" font-size="11" fill="#23262b" text-anchor="middle">기간을 넓혀서</text>
+      <text x="750" y="266" font-size="11" fill="#23262b" text-anchor="middle">이벤트를 더 모은다</text>
+    </svg>
+  </div>
+  <figcaption>오른쪽 두 개를 <strong>굳이 갈라 놓은 것</strong>이 이 설계에서 제일 신경 쓴 부분입니다.</figcaption>
+</figure>
+
+<div class="callout trap">
+  <span class="tag">왜 no_response 와 underpowered 를 갈랐나</span>
+  <p>처음에는 둘을 하나로 묶어 뒀습니다. 그랬더니 <strong>반응이 아예 안 보이는 데이터</strong>에 대고 공식이 이렇게 답했습니다 — "이벤트 <strong>150만 건</strong>이 더 필요합니다."</p>
+  <p>공식상으로는 맞습니다(반응 크기가 0에 가까우면 분모가 0에 가까워지니까). 하지만 쓸모가 없고, 심지어 프로그램이 고장 난 것처럼 보입니다. 반응이 안 보일 때 맞는 답은 <strong>"이 크기(예: ±0.004) 이하의 반응은 지금 데이터로는 못 봅니다"</strong>입니다. 그러면 현장에서 <em>조정 폭을 얼마나 키워야 하는지</em>가 바로 나오거든요.</p>
+</div>
+
+<p>실제 리포트에 찍히는 문장은 이렇게 생겼습니다.</p>
+
+<pre class="plain">## 동특성 (조정 → 반영까지)
+
+- 노이즈 바닥: σ = 0.0041 (분당 ΔWet, 조정 없는 12,480분에서)
+- 깨끗한 이벤트 34건 → (이벤트×zone) 표본 218개
+- <span style="color:#2f8f5b;font-weight:700">순수 지연 L = 8분</span> — 조정 후 이 시간이 지나야 Wet 이 움직인다
+- 시정수 τ = 11분 (최종 변화의 63% 도달)
+- 정착 T_s = 38분 — 다음 조정까지 최소 이만큼 띄워야 두 조정의 효과가 섞이지 않는다
+- 최종 변화량 +0.0312 (부호 정렬, |Δgap| 1회분 기준)</pre>
+
+<div class="callout warn">
+  <span class="tag">이 경고가 뜨면</span>
+  <p><code>⚠ 관측 창이 끝날 때까지 아직 오르고 있다</code> 가 뜨면, τ와 최종 변화량은 <strong>실제보다 작게 나온 하한값</strong>입니다. 60분만 지켜봤는데 아직 안 끝난 것이거든요. <code>.env</code> 의 <code>COATING_RESPONSE_POST_MINUTES</code> 를 90이나 120으로 늘려서 다시 돌리면 됩니다.</p>
+</div>
+
+<div class="qmemo" data-qid="report-branches" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">네 가지 판정 중 헷갈리는 것이 있으면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="qa">6. 가상 학생 지우의 질문 12개</h2>
+
+<p>중학생 지우가 이 설명을 다 듣고 나서 실제로 물어볼 법한 것들을 모았습니다. 클릭하면 답이 펼쳐집니다.</p>
+
+<details class="qa">
+  <summary>조정할 때마다 지연이 다르면 어떡해요? 하나의 L로 퉁치는 게 맞아요?</summary>
+  <div class="body">
+    <p>지연의 정체가 <strong>종이가 이동하는 시간</strong>이라는 게 답의 근거입니다. 라인 속도가 같으면 이동 시간도 같으니까 L은 하나입니다.</p>
+    <p>다만 <strong>라인 속도가 바뀌면 L도 바뀝니다.</strong> 지금 코드는 그걸 구분하지 않고 전부 섞어서 하나의 L을 냅니다. 그래서 리포트가 마지막에 "라인 속도·고형분·점도 데이터도 주세요"라고 요청하는 거예요. 속도별로 나눠서 볼 수 있어야 정확해집니다. <strong>지금 버전의 알려진 한계</strong>입니다.</p>
+  </div>
+</details>
+
+<details class="qa">
+  <summary>zone 25개를 한 통에 붓는다고 했는데, 25개가 서로 완전히 딴 것도 아니잖아요. 그럼 표본을 25배로 세는 건 반칙 아니에요?</summary>
+  <div class="body">
+    <p>정확한 지적이고, <strong>코드도 그렇게 인정하고 있습니다</strong>. 옆 구역끼리는 액체가 번져서 서로 조금씩 닮아 있으니, 진짜 독립적인 표본 수는 25배보다 적습니다.</p>
+    <p>그래서 필요 표본 수를 계산하는 함수의 주석에 <strong>"이 값은 하한이다"</strong>라고 적혀 있습니다. 즉 "적어도 이만큼은 필요하다"는 뜻이지 "이만큼이면 충분하다"는 뜻이 아니에요. 이런 걸 숨기지 않고 적어 두는 게 중요합니다.</p>
+  </div>
+</details>
+
+<details class="qa">
+  <summary>σ(소음)를 잴 때 조정 근처를 왜 빼요? 그냥 전체를 재면 안 돼요?</summary>
+  <div class="body">
+    <p>전체를 재면 <strong>조정으로 인한 진짜 변화까지 소음에 포함</strong>됩니다. 그러면 σ가 실제보다 커지죠.</p>
+    <p>σ가 크면 문턱선이 높아지고, 문턱이 높으면 <strong>진짜 반응이 그 밑에 숨어 버립니다</strong>. 결과는 "지연 없음"이라는 잘못된 판정. 시험 삼아 넓게 재 봤더니 실제로 σ가 커졌고, 그걸 확인하는 테스트가 코드에 들어 있습니다.</p>
+  </div>
+</details>
+
+<details class="qa">
+  <summary>이벤트를 2분 안에 묶는다고 했는데, 왜 하필 2분이에요?</summary>
+  <div class="body">
+    <p>작업자가 손잡이 여러 개를 연달아 돌리는 데 걸리는 시간을 어림한 값입니다. <code>.env</code> 의 <code>COATING_EVENT_MERGE_MINUTES</code> 로 바꿀 수 있어요.</p>
+    <p>이걸 안 묶고 손잡이 하나하나를 따로 세면 어떻게 될까요? <strong>하나의 Wet 변화가 여러 이벤트에 중복으로 귀속</strong>돼서, 각 조정의 효과가 실제보다 부풀려집니다.</p>
+  </div>
+</details>
+
+<details class="qa">
+  <summary>왜 60분만 지켜봐요? 그냥 넉넉하게 300분씩 보면 안 돼요?</summary>
+  <div class="body">
+    <p>길게 보면 좋지만 공짜가 아닙니다. 창을 길게 잡을수록 <strong>그 안에 다음 조정이 끼어들 확률이 올라가고</strong>, 그런 이벤트는 오염으로 버려집니다. 즉 창을 늘리면 표본이 줄어요.</p>
+    <p>그래서 60분으로 시작하되, <strong>"아직 오르는 중"이라는 경고가 뜨면 그때 늘리는</strong> 방식을 씁니다. 무작정 크게 잡는 대신 데이터가 말해 주면 그때 반응하는 거죠.</p>
+  </div>
+</details>
+
+<details class="qa">
+  <summary>시험 데이터에 8분을 심었는데 답이 9분으로 나온다면서요? 그건 틀린 거 아니에요?</summary>
+  <div class="body">
+    <p>훌륭한 질문입니다. 안 틀렸어요.</p>
+    <p>지연이 정확히 8분이라면, <strong>8분 시점의 반응은 정확히 0</strong>입니다(아직 막 도착한 순간). 실제로 0이 아닌 값이 처음 측정되는 건 9분이죠. 그리고 우리가 내는 숫자의 의미는 <strong>"이때부터 보면 된다"</strong>이므로 9가 맞는 답입니다.</p>
+    <p>테스트도 <code>심은 값 + 1</code>을 기대값으로 두고 있습니다. 이런 <strong>1칸 차이</strong>는 어디서 오는지 모르면 나중에 진짜 버그와 구분이 안 되기 때문에, 미리 못 박아 둔 겁니다.</p>
+  </div>
+</details>
+
+<details class="qa">
+  <summary>조정을 아무도 안 한 데이터만 있으면요? 그럼 아무것도 못 하나요?</summary>
+  <div class="body">
+    <p>L·τ·T_s는 못 냅니다. 실험(=조정)이 하나도 없으니 당연하죠.</p>
+    <p>그런데 <strong>σ는 나옵니다.</strong> 그리고 σ가 있으면 <strong>"이 데이터로 볼 수 있는 최소 반응 크기"</strong>를 계산할 수 있어요. 이건 꽤 쓸모 있는 정보입니다 — 앞으로 실험할 때 <strong>조정 폭을 얼마 이상으로 잡아야 하는지</strong>가 여기서 바로 나오거든요. 그래서 코드가 σ를 제일 먼저 재는 겁니다.</p>
+  </div>
+</details>
+
+<details class="qa">
+  <summary>기준선을 조정 직전 5분으로 잡던데, 그 5분 안에 이미 앞 조정의 효과가 남아 있으면요?</summary>
+  <div class="body">
+    <p>바로 그 경우를 <strong>오염(overlapped)</strong>으로 분류해서 버립니다. 앞 조정이 안정되기 전에 다음 조정이 오면 두 효과가 섞여서 원인을 가릴 수 없으니까요.</p>
+    <p>그리고 <strong>버려지는 비율 자체가 현장 진단</strong>이 됩니다. 오염 비율이 높다면 그건 곧 "작업자가 결과를 안 기다리고 급하게 계속 만지고 있다"는 뜻이고, 그건 L을 모르기 때문에 벌어지는 일입니다. 문제가 스스로를 증명하는 셈이죠.</p>
+  </div>
+</details>
+
+<details class="qa">
+  <summary>ffill(빈 칸 메우기) 상한이 왜 하필 30분이에요?</summary>
+  <div class="body">
+    <p>정해진 정답은 없고, <code>COATING_PANEL_FFILL_MAX_MINUTES</code> 로 바꿀 수 있는 설정값입니다.</p>
+    <p>고르는 기준은 이렇습니다 — <strong>너무 짧으면</strong> 멀쩡한 데이터에 구멍이 생겨 표본이 줄고, <strong>너무 길면</strong> 설비가 멈춘 구간이 "아주 조용한 시간"으로 둔갑해 σ를 실제보다 작게 만듭니다. 두 번째가 더 위험해서(없는 반응을 있다고 말하게 되니까) 보수적으로 30분입니다.</p>
+  </div>
+</details>
+
+<details class="qa">
+  <summary>이 분석이 틀렸는지 어떻게 알 수 있어요? 결과를 그냥 믿어야 하나요?</summary>
+  <div class="body">
+    <p>세 가지 방어선이 있습니다.</p>
+    <p><strong>①</strong> 지연을 일부러 심은 가짜 데이터로 회수되는지 확인하는 테스트가 세 조합((8,10)·(3,5)·(12,8))으로 박혀 있습니다. <strong>②</strong> 반응이 전혀 없는 데이터를 넣으면 지연을 못 찾는지도 확인합니다(거짓 양성 방지). <strong>③</strong> σ가 심은 노이즈 크기와 맞는지도 확인합니다.</p>
+    <p>다만 <strong>진짜 데이터에는 이런 정답지가 없습니다.</strong> 그래서 8장에서 말하는 "곡선 자체를 눈으로 보기"가 필요합니다. 숫자만으로는 곡선이 이상하게 생겼는지 알 수가 없어요.</p>
+  </div>
+</details>
+
+<details class="qa">
+  <summary>L을 알아내면 그다음엔 뭘 해요?</summary>
+  <div class="body">
+    <p>세 가지가 열립니다.</p>
+    <p><strong>①</strong> 작업 지침: "조정 후 L분 동안은 화면 보지 마세요. 다음 조정은 T_s분 뒤에." <strong>②</strong> 데이터 정렬: 이제 "t 시점의 손잡이"와 "t+L 시점의 결과"를 짝지을 수 있으니, 얼마나 바뀌는지를 재는 기존 모델의 정확도가 올라갑니다. <strong>③</strong> 자동 제어: 지연이 있는 시스템을 제어하는 방법은 이미 잘 알려져 있는데, 그 방법들이 전부 <strong>L을 입력으로 요구</strong>합니다.</p>
+  </div>
+</details>
+
+<details class="qa">
+  <summary>제일 중요한 걸 딱 하나만 기억한다면 뭘까요?</summary>
+  <div class="body">
+    <p><strong>"모르면 모른다고 말하는 코드"</strong>입니다.</p>
+    <p>기술적으로 어려운 건 겹쳐서 평균내는 부분이지만, 이 코드에서 진짜 특별한 건 <strong>표본이 모자라면 계산된 숫자를 스스로 지운다</strong>는 점입니다. 대부분의 분석 코드는 그냥 숫자를 냅니다. 그리고 사람은 화면에 뜬 숫자를 믿습니다. 근거가 3건이든 300건이든 똑같이 생겼으니까요.</p>
+  </div>
+</details>
+
+<div class="qmemo" data-qid="qa-more" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">위 12개에 없는 질문이 떠올랐다면 여기 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="quiz">7. 이해도 점검 퀴즈 5문항</h2>
+
+<p>답을 클릭하면 바로 채점됩니다. 틀려도 괜찮아요 — 설명이 붙습니다.</p>
+
+<div class="quiz" data-idx="1">
+  <p class="q">1. 조정 이벤트를 겹쳐서 평균낼 때, 올린 조정과 내린 조정에 부호 정렬(내린 것에 −1 곱하기)을 하지 않으면 어떤 일이 벌어질까요?</p>
+  <div class="opts">
+    <button class="opt" data-ok="0" data-fb="아깝습니다. 노이즈는 부호와 상관없이 √m 법칙으로 줄어듭니다. 부호 정렬은 노이즈가 아니라 신호 쪽 문제예요.">노이즈가 줄어들지 않아서 곡선이 지저분해진다</button>
+    <button class="opt" data-ok="1" data-fb="정확합니다. 올린 조정은 +방향, 내린 조정은 −방향으로 움직이므로 평균에서 서로 상쇄되어 0에 가까워집니다. 그러면 반응이 실제로 있는데도 no_response 판정이 나옵니다.">평균이 0에 가까워져서 반응이 없는 것처럼 보인다</button>
+    <button class="opt" data-ok="0" data-fb="반대입니다. 부호 정렬을 안 하면 L이 커지는 게 아니라 아예 안 나옵니다. 신호가 상쇄되어 사라지니까요.">L이 실제보다 크게 나온다</button>
+    <button class="opt" data-ok="0" data-fb="표본 수는 부호 정렬과 무관하게 그대로입니다. 문제는 개수가 아니라 방향이에요.">표본 수가 절반으로 줄어든다</button>
+  </div>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-idx="2">
+  <p class="q">2. 코드는 "문턱을 넘은 첫 지점"이 아니라 "연속 3번 이상 넘은 첫 지점"을 L로 잡습니다. 그 이유로 가장 정확한 것은?</p>
+  <div class="opts">
+    <button class="opt" data-ok="0" data-fb="계산 속도와는 관계없습니다. 오히려 연속 검사가 아주 조금 더 느려요.">계산을 빠르게 하기 위해</button>
+    <button class="opt" data-ok="0" data-fb="3분은 결과가 아니라 규칙입니다. L이 3분보다 짧은 경우도 얼마든지 나올 수 있어요 (연속 3칸만 확인되면 됩니다).">L이 최소 3분 이상이라는 것을 알고 있어서</button>
+    <button class="opt" data-ok="1" data-fb="맞습니다. 70개가 넘는 시점을 각각 검사하면 우연히 문턱을 넘는 일이 서너 번 생기는 게 정상입니다(다중비교). 게다가 계단 응답은 한 번 오르면 내려오지 않으므로, 연속 조건은 물리적으로도 옳습니다.">시점을 수십 개 검사하면 우연히 넘는 경우가 반드시 생기기 때문에</button>
+    <button class="opt" data-ok="0" data-fb="측정기 고장은 다른 문제입니다. 여기서 막으려는 건 고장이 아니라 정상적인 무작위 흔들림이에요.">측정기가 가끔 고장 나서 이상한 값을 내기 때문에</button>
+  </div>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-idx="3">
+  <p class="q">3. 리포트에 <code>no_response</code>가 떴습니다. 이때 가장 올바른 다음 행동은?</p>
+  <div class="opts">
+    <button class="opt" data-ok="0" data-fb="이게 정확히 코드가 막으려는 실수입니다. 반응이 안 보이는 상황에서 이벤트만 늘리면 필요 개수가 천문학적으로 나옵니다(실제로 150만 건이라는 답이 나온 적이 있습니다).">더 긴 기간의 데이터를 받아 이벤트 수를 늘린다</button>
+    <button class="opt" data-ok="1" data-fb="정답입니다. no_response 는 반응 자체가 노이즈 위로 안 올라온다는 뜻이므로, 같은 크기의 조정을 아무리 많이 모아도 안 보입니다. 리포트가 함께 내주는 '검출 가능한 최소 반응 크기'를 보고 조정 폭을 그보다 크게 잡아야 합니다.">조정 폭을 더 크게 해서 반응 자체를 키운다</button>
+    <button class="opt" data-ok="0" data-fb="관측 창을 늘리는 건 '아직 오르는 중' 경고가 떴을 때의 처방입니다. 반응이 아예 안 보이는 것과는 다른 문제예요.">관측 창(post minutes)을 늘려서 다시 돌린다</button>
+    <button class="opt" data-ok="0" data-fb="문턱을 낮추면 우연히 튄 노이즈를 반응으로 잘못 읽게 됩니다. 판정 기준을 느슨하게 해서 원하는 답을 얻는 건 가장 위험한 선택이에요.">문턱선을 2σ에서 1σ로 낮춘다</button>
+  </div>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-idx="4">
+  <p class="q">4. <code>panel.py</code>가 빈 분을 직전 값으로 메울 때 상한(30분)을 두는 이유는?</p>
+  <div class="opts">
+    <button class="opt" data-ok="0" data-fb="메모리는 실질적인 이유가 아닙니다. 1분 간격 표는 원래 크지 않아요.">표가 너무 커져서 메모리가 부족해지기 때문에</button>
+    <button class="opt" data-ok="1" data-fb="정확합니다. 설비가 멈춰 기록이 끊긴 구간까지 메우면 변화가 전혀 없는 가짜 구간이 생기고, 그 구간이 σ를 실제보다 작게 만듭니다. σ는 모든 판정의 기준선이라, 거기가 낙관적으로 기울면 없는 반응을 있다고 말하게 됩니다.">기록이 끊긴 구간을 메우면 가짜 안정 구간이 생겨 σ를 실제보다 작게 만들기 때문에</button>
+    <button class="opt" data-ok="0" data-fb="lot 경계는 상한과 별개로 어떤 경우에도 넘지 않게 되어 있습니다. lot이 바뀌면 다른 물건이니까요.">lot 경계를 넘어가는 것을 막기 위해</button>
+    <button class="opt" data-ok="0" data-fb="30분은 관측 창(60분)과 직접 관련이 없습니다. 서로 다른 목적의 설정값이에요.">관측 창이 60분이므로 그 절반으로 맞춘 것</button>
+  </div>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-idx="5">
+  <p class="q">5. 노이즈 σ가 두 배로 커졌습니다. 같은 정밀도로 L을 재려면 표본은 몇 배가 필요할까요? (힌트: 필요 표본 수 식이 제곱 모양입니다)</p>
+  <div class="opts">
+    <button class="opt" data-ok="0" data-fb="아쉽습니다. σ가 식의 괄호 안에 있고 전체가 제곱되므로, σ가 2배면 필요 표본은 2배가 아니라 그 제곱만큼 늘어납니다.">2배</button>
+    <button class="opt" data-ok="1" data-fb="맞습니다. m > (2√2·σ·τ / 반응크기)² 에서 σ가 2배면 괄호 안이 2배, 제곱하면 4배입니다. 뒤집어 말하면 노이즈를 절반으로 줄이는 설비 개선은 표본 4배와 같은 값어치가 있다는 뜻이기도 합니다.">4배</button>
+    <button class="opt" data-ok="0" data-fb="너무 많습니다. 제곱이지 세제곱이 아니에요.">8배</button>
+    <button class="opt" data-ok="0" data-fb="σ는 분자에 있어서 커질수록 필요 표본이 늘어납니다. 줄어들지 않아요.">변하지 않는다</button>
+  </div>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-wrap" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">퀴즈에서 납득이 안 된 문항이 있으면 번호와 함께 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h2 id="next">8. 아직 없는 것</h2>
+
+<p>정직하게 적어 둡니다. 지금 리포트는 <strong>L·τ·T_s 같은 숫자만</strong> 내고, <strong>그 숫자를 뽑아낸 곡선 자체는 보여주지 않습니다</strong>. 코드 안에서 곡선을 계산은 하는데(<code>response_curve</code>), 그걸 쓰고 버립니다.</p>
+
+<div class="callout warn">
+  <span class="tag">이게 왜 아쉬운가</span>
+  <p>3.5절 그림을 떠올려 보세요. 그 곡선을 눈으로 보면 <strong>말이 되는 모양인지</strong>가 한눈에 들어옵니다. 계단처럼 한 번 오르고 마는지, 아니면 두 번 계단이 있는지, 올랐다가 다시 내려오는지 — 이런 건 <strong>곡선에서만 보입니다</strong>. "L = 8분"이라는 글자만 봐서는 그 8분이 예쁜 계단에서 나온 건지 엉망인 곡선에서 억지로 나온 건지 알 수가 없어요.</p>
+  <p>특히 <strong>진짜 데이터를 처음 돌리는 순간</strong>에 이게 제일 값어치가 있습니다. 가짜 데이터에는 정답지가 있지만 진짜 데이터에는 없으니까요.</p>
+</div>
+
+<p>그 밖에 지금 버전이 다루지 않는 것들:</p>
+
+<ul>
+  <li><strong>라인 속도별 L</strong> — 속도가 다르면 이송 시간도 다른데, 지금은 전부 섞어 하나의 L을 냅니다 (6장 첫 질문 참고).</li>
+  <li><strong>제품별 차이</strong> — 액체의 점도나 고형분이 다르면 τ가 달라질 수 있는데, 그 데이터가 아직 없습니다.</li>
+  <li><strong>이웃 구역으로 번지는 시간</strong> — 번지는 <em>크기</em>는 다른 코드가 다루지만, 번지는 데 걸리는 <em>시간</em>은 아직 아무도 재지 않았습니다.</li>
+</ul>
+
+<div class="callout key">
+  <span class="tag">한 문단 요약</span>
+  <p>손잡이를 돌린 순간 하나하나가 이미 실험입니다. 그 실험 수백 개를 <strong>돌린 순간에 맞춰 겹쳐 평균</strong>내면, 한 번으로는 노이즈에 묻혔던 계단 모양이 떠오릅니다. 거기서 <strong>L·τ·T_s</strong>를 읽습니다. 다만 <strong>표본이 그 숫자를 감당할 만큼 모였는지 먼저 따지고</strong>, 모자라면 숫자 대신 <strong>무엇이 얼마나 더 필요한지</strong>를 냅니다.</p>
+</div>
+
+<div class="qmemo" data-qid="next-steps" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">다음에 무엇을 먼저 하면 좋을지 의견이나 질문을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<p class="small" style="margin-top:48px;color:#8b857c;">관련 코드: <code>backend/app/coating/panel.py</code> · <code>backend/app/coating/response.py</code> · <code>backend/app/coating/report.py</code> — 테스트: <code>backend/tests/test_coating_panel.py</code> · <code>backend/tests/test_coating_response.py</code></p>
+
+</div>
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg">읽다가 궁금한 점을 질문 메모에 적고, 다 읽은 뒤 이 버튼을 누르세요.</span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-09-01-explanation-coating-dead-time.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\TestProject\\docs\\understanding\\2026-09-01-explanation-coating-dead-time.html';
+  });
+})();
+
+(function () {
+  document.querySelectorAll('.quiz').forEach(function (quiz) {
+    var fb = quiz.querySelector('.fb');
+    quiz.querySelectorAll('button.opt').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var ok = btn.dataset.ok === '1';
+        quiz.querySelectorAll('button.opt').forEach(function (b) {
+          b.disabled = true;
+          if (b.dataset.ok === '1') b.classList.add('right');
+        });
+        if (!ok) btn.classList.add('wrong');
+        fb.textContent = (ok ? '정답! ' : '아쉽네요. ') + btn.dataset.fb;
+        fb.className = 'fb show ' + (ok ? 'ok' : 'no');
+      });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
