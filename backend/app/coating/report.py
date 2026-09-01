@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from app.coating import dump as dump_mod
 from app.coating import events as ev_mod
 from app.coating import features, panel as panel_mod, parse, pivot, response
 from app.coating import schemas as S
@@ -24,22 +25,41 @@ from app.config import get_settings
 
 _MIN_EVENTS = 20  # Toeplitz 커널(2k+1개)을 견고하게 추정하는 하한
 
+# 덤프로 남기는 중간 산출물. 번호는 파이프라인 순서다 - 폴더를 열었을 때
+# 무엇이 무엇 다음인지가 파일 이름만으로 보여야 한다.
+#
+# 전체 changes 는 담지 않는다. Wet 이 매분 흔들려 수만 행이 되는데 그 안에서
+# 제어값 변경 몇 줄을 찾는 것은 덤프를 여는 목적과 반대다.
+DUMP_TABLES = (
+    "01_changes_control",
+    "02_events",
+    "03_event_deltas",
+    "04_events_settled",
+    "05_aligned",
+    "06_response_curve",
+)
+
 
 def profile_dataset(
-    csv_path, dict_path, encodings=None, force_encoding=None, *, source="csv", sheet=None
+    csv_path, dict_path, encodings=None, force_encoding=None, *,
+    source="csv", sheet=None, tables=None,
 ) -> dict:
     """경로를 받아 읽고 판정한다. 캐시를 거치지 않는 직통 경로다."""
     readings = parse.load_readings(
         csv_path, dict_path, encodings, force_encoding, source=source, sheet=sheet
     )
-    return profile_readings(readings)
+    return profile_readings(readings, tables=tables)
 
 
-def profile_readings(readings: pd.DataFrame) -> dict:
+def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict:
     """이미 읽은 readings 로 판정한다. 파일을 만지지 않는다.
 
     읽기와 판정을 떼어 놓으면 원본이 csv·xlsx·parquet 중 무엇이었든 같은 함수를
     지나간다 — 입력 형식마다 판정이 갈라지면 재현이 가장 어려운 버그가 된다.
+
+    `tables` 를 주면 중간 산출물을 거기 **담아만** 준다. 쓰는 것은 호출자와
+    dump.py 의 일이다 - 여기서 파일을 열기 시작하면 위 계약이 깨지고, 이 함수를
+    테스트에서 자유롭게 부를 수 없게 된다.
     """
     s = get_settings()
     deduped = pivot.dedupe_minute(readings)
@@ -49,6 +69,12 @@ def profile_readings(readings: pd.DataFrame) -> dict:
     wm = features.wet_mean_series(wet, valid)
 
     ev, dl = ev_mod.build_events(changes, s.coating_event_merge_minutes)
+    if tables is not None:
+        # 오염 표시가 붙기 **전** 의 이벤트다. 04 와 나란히 놓고 보면 어느 것이
+        # 왜 버려졌는지가 두 파일의 차이로 드러난다.
+        tables["01_changes_control"] = changes[changes[S.ITEM].isin(S.CONTROL_ITEM_IDS)]
+        tables["02_events"] = ev
+        tables["03_event_deltas"] = dl
     if not ev.empty:
         ev = ev_mod.annotate_settling(
             ev, wm, s.coating_settle_std_max,
@@ -59,6 +85,8 @@ def profile_readings(readings: pd.DataFrame) -> dict:
         )
     else:
         ds = pd.DataFrame(columns=features.GAP_DELTA_COLS)
+    if tables is not None:
+        tables["04_events_settled"] = ev
 
     dg = (
         ds[features.GAP_DELTA_COLS].to_numpy(dtype=float)
@@ -93,12 +121,12 @@ def profile_readings(readings: pd.DataFrame) -> dict:
         "missing_control_items": missing,
         "tuning_end": segment.tuning_end_last_change(changes).to_dict("records"),
     }
-    facts["dynamics"] = _dynamics_facts(readings, ev, dl, s)
+    facts["dynamics"] = _dynamics_facts(readings, ev, dl, s, tables)
     facts.update(_verdict(facts))
     return facts
 
 
-def _dynamics_facts(readings, ev, dl, s) -> dict:
+def _dynamics_facts(readings, ev, dl, s, tables=None) -> dict:
     """동특성 — "지연이 몇 분인가" 보다 "지연을 말할 수 있는가" 가 먼저다.
 
     표본이 모자란 채로 낸 L 은 숫자처럼 보여서 더 위험하다. 그래서 못 낼 때는
@@ -116,6 +144,11 @@ def _dynamics_facts(readings, ev, dl, s) -> dict:
     )
     curve = response.response_curve(aligned)
     dyn = response.dynamics(curve, sigma)
+    if tables is not None:
+        # 리포트가 내는 L·τ 는 이 두 표에서 나온 것이다. 숫자가 이상할 때
+        # 곡선을 직접 보는 것 말고는 확인할 방법이 없다.
+        tables["05_aligned"] = aligned
+        tables["06_response_curve"] = curve
     n_clean = int((~ev[S.CONTAMINATED].astype(bool)).sum()) if len(ev) else 0
     n_pairs = aligned.groupby([S.EVENT, S.ZONE]).ngroups if len(aligned) else 0
     # τ 를 아직 모를 때의 대입값. 관측 창의 절반을 쓴다 - 이보다 느린 반응은
@@ -283,6 +316,7 @@ def run(
     force_encoding=None,
     source=None,
     sheet=None,
+    dump=None,
 ) -> tuple[str, str]:
     s = get_settings()
     root = Path(s.resolved_coating_data_dir)
@@ -296,14 +330,43 @@ def run(
     source = parse.format_for(csv_path, source, s.coating_input_format)
     sheet = sheet or s.coating_xlsx_sheet or None
 
+    # 기본값 결정은 여기 한 곳이다(--input·--out 과 같은 관례). 인자가 None 이면
+    # '지정 안 함' 이고, 그때만 .env 를 본다.
+    want_dump = s.coating_dump_enabled if dump is None else bool(dump)
+    tables = {} if want_dump else None
+
     facts = profile_dataset(
-        csv_path, dict_path, encodings, force_encoding, source=source, sheet=sheet
+        csv_path, dict_path, encodings, force_encoding,
+        source=source, sheet=sheet, tables=tables,
     )
     md_path = out / "data_profile.md"
     html_path = out / "data_profile.html"
     md_path.write_text(render_markdown(facts), encoding="utf-8")
     html_path.write_text(render_html(facts), encoding="utf-8")
+    if tables is not None:
+        # 리포트 옆에 쌓는다. --out 하나로 산출물이 전부 따라오게 하려는 것이다.
+        dump_mod.write_tables(
+            tables,
+            dump_mod.new_run_dir(out / "dump"),
+            meta=_dump_meta(csv_path, source, sheet, s),
+        )
     return str(md_path), str(html_path)
+
+
+def _dump_meta(csv_path, source, sheet, s) -> dict:
+    """매니페스트에 적을 것 — 무엇을 읽었고 어떤 설정이 이 표들을 만들었나."""
+    return {
+        "input": str(csv_path),
+        "format": source,
+        "sheet": sheet or "(첫 시트)",
+        "event_merge_minutes": s.coating_event_merge_minutes,
+        "settle_window_minutes": s.coating_settle_window_minutes,
+        "settle_std_max": s.coating_settle_std_max,
+        "settle_max_wait_minutes": s.coating_settle_max_wait_minutes,
+        "panel_ffill_max_minutes": s.coating_panel_ffill_max_minutes,
+        "response_pre_minutes": s.coating_response_pre_minutes,
+        "response_post_minutes": s.coating_response_post_minutes,
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -344,6 +407,13 @@ def build_parser() -> argparse.ArgumentParser:
             "안 되면 COATING_CSV_ENCODINGS 후보를 차례로 시도한다."
         ),
     )
+    p.add_argument(
+        "--dump", action="store_const", const=True, default=None,
+        help=(
+            "중간 산출물(이벤트·정렬표·응답곡선)을 <out>/dump/시각/ 에 CSV 로 "
+            "남긴다. 생략하면 COATING_DUMP_ENABLED."
+        ),
+    )
     return p
 
 
@@ -380,6 +450,7 @@ def main(argv: list[str] | None = None) -> tuple[str, str]:
             force_encoding=args.encoding,
             source=source,
             sheet=args.sheet,
+            dump=args.dump,
         )
     except ValueError as e:
         # parse·excel_source 가 원인을 이미 문장으로 만들어 뒀다. 트레이스백을

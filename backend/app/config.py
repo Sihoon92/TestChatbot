@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     # 작게 나온다(실측: τ=20 을 post=60 으로 보면 15). 리포트가 '안정 도달' 을
     # 함께 내므로, False 가 뜨면 이 값을 늘린다.
     coating_response_post_minutes: int = 60
+    # 중간 산출물(이벤트·정렬표·응답곡선)을 <리포트 출력 폴더>/dump/시각/ 에
+    # CSV 로 남긴다. 기본은 꺼둔다 - 실데이터는 실행마다 수 MB 를 쌓는다.
+    # 검사용이지 캐시가 아니다: 아무도 다시 읽지 않는다(app/coating/dump.py).
+    coating_dump_enabled: bool = False
 
     @property
     def resolved_coating_input_path(self) -> str:
