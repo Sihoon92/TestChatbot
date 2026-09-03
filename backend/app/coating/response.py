@@ -301,3 +301,20 @@ def detectable_response(sigma: float, n_pairs: int) -> float:
     if not np.isfinite(sigma) or n_pairs < 1:
         return float("nan")
     return float(_SIGMA_K * sigma / np.sqrt(n_pairs))
+
+
+def implied_distance_m(dead_time_min: int | None, line_speed_mpm: float) -> float | None:
+    """L 을 다이~측정기 환산 거리(m)로 바꾼다. L 이 없으면 None.
+
+    추정된 L 이 맞는지 확인할 외부 기준이 이것 하나뿐이다. 순수 지연은 도포 지점의
+    종이가 측정기까지 이송되는 시간이므로 L × 라인 속도 = 그 거리이고, 그 거리가
+    설비에서 말이 되는 크기인지는 현장이 즉시 안다. 예컨대 L=8분이면 280m 인데,
+    다이~수분계가 280m 떨어져 있을 리 없다면 그 L 은 노이즈를 문 것이다
+    (_MIN_RUN 주석의 사고가 정확히 그 종류다).
+
+    판정에는 쓰지 않는다. 실제 거리를 모르는 상태에서 이 값으로 통과·탈락을
+    가르면, 검산자여야 할 것이 근거 없는 판정자가 된다.
+    """
+    if dead_time_min is None:
+        return None
+    return float(dead_time_min) * float(line_speed_mpm)

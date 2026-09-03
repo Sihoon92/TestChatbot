@@ -15,9 +15,11 @@
   item_id 숫자형 — 사전 조인(문자열 키)이 통째로 미매칭된다. 예외는 안 나고
                   '데이터에 없는 제어 항목' 목록만 길어진다.
 
-그리고 합친 뒤에도 **제품을 다시 가를 수 있어야 한다**. 라인 속도가 기종마다
-다르면 L 자체가 다른 물리량이라 합쳐서 낸 하나의 L 은 어느 기종에도 안 맞는데,
-그걸 확인하려면 product 열이 살아 있어야 한다. 요약이 제품별로 나눠 찍는 이유다.
+그리고 합친 뒤에도 **제품을 다시 가를 수 있어야 한다**. 라인 속도는 설비
+고정값이라 L 은 기종이 달라도 같지만(그래서 지연은 합쳐서 잰다), gain 은 다르고
+커널은 기종별 gain 이 같다고 강제한다. 영향행렬을 제품별로 보려면, 그리고 호기가
+다른 파일이 섞였는지 알려면 product 열이 살아 있어야 한다. 요약이 제품별로 나눠
+찍는 이유다.
 """
 from pathlib import Path
 
@@ -79,8 +81,8 @@ def test_merged_file_holds_every_row_of_both_sources(a48, b50, tmp_path):
 
 
 def test_product_survives_so_the_two_can_be_split_again(a48, b50, tmp_path):
-    """라인 속도가 기종마다 다르면 L 도 다르다. 합친 뒤 제품별로 다시 갈라
-    상승 에지를 비교할 수 있어야 하고, 그 유일한 단서가 이 열이다."""
+    """지연은 합쳐서 재도 되지만 gain 은 기종마다 다르다. 영향행렬을 제품별로
+    갈라 보려면, 그리고 호기가 다른 파일이 섞였는지 알려면 이 열이 유일한 단서다."""
     out = merge.merge_parquet([a48, b50], tmp_path / "merged.parquet")
     merged = pd.read_parquet(out)
 

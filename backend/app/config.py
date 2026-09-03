@@ -112,6 +112,11 @@ class Settings(BaseSettings):
     # 작게 나온다(실측: τ=20 을 post=60 으로 보면 15). 리포트가 '안정 도달' 을
     # 함께 내므로, False 가 뜨면 이 값을 늘린다.
     coating_response_post_minutes: int = 60
+    # 라인 속도(m/min). 설비 고정값이고 전 제품에 동일하게 적용된다.
+    # 쓰임은 판정이 아니라 검산이다: L x 이 값 = 다이~측정기 환산 거리이고, 그
+    # 거리가 설비에서 말이 되는 크기인지는 현장이 즉시 안다. 추정된 L 이 맞는지
+    # 확인할 외부 기준이 이것 하나뿐이다(app/coating/response.implied_distance_m).
+    coating_line_speed_mpm: float = 35.0
     # 중간 산출물(이벤트·정렬표·응답곡선)을 <리포트 출력 폴더>/dump/시각/ 에
     # CSV 로 남긴다. 기본은 꺼둔다 - 실데이터는 실행마다 수 MB 를 쌓는다.
     # 검사용이지 캐시가 아니다: 아무도 다시 읽지 않는다(app/coating/dump.py).

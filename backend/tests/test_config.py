@@ -115,3 +115,9 @@ def test_stage_dir_map_ignores_extra_colons():
 
     s = Settings(ingest_stage_dirs="MES:mes:extra,IQC:iqc")
     assert s.stage_dir_map == {"IQC": "iqc"}
+
+
+def test_coating_line_speed_default_is_35():
+    """라인 속도는 설비 고정값(전 제품 공통)이다. 기본값이 코드에 있어야
+    .env 에 그 줄이 없는 환경에서도 같은 값을 본다 — 설정의 단일 출처 규칙."""
+    assert Settings(_env_file=None).coating_line_speed_mpm == 35.0

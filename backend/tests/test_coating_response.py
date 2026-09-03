@@ -216,3 +216,21 @@ def test_empty_inputs_are_not_errors():
         pd.DataFrame(columns=[S.EVENT, S.LOT, response.LAG, S.ZONE,
                               response.D_GAP, response.RESPONSE])
     ).empty
+
+
+# ── 라인 속도 환산 ───────────────────────────────────────────────────────
+
+def test_implied_distance_converts_lag_by_line_speed():
+    """L 을 거리로 환산해야 사람이 상식으로 기각할 수 있다.
+
+    L 자체에는 참값이 없어 맞는지 확인할 방법이 없다. 라인 속도가 설비 고정값
+    (전 제품 공통)이므로 L×속도 = 다이~측정기 거리가 되고, 그 거리가 설비에서
+    말이 되는 크기인지는 현장이 즉시 안다. 노이즈를 문 L 을 걸러내는 유일한
+    외부 기준이다.
+    """
+    assert response.implied_distance_m(8, 35.0) == pytest.approx(280.0)
+
+
+def test_implied_distance_is_none_without_dead_time():
+    """L 을 못 냈으면 거리도 없다. 0 을 내면 '거리 0m' 라는 없는 사실이 생긴다."""
+    assert response.implied_distance_m(None, 35.0) is None

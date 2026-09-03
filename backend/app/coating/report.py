@@ -156,6 +156,12 @@ def _dynamics_facts(readings, ev, dl, s, tables=None) -> dict:
     tau_guess = dyn["tau"] or (s.coating_response_post_minutes / 2)
     return {
         "quiet_minutes": quiet_minutes,
+        # 환산은 순수 함수(response)가 하고 설정은 여기서 읽는다 - response.py 는
+        # 설정을 만지지 않는다는 경계를 지킨다.
+        "line_speed_mpm": s.coating_line_speed_mpm,
+        "implied_distance_m": response.implied_distance_m(
+            dyn["dead_time"], s.coating_line_speed_mpm
+        ),
         **dyn,
         **response.verdict(sigma, n_clean, n_pairs, dyn, tau_guess),
     }
@@ -210,6 +216,15 @@ def _dynamics_lines(d: dict) -> list[str]:
     lines.append(
         f"- **순수 지연 L = {d['dead_time']}분** — 조정 후 이 시간이 지나야 Wet 이 움직인다"
     )
+    dist, speed = d.get("implied_distance_m"), d.get("line_speed_mpm")
+    if dist is not None and speed:
+        # L 에는 참값이 없어 맞는지 확인할 방법이 없다. 라인 속도가 설비 고정값이므로
+        # 이 환산 거리만이 외부 기준이 된다 - 다이~측정기가 그만큼 떨어져 있을 리
+        # 없으면 그 L 은 노이즈를 문 것이다.
+        lines.append(
+            f"  - 환산 거리 {dist:,.0f} m (라인 속도 {speed:g} m/min, 설비 고정·전 제품 공통)"
+            " — 다이~측정기 실제 거리와 자릿수가 다르면 이 L 은 노이즈를 문 것이다."
+        )
     if d.get("tau") is not None:
         lines.append(f"- 시정수 τ = {d['tau']}분 (최종 변화의 63% 도달)")
     if d.get("settle") is not None:
@@ -287,8 +302,10 @@ def render_markdown(f: dict) -> str:
     if f["unknown_items"]:
         lines.append(f"- 사전에 없는 항목(사전 갱신 필요): {f['unknown_items']}")
     lines += [
-        "- 고형분(%) · 점도 · 라인 속도 · 호기: 같은 제어값이라도 이 값들이 다르면 "
+        "- 고형분(%) · 점도 · 호기: 같은 제어값이라도 이 값들이 다르면 "
         "L/L 이 달라지므로, 빠지면 모델이 설명 못 하는 분산으로 남는다.",
+        f"  - 라인 속도는 {f['dynamics']['line_speed_mpm']:g} m/min 고정(전 제품 공통)이라 "
+        "이 목록에서 뺐다. 값은 COATING_LINE_SPEED_MPM 이 정한다.",
         "- 제품별 목표 L/L 표준값과 스펙 상하한.",
         "",
     ]

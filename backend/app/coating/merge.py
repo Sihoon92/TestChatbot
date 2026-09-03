@@ -16,9 +16,11 @@ SEM 이 29% 줄어든다. 얻는 쪽이 압도적이다.
 막는 것들은 전부 예외 없이 조용히 틀리는 종류다 - 파일은 만들어지고 행 수도
 맞는데 결과만 틀린다.
 
-합친 뒤에도 제품을 다시 가를 수 있어야 한다. 라인 속도가 기종마다 다르면
-L = 거리/속도 자체가 다른 물리량이고, 그걸 확인하려면 응답 곡선을 제품별로
-갈라 상승 에지를 비교해야 한다. product 열이 그 유일한 단서다.
+합친 뒤에도 제품을 다시 가를 수 있어야 한다. 라인 속도는 설비 고정값이라
+(COATING_LINE_SPEED_MPM) L = 거리/속도 는 기종이 달라도 같은 값이다 - 지연을
+합쳐서 재는 근거가 여기 있다. 하지만 gain 은 그렇지 않고 커널은 기종별 gain 이
+같다고 강제하므로, 영향행렬은 제품별로 갈라 봐야 한다. 호기가 다른 파일이
+섞였는지 확인하는 것도 같은 열로 한다. product 열이 그 유일한 단서다.
 """
 import argparse
 from pathlib import Path
@@ -133,8 +135,8 @@ def summarize(merged: pd.DataFrame, out: Path, sources) -> str:
     """무엇이 합쳐졌는지 적는다 - 내용을 모르는 파일을 남기지 않는다.
 
     제품별로 나눠 찍는 것이 핵심이다. 이게 없으면 몇 달 뒤 "이 parquet 에 50S1 이
-    들어 있었나" 를 파일을 열어봐야 안다. 그리고 지연을 제품별로 비교하려면
-    애초에 무엇이 들어 있는지부터 알아야 한다.
+    들어 있었나" 를 파일을 열어봐야 안다. 그리고 gain 을 제품별로 보려면 애초에
+    무엇이 들어 있는지부터 알아야 한다.
     """
     size = Path(out).stat().st_size
     lines = [
@@ -154,7 +156,7 @@ def summarize(merged: pd.DataFrame, out: Path, sources) -> str:
         lines.append(
             "  ! 제품이 1종뿐이다. 합칠 이유가 없거나 product 열이 안 채워진 것이다."
         )
-        lines.append("    후자면 합친 뒤 두 기종을 다시 가를 수 없다 - 지연 비교가 불가능해진다.")
+        lines.append("    후자면 합친 뒤 두 기종을 다시 가를 수 없다 - gain 비교가 불가능해진다.")
     lines += _item_gap_lines(merged)
     return "\n".join(lines)
 

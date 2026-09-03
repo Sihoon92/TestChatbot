@@ -166,3 +166,40 @@ def test_missing_xlsx_input_points_at_the_setting(tmp_path, monkeypatch, capsys)
     assert "없는파일.xlsx" in message
     assert "COATING_INPUT_PATH" in message
 
+
+
+# ── 라인 속도 ────────────────────────────────────────────────────────────
+
+def _identifiable_facts(**over) -> dict:
+    """지연을 낸 상태의 동특성 facts. 샘플 픽스처는 이벤트가 0건이라 L 줄까지
+    가지 못하므로, 그 아래를 검사하려면 통과한 상태를 직접 만들어야 한다."""
+    d = {
+        "sigma": 0.004, "quiet_minutes": 1200, "n_events": 12, "n_pairs": 40,
+        "identifiable": True, "dead_time": 8, "tau": 10, "settle": 30,
+        "final": 0.12, "plateau_reached": True,
+        "line_speed_mpm": 35.0, "implied_distance_m": 280.0,
+    }
+    return {**d, **over}
+
+
+def test_dynamics_lines_convert_lag_to_distance():
+    """L 옆에 환산 거리가 없으면 그 숫자가 맞는지 아무도 확인할 수 없다.
+    라인 속도가 설비 고정값이므로 L×35 = 다이~측정기 거리이고, 그 거리가
+    말이 되는지는 현장이 즉시 안다."""
+    md = "\n".join(report._dynamics_lines(_identifiable_facts()))
+    assert "280" in md and "35" in md
+
+
+def test_data_request_does_not_ask_for_line_speed():
+    """라인 속도는 이미 아는 값이다. 계속 요구하면 이 리포트를 읽는 사람이
+    없는 데이터를 찾아 헤맨다."""
+    facts = report.profile_dataset(SAMPLE, DICT)
+    request = report.render_markdown(facts).split("## 추가 데이터 요청")[1]
+    assert "라인 속도 ·" not in request and "· 라인 속도" not in request
+
+
+def test_facts_carry_line_speed_from_settings():
+    """환산은 순수 함수가 하고 설정은 리포트가 읽는다 - response.py 는 설정을
+    만지지 않는다는 경계를 지키기 위한 것이다."""
+    facts = report.profile_dataset(SAMPLE, DICT)
+    assert facts["dynamics"]["line_speed_mpm"] == get_settings().coating_line_speed_mpm
