@@ -276,3 +276,211 @@ def test_cli_turns_validation_failure_into_a_sentence(tmp_path):
         merge.main(["--input", str(a), str(b), "--out", str(tmp_path / "merged.parquet")])
 
     assert "L1" in str(e.value)
+
+
+# ── 항목이 나뉘어 담긴 파일 합치기 (--mode items) ───────────────────────
+#
+# 같은 기종인데 MES 가 input 항목과 output 항목을 따로 뽑아 준 경우다. 기종
+# 병합과 축이 정반대다: 여기서는 **lot 이 겹치는 것이 정상**이고(같은 lot 을
+# 항목만 나눠 담았으므로), 대신 **항목이 겹치면 안 된다**.
+
+OS_GAP = "10030271"
+
+
+def _item_frame(lot, product, series, start="2026-02-01 09:00"):
+    """항목 몇 개만 담은 long 테이블. series 는 {item_id: [분별 값]}."""
+    t0 = pd.Timestamp(start)
+    rows = []
+    n = max(len(v) for v in series.values())
+    for m in range(n):
+        at = t0 + pd.Timedelta(minutes=m)
+        for item, values in series.items():
+            rows.append((lot, at, product, item, float(values[m])))
+    return pd.DataFrame(rows, columns=[S.LOT, S.AT, S.PRODUCT, S.ITEM, S.VALUE])
+
+
+@pytest.fixture
+def a_in(tmp_path):
+    """input 항목만 — gap 조정 1건(200 → 210)."""
+    return _write(tmp_path, "A_input.parquet", _item_frame(
+        "LA1", "BNB48X1",
+        {GAP1: [200, 200, 210, 210, 210], OS_GAP: [40, 40, 40, 40, 40]},
+    ))
+
+
+@pytest.fixture
+def a_out(tmp_path):
+    """output 항목만 — 같은 lot, 같은 분, Wet 만."""
+    return _write(tmp_path, "A_output.parquet", _item_frame(
+        "LA1", "BNB48X1", {WET1: [18.2, 18.2, 18.2, 18.4, 18.4]},
+    ))
+
+
+def test_items_mode_accepts_the_same_lot_in_both_files(a_in, a_out, tmp_path):
+    """기종 병합이라면 막았을 lot 중복이 여기서는 정상이다 - 같은 lot 을 항목만
+    나눠 담은 파일이기 때문이다."""
+    out = merge.merge_parquet(
+        [a_in, a_out], tmp_path / "A_all.parquet", mode="items"
+    )
+    merged = pd.read_parquet(out)
+
+    assert len(merged) == len(pd.read_parquet(a_in)) + len(pd.read_parquet(a_out))
+    assert set(merged[S.LOT]) == {"LA1"}
+    assert set(merged[S.ITEM]) == {GAP1, OS_GAP, WET1}
+
+
+def test_items_mode_result_is_one_analysable_dataset(a_in, a_out, tmp_path):
+    """합치는 목적. 따로 있을 때는 어느 쪽으로도 이벤트를 못 세지만, 합치면
+    입력 변경과 그 출력이 한 파일에 있으므로 판정이 돈다."""
+    out = merge.merge_parquet(
+        [a_in, a_out], tmp_path / "A_all.parquet", mode="items"
+    )
+    facts = report.profile_dataset(out, None, source="parquet")
+
+    assert facts["n_events"] == 1
+    assert facts["valid_zones"] == [1]
+
+
+def test_items_mode_refuses_conflicting_values_for_a_shared_item(tmp_path):
+    """같은 항목이 양쪽에 있고 값이 다르면 dedupe_minute 이 뒤 파일 값을 집는다.
+    행 수도 그대로고 예외도 안 나서 아무도 눈치채지 못한다."""
+    a = _write(tmp_path, "a.parquet", _item_frame(
+        "LA1", "BNB48X1", {GAP1: [200, 200], OS_GAP: [40, 40]}))
+    b = _write(tmp_path, "b.parquet", _item_frame(
+        "LA1", "BNB48X1", {WET1: [18.2, 18.2], OS_GAP: [55, 55]}))
+
+    with pytest.raises(ValueError, match="값이 파일마다 다르다"):
+        merge.merge_parquet([a, b], tmp_path / "m.parquet", mode="items")
+
+
+def test_items_mode_keeps_first_file_when_a_shared_item_agrees(tmp_path):
+    """겹치더라도 값이 같으면 무해하다 - dedupe 가 접어도 결과가 같다. 막지 않고
+    중복 행만 걷어낸다."""
+    a = _write(tmp_path, "a.parquet", _item_frame(
+        "LA1", "BNB48X1", {GAP1: [200, 200], OS_GAP: [40, 40]}))
+    b = _write(tmp_path, "b.parquet", _item_frame(
+        "LA1", "BNB48X1", {WET1: [18.2, 18.2], OS_GAP: [40, 40]}))
+
+    out = merge.merge_parquet([a, b], tmp_path / "m.parquet", mode="items")
+    merged = pd.read_parquet(out)
+
+    assert len(merged) == 6            # 8행 중 겹친 OS_GAP 2행이 빠진다
+    assert len(merged[merged[S.ITEM] == OS_GAP]) == 2
+
+
+def test_items_mode_refuses_product_mismatch_on_the_same_lot(tmp_path):
+    """한 lot 에 두 제품이 섞이면 lot_bounds 가 first() 로 하나만 집어 조용히
+    틀린다. '같은 기종' 이 이 모드의 전제다."""
+    a = _write(tmp_path, "a.parquet", _item_frame(
+        "LA1", "BNB48X1", {GAP1: [200, 200]}))
+    b = _write(tmp_path, "b.parquet", _item_frame(
+        "LA1", "BNB52X2", {WET1: [18.2, 18.2]}))
+
+    with pytest.raises(ValueError, match="product 가 파일마다 다르다"):
+        merge.merge_parquet([a, b], tmp_path / "m.parquet", mode="items")
+
+
+def test_items_mode_warns_when_no_lot_is_shared(tmp_path, capsys):
+    """lot 이 하나도 안 겹치면 잘못 짝지은 파일일 가능성이 높다. 다만 기간이
+    어긋나게 추출됐을 수도 있어 막지는 않는다."""
+    a = _write(tmp_path, "a.parquet", _item_frame(
+        "LA1", "BNB48X1", {GAP1: [200, 200]}))
+    b = _write(tmp_path, "b.parquet", _item_frame(
+        "LA2", "BNB48X1", {WET1: [18.2, 18.2]}))
+
+    out = merge.merge_parquet([a, b], tmp_path / "m.parquet", mode="items")
+    log = merge.log_path_for(out).read_text(encoding="utf-8")
+
+    assert "겹치는 lot 이 없다" in log
+
+
+def test_products_mode_is_the_default_and_still_refuses_lot_collision(a48, tmp_path):
+    """새 모드를 더해도 기존 호출은 그대로여야 한다."""
+    dupe = _write(tmp_path, "dupe.parquet", _lot_frame(
+        "LA1", "BNB50S1", [300, 300], [17.0, 17.0]))
+
+    with pytest.raises(ValueError, match="lot id 가 겹친다"):
+        merge.merge_parquet([a48, dupe], tmp_path / "m.parquet")
+
+
+# ── 로그 ────────────────────────────────────────────────────────────────
+#
+# 합치기는 행을 지우기도 한다(값이 같은 겹침). 무엇을 왜 지웠는지 파일에
+# 남지 않으면, 몇 달 뒤 이 parquet 의 행 수가 왜 두 원본의 합이 아닌지
+# 아무도 설명할 수 없다.
+
+def test_log_records_inputs_and_mode(a_in, a_out, tmp_path):
+    out = merge.merge_parquet(
+        [a_in, a_out], tmp_path / "A_all.parquet", mode="items"
+    )
+    log = merge.log_path_for(out).read_text(encoding="utf-8")
+
+    assert "모드: items" in log
+    assert "A_input.parquet" in log and "A_output.parquet" in log
+    assert "행 10" in log          # a_in 은 2항목 × 5분
+
+
+def test_log_names_every_check_that_ran(a_in, a_out, tmp_path):
+    """어느 검사가 돌았는지가 남아야 한다. 통과한 검사도 적는다 - '검사하지
+    않은 것' 과 '검사해서 통과한 것' 은 다른 사실이다."""
+    out = merge.merge_parquet(
+        [a_in, a_out], tmp_path / "A_all.parquet", mode="items"
+    )
+    log = merge.log_path_for(out).read_text(encoding="utf-8")
+
+    assert "## 검사" in log
+    assert "컬럼 구성" in log
+    assert "item_id" in log
+    assert "product" in log
+
+
+def test_log_records_removed_duplicate_rows_with_the_item_and_count(tmp_path):
+    """지운 행은 반드시 항목·건수와 함께 남긴다."""
+    a = _write(tmp_path, "a.parquet", _item_frame(
+        "LA1", "BNB48X1", {GAP1: [200, 200], OS_GAP: [40, 40]}))
+    b = _write(tmp_path, "b.parquet", _item_frame(
+        "LA1", "BNB48X1", {WET1: [18.2, 18.2], OS_GAP: [40, 40]}))
+
+    out = merge.merge_parquet([a, b], tmp_path / "m.parquet", mode="items")
+    log = merge.log_path_for(out).read_text(encoding="utf-8")
+
+    assert "## 처리" in log
+    assert OS_GAP in log
+    assert "2행" in log
+    assert "b.parquet" in log
+
+
+def test_log_reconciles_input_and_output_row_counts(tmp_path):
+    """정산이 맞지 않으면 합치기가 조용히 행을 잃은 것이다."""
+    a = _write(tmp_path, "a.parquet", _item_frame(
+        "LA1", "BNB48X1", {GAP1: [200, 200], OS_GAP: [40, 40]}))
+    b = _write(tmp_path, "b.parquet", _item_frame(
+        "LA1", "BNB48X1", {WET1: [18.2, 18.2], OS_GAP: [40, 40]}))
+
+    out = merge.merge_parquet([a, b], tmp_path / "m.parquet", mode="items")
+    log = merge.log_path_for(out).read_text(encoding="utf-8")
+
+    assert "## 정산" in log
+    assert "8행" in log and "2행" in log and "6행" in log
+
+
+def test_log_is_written_for_products_mode_too(a48, b50, tmp_path):
+    """축이 달라도 남는 기록은 같은 형식이어야 한다."""
+    out = merge.merge_parquet([a48, b50], tmp_path / "merged.parquet")
+    log = merge.log_path_for(out).read_text(encoding="utf-8")
+
+    assert "모드: products" in log
+    assert "제거한 행 없음" in log
+
+
+def test_cli_accepts_mode_items(a_in, a_out, tmp_path, capsys):
+    out_path = tmp_path / "A_all.parquet"
+    merge.main([
+        "--mode", "items",
+        "--input", str(a_in), str(a_out),
+        "--out", str(out_path),
+    ])
+    printed = capsys.readouterr().out
+
+    assert out_path.exists()
+    assert str(merge.log_path_for(out_path)) in printed
