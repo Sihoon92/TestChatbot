@@ -1,0 +1,1301 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>delta_samples — 이벤트 하나를 표 한 줄로 바꾸는 일</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --fg:#22201d; --muted:#6b6660; --line:#e2ded8;
+    --card:#ffffff; --accent:#2f6f4e; --accent-soft:#e8f2ec;
+    --in:#2b6cb0;       /* 입력 gap = 파랑 */
+    --in-soft:#e4eefa;
+    --out:#c05621;      /* 출력 Wet = 주황 */
+    --out-soft:#fdeee2;
+    --noise:#9a948c;    /* 노이즈 = 회색 */
+    --warn:#b03a2e; --warn-soft:#fbe9e7;
+    --ok:#2f6f4e;
+    --code-bg:#f4f2ee;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,-apple-system,sans-serif;
+    line-height:1.85; font-size:17px; word-break:keep-all;
+  }
+  .wrap{max-width:60rem; margin:0 auto; padding:0 1.2rem 8rem;}
+  header.hero{
+    padding:3.5rem 0 2rem; border-bottom:1px solid var(--line); margin-bottom:2rem;
+  }
+  header.hero .kicker{
+    color:var(--accent); font-weight:700; font-size:.85rem; letter-spacing:.08em;
+    text-transform:uppercase; margin-bottom:.6rem;
+  }
+  h1{font-size:2.05rem; line-height:1.35; margin:.2rem 0 .8rem; letter-spacing:-.02em;}
+  header.hero p.sub{color:var(--muted); font-size:1.05rem; margin:0;}
+  h2{
+    font-size:1.5rem; margin:3.5rem 0 1rem; padding-top:1.2rem;
+    border-top:2px solid var(--fg); letter-spacing:-.01em;
+  }
+  h3{font-size:1.15rem; margin:2.2rem 0 .6rem; color:var(--accent);}
+  h4{font-size:1rem; margin:1.6rem 0 .4rem;}
+  p{margin:.9rem 0;}
+  a{color:var(--accent);}
+  ul,ol{padding-left:1.4rem;}
+  li{margin:.45rem 0;}
+  code{
+    background:var(--code-bg); padding:.12em .38em; border-radius:.3em;
+    font-family:"Cascadia Mono",Consolas,"D2Coding",monospace; font-size:.9em;
+  }
+  pre{
+    background:var(--code-bg); border:1px solid var(--line); border-left:3px solid var(--in);
+    padding:1rem 1.1rem; border-radius:.5rem; overflow-x:auto;
+    white-space:pre; font-family:"Cascadia Mono",Consolas,"D2Coding",monospace;
+    font-size:.86rem; line-height:1.65;
+  }
+  pre.plain{border-left-color:var(--muted);}
+  pre.math{border-left-color:var(--out); background:#fffaf6; font-size:.95rem;}
+  pre.bad{border-left-color:var(--warn); background:#fdf4f2;}
+  nav.toc{
+    background:var(--card); border:1px solid var(--line); border-radius:.7rem;
+    padding:1.2rem 1.4rem; margin:2rem 0;
+  }
+  nav.toc h2{border:none; margin:0 0 .6rem; padding:0; font-size:1.05rem;}
+  nav.toc ol{margin:0; padding-left:1.3rem;}
+  nav.toc li{margin:.3rem 0;}
+  nav.toc a{text-decoration:none;}
+  nav.toc a:hover{text-decoration:underline;}
+  .call{
+    border-radius:.6rem; padding:1rem 1.2rem; margin:1.4rem 0;
+    border:1px solid var(--line); background:var(--card);
+  }
+  .call .tag{
+    display:inline-block; font-size:.72rem; font-weight:700; letter-spacing:.06em;
+    text-transform:uppercase; padding:.14rem .5rem; border-radius:.3rem; margin-bottom:.5rem;
+  }
+  .call.def{background:var(--accent-soft); border-color:#bcd9c9;}
+  .call.def .tag{background:var(--accent); color:#fff;}
+  .call.key{background:#fff8e6; border-color:#e8d9a8;}
+  .call.key .tag{background:#a67c00; color:#fff;}
+  .call.warn{background:var(--warn-soft); border-color:#f0c4bd;}
+  .call.warn .tag{background:var(--warn); color:#fff;}
+  .call p:first-of-type{margin-top:0;}
+  .call p:last-child{margin-bottom:0;}
+  figure{margin:1.8rem 0; padding:0;}
+  figure svg{display:block; width:100%; height:auto; max-width:100%;}
+  figcaption{
+    color:var(--muted); font-size:.87rem; margin-top:.6rem; text-align:center;
+    line-height:1.6;
+  }
+  .figbox{
+    background:var(--card); border:1px solid var(--line); border-radius:.6rem;
+    padding:1.1rem; overflow-x:auto;
+  }
+  .tablewrap{overflow-x:auto; margin:1.4rem 0;}
+  table{border-collapse:collapse; width:100%; font-size:.92rem; background:var(--card);}
+  th,td{border:1px solid var(--line); padding:.5rem .7rem; text-align:left;}
+  th{background:#f2efea; font-weight:700;}
+  td.num{text-align:right; font-variant-numeric:tabular-nums;}
+  tr.bad td{background:#fdf2f0;}
+  tr.good td{background:#f0f7f3;}
+  tr.win-b td{background:#f3f1ed;}
+  tr.win-a td{background:#fdf1e8;}
+  .terms{display:grid; grid-template-columns:repeat(auto-fill,minmax(15rem,1fr)); gap:.9rem; margin:1.5rem 0;}
+  .term{
+    background:var(--card); border:1px solid var(--line); border-radius:.6rem; padding:.9rem 1rem;
+  }
+  .term .w{font-weight:700; font-size:1rem; display:block; margin-bottom:.15rem;}
+  .term .r{color:var(--muted); font-size:.8rem; display:block; margin-bottom:.4rem;}
+  .term p{margin:.3rem 0 0; font-size:.9rem; line-height:1.65;}
+  .backlink{
+    background:var(--accent-soft); border:1px solid #bcd9c9; border-radius:.6rem;
+    padding:.9rem 1.1rem; margin:1.4rem 0; font-size:.93rem;
+  }
+  .qmemo{
+    border:2px dashed #c9c2b8; background:#f7f5f1; border-radius:.6rem;
+    padding:.9rem 1.1rem; margin:1.6rem 0;
+  }
+  .qmemo[data-status="answered"]{
+    border:2px solid var(--accent); background:var(--accent-soft);
+  }
+  .qmemo-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:.6rem; margin-bottom:.5rem;}
+  .qmemo-label{font-weight:700; font-size:.85rem; color:var(--accent);}
+  .qmemo-hint{font-size:.78rem; color:var(--muted);}
+  .qmemo-question{
+    min-height:2.6rem; background:#fff; border:1px solid var(--line); border-radius:.4rem;
+    padding:.55rem .7rem; font-size:.95rem; outline:none;
+  }
+  .qmemo-question:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(47,111,78,.12);}
+  .qmemo-question:empty:before{content:attr(data-placeholder); color:#a8a29a;}
+  .qmemo-answer{
+    margin-top:.7rem; padding:.7rem .9rem; background:#fff;
+    border-left:3px solid var(--accent); border-radius:.3rem; font-size:.93rem;
+  }
+  .qmemo-answer:before{
+    content:"답변"; display:block; font-size:.72rem; font-weight:700;
+    color:var(--accent); letter-spacing:.06em; margin-bottom:.3rem;
+  }
+  #qmemo-bar{
+    position:fixed; left:0; right:0; bottom:0; z-index:50;
+    background:rgba(255,255,255,.97); border-top:1px solid var(--line);
+    padding:.7rem 1.2rem; display:flex; align-items:center; gap:.9rem; flex-wrap:wrap;
+    box-shadow:0 -2px 12px rgba(0,0,0,.05);
+  }
+  #qmemo-save-btn{
+    background:var(--accent); color:#fff; border:none; border-radius:.4rem;
+    padding:.5rem 1rem; font-size:.9rem; font-weight:700; cursor:pointer;
+    font-family:inherit;
+  }
+  #qmemo-save-btn:hover{background:#255a3f;}
+  #qmemo-saymsg{font-size:.78rem; color:var(--muted); word-break:break-all;}
+  .quiz{
+    background:var(--card); border:1px solid var(--line); border-radius:.7rem;
+    padding:1.2rem 1.3rem; margin:1.5rem 0;
+  }
+  .quiz .q{font-weight:700; margin:0 0 .8rem;}
+  .quiz .opt{
+    display:block; width:100%; text-align:left; background:#fbfaf8;
+    border:1px solid var(--line); border-radius:.45rem; padding:.6rem .8rem;
+    margin:.4rem 0; font-size:.95rem; cursor:pointer; font-family:inherit;
+    color:var(--fg); line-height:1.6;
+  }
+  .quiz .opt:hover{background:#f2efea;}
+  .quiz .opt.correct{background:#e8f2ec; border-color:var(--accent); font-weight:600;}
+  .quiz .opt.wrong{background:var(--warn-soft); border-color:var(--warn);}
+  .quiz .fb{
+    margin-top:.7rem; padding:.7rem .9rem; border-radius:.4rem; font-size:.92rem;
+    display:none; line-height:1.7;
+  }
+  .quiz .fb.show{display:block;}
+  .quiz .fb.ok{background:var(--accent-soft); border-left:3px solid var(--accent);}
+  .quiz .fb.no{background:var(--warn-soft); border-left:3px solid var(--warn);}
+  .legend{display:flex; flex-wrap:wrap; gap:1rem; font-size:.85rem; color:var(--muted); margin:.8rem 0 0;}
+  .legend span{display:inline-flex; align-items:center; gap:.35rem;}
+  .swatch{width:.9rem; height:.9rem; border-radius:.2rem; display:inline-block;}
+  @media (max-width:640px){
+    body{font-size:16px;}
+    h1{font-size:1.6rem;}
+    h2{font-size:1.3rem;}
+    .wrap{padding:0 1rem 8rem;}
+  }
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <div class="kicker">Coating · Follow-up</div>
+  <h1>delta_samples — 이벤트 하나를 표 한 줄로 바꾸는 일</h1>
+  <p class="sub">before·after·settled_at 이 각각 무엇이고, ΔWet 은 왜 뺄셈 한 번이 아니라 창 평균의 차인가. 그리고 이 한 줄이 없으면 왜 영향행렬을 아예 시작할 수 없는가.</p>
+</header>
+
+<div class="backlink">
+  <strong>이 글이 나온 자리.</strong>
+  <a href="2026-09-02-explanation-coating-lag-gain-basics.html">지연·gain 기초편</a> 9장 「코드 지도」를 읽고 나온 질문에서 출발합니다.
+  <em>“features.delta_samples() 가 이해가 안 된다. before, after, settled_at 이 무엇인지, ΔWet 은 무엇인지, 이게 왜 필요한지.”</em>
+  기초편의 코드 지도 표에는 <code>features.py</code> 가 아예 빠져 있었습니다 — 그 누락 자체가 이 질문의 절반입니다.
+  이 글은 그 빈칸을 채웁니다.
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#place">delta_samples 는 어디에 서 있나</a></li>
+    <li><a href="#oneline">한 줄이 무엇인가 — 이벤트 하나 = 표 한 줄</a></li>
+    <li><a href="#anatomy">두 개의 시각, 두 개의 창</a></li>
+    <li><a href="#numbers">숫자로 따라가기 — 실제 실행 결과</a></li>
+    <li><a href="#why-window">왜 한 점끼리 빼지 않고 창 평균을 쓰나</a></li>
+    <li><a href="#why-need">이 한 줄은 어디로 가나 — 왜 필요한가</a></li>
+    <li><a href="#code">코드를 한 줄씩</a></li>
+    <li><a href="#defects">지금 이 코드가 조용히 틀리는 두 지점</a></li>
+    <li><a href="#quiz">이해했는지 확인하기</a></li>
+    <li><a href="#wrap">정리</a></li>
+  </ol>
+  <p style="margin:.9rem 0 0; font-size:.87rem; color:var(--muted);">
+    읽다가 막히는 곳마다 <strong>질문 메모</strong> 상자가 있습니다. 거기 적으면 이 브라우저에 자동 저장되고,
+    맨 아래 <strong>질문 저장</strong> 버튼을 누르면 질문이 박힌 사본이 <em>같은 파일 이름</em>으로 내려받아집니다.
+    원본 자리에 덮어쓴 뒤 Claude 에게 “질문에 답해줘” 라고 하면 됩니다.
+  </p>
+</nav>
+
+<main>
+
+<h2 id="place">1. delta_samples 는 어디에 서 있나</h2>
+
+<p>
+기초편에서 우리는 두 개의 질문을 갈라 두었습니다. <strong>“언제”</strong>(지연 L — 볼트를 돌리고 몇 분 뒤에
+종이가 반응하나)와 <strong>“얼마나”</strong>(gain — 그래서 두께가 얼마나 변하나). 앞의 것은
+<code>response.py</code> 가 맡고, 뒤의 것은 <code>model/profile.py</code> 가 맡습니다.
+</p>
+
+<p>
+그런데 <code>profile.py</code> 는 원본 데이터를 읽지 않습니다. 그것이 받는 것은 딱 두 개의 <strong>숫자 행렬</strong>입니다.
+</p>
+
+<pre class="math">Δwet = 영향행렬 × Δgap
+
+    Δgap  (n_events × 25)   내가 볼트를 얼마나 돌렸나
+    Δwet  (n_events × 25)   그래서 두께가 얼마나 변했나</pre>
+
+<p>
+원본은 “2026-01-31 19:00, lot L1, 항목 30030840, 값 110.0” 같은 <em>세로로 긴 로그</em>입니다.
+이걸 위의 두 행렬로 바꾸는 사람이 있어야 합니다. <strong>그 사람이 <code>features.delta_samples()</code> 입니다.</strong>
+</p>
+
+<figure>
+  <div class="figbox">
+    <svg viewBox="0 0 880 330" role="img" aria-label="파이프라인에서 delta_samples 의 위치">
+      <defs>
+        <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="#6b6660"/>
+        </marker>
+        <marker id="arw" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="#c05621"/>
+        </marker>
+      </defs>
+
+      <rect x="12" y="24" width="128" height="48" rx="7" fill="#fff" stroke="#e2ded8"/>
+      <text x="76" y="45" text-anchor="middle" font-size="13" font-weight="700" fill="#22201d">parse.py</text>
+      <text x="76" y="62" text-anchor="middle" font-size="11" fill="#6b6660">긴 로그 readings</text>
+
+      <rect x="12" y="112" width="128" height="48" rx="7" fill="#fff" stroke="#e2ded8"/>
+      <text x="76" y="133" text-anchor="middle" font-size="13" font-weight="700" fill="#22201d">pivot.py</text>
+      <text x="76" y="150" text-anchor="middle" font-size="11" fill="#6b6660">바뀐 시점만 남김</text>
+
+      <rect x="185" y="112" width="150" height="48" rx="7" fill="#e4eefa" stroke="#2b6cb0"/>
+      <text x="260" y="133" text-anchor="middle" font-size="13" font-weight="700" fill="#2b6cb0">events.py</text>
+      <text x="260" y="150" text-anchor="middle" font-size="11" fill="#2b6cb0">이벤트 + settled_at</text>
+
+      <rect x="185" y="24" width="150" height="48" rx="7" fill="#fdeee2" stroke="#c05621"/>
+      <text x="260" y="45" text-anchor="middle" font-size="13" font-weight="700" fill="#c05621">features.wet_wide</text>
+      <text x="260" y="62" text-anchor="middle" font-size="11" fill="#c05621">Wet 25칸 wide 표</text>
+
+      <rect x="382" y="60" width="176" height="76" rx="9" fill="#fff8e6" stroke="#a67c00" stroke-width="2.5"/>
+      <text x="470" y="86" text-anchor="middle" font-size="14" font-weight="700" fill="#22201d">features.delta_samples</text>
+      <text x="470" y="106" text-anchor="middle" font-size="11.5" fill="#6b6660">이벤트 하나 → 표 한 줄</text>
+      <text x="470" y="123" text-anchor="middle" font-size="11.5" fill="#6b6660">(Δgap 25칸, ΔWet 25칸)</text>
+
+      <rect x="612" y="18" width="150" height="52" rx="7" fill="#fff" stroke="#e2ded8"/>
+      <text x="687" y="39" text-anchor="middle" font-size="12.5" font-weight="700" fill="#22201d">profile.fit_kernel</text>
+      <text x="687" y="56" text-anchor="middle" font-size="11" fill="#6b6660">Toeplitz 커널 g</text>
+
+      <rect x="612" y="88" width="150" height="52" rx="7" fill="#fff" stroke="#e2ded8"/>
+      <text x="687" y="109" text-anchor="middle" font-size="12.5" font-weight="700" fill="#22201d">profile.rank_diag</text>
+      <text x="687" y="126" text-anchor="middle" font-size="11" fill="#6b6660">2차 관문 — 유효 랭크</text>
+
+      <rect x="612" y="158" width="150" height="52" rx="7" fill="#fff" stroke="#e2ded8"/>
+      <text x="687" y="179" text-anchor="middle" font-size="12.5" font-weight="700" fill="#22201d">report.py</text>
+      <text x="687" y="196" text-anchor="middle" font-size="11" fill="#6b6660">학습 가능한가 판정</text>
+
+      <path d="M76,72 L76,112" stroke="#6b6660" fill="none" marker-end="url(#ar)"/>
+      <path d="M140,48 L185,48" stroke="#6b6660" fill="none" marker-end="url(#ar)"/>
+      <path d="M140,136 L185,136" stroke="#6b6660" fill="none" marker-end="url(#ar)"/>
+      <path d="M335,48 C360,48 360,80 382,80" stroke="#c05621" fill="none" marker-end="url(#arw)"/>
+      <path d="M335,136 C360,136 360,116 382,116" stroke="#2b6cb0" fill="none" marker-end="url(#ar)"/>
+      <path d="M558,88 C585,88 585,44 612,44" stroke="#6b6660" fill="none" marker-end="url(#ar)"/>
+      <path d="M558,106 L612,110" stroke="#6b6660" fill="none" marker-end="url(#ar)"/>
+      <path d="M558,124 C585,124 585,180 612,182" stroke="#6b6660" fill="none" marker-end="url(#ar)"/>
+
+      <text x="352" y="42" font-size="10.5" fill="#c05621">Wet(출력)</text>
+      <text x="341" y="163" font-size="10.5" fill="#2b6cb0">Δgap(입력)·언제</text>
+
+      <rect x="12" y="248" width="750" height="62" rx="7" fill="#f7f5f1" stroke="#c9c2b8" stroke-dasharray="4 3"/>
+      <text x="28" y="270" font-size="12" font-weight="700" fill="#22201d">병목은 여기다.</text>
+      <text x="28" y="290" font-size="12" fill="#6b6660">오른쪽 세 상자는 전부 delta_samples 의 출력만 본다. 이 함수가 0줄을 내면 커널도 랭크도 리포트도 전부 빈손이 된다.</text>
+    </svg>
+  </div>
+  <figcaption>
+    <code>delta_samples</code> 는 <span style="color:#2b6cb0">입력(Δgap)</span> 과
+    <span style="color:#c05621">출력(ΔWet)</span> 이 처음 한 표에서 만나는 지점입니다.
+    기초편 코드 지도에 <code>features.py</code> 가 없었던 것은 바로 이 합류점이 지도에서 빠져 있었다는 뜻입니다.
+  </figcaption>
+</figure>
+
+<div class="call def">
+  <span class="tag">한 문장 정의</span>
+  <p>
+    <code>delta_samples()</code> 는 <strong>“작업자가 볼트를 만진 사건” 하나를 “입력 25칸 + 출력 25칸짜리 표 한 줄”로 바꾸는 함수</strong>입니다.
+    깨끗한 이벤트가 40건이면 40줄짜리 표가 나오고, 그 표가 곧 영향행렬의 학습 데이터입니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="fu-place" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="oneline">2. 한 줄이 무엇인가 — 이벤트 하나 = 표 한 줄</h2>
+
+<p>
+먼저 결과부터 봅시다. 어떤 작업자가 <strong>2026-01-31 19:00 에 3번 zone 볼트를 +10 만큼 열었다</strong>고 합시다.
+<code>delta_samples</code> 가 만들어내는 것은 이런 한 줄입니다.
+</p>
+
+<figure>
+  <div class="figbox">
+    <svg viewBox="0 0 860 260" role="img" aria-label="한 이벤트가 만드는 Δgap 25칸과 ΔWet 25칸">
+      <text x="14" y="26" font-size="12.5" font-weight="700" fill="#2b6cb0">Δgap — 내가 한 일 (입력, 25칸)</text>
+      <text x="640" y="26" font-size="11" fill="#6b6660">dg1 … dg25</text>
+
+      <g>
+        <rect x="14" y="36" width="27" height="34" fill="#f3f6fb" stroke="#c9d6e6"/><text x="27.5" y="58" text-anchor="middle" font-size="10" fill="#8a97a8">0</text>
+        <rect x="41" y="36" width="27" height="34" fill="#f3f6fb" stroke="#c9d6e6"/><text x="54.5" y="58" text-anchor="middle" font-size="10" fill="#8a97a8">0</text>
+        <rect x="68" y="36" width="27" height="34" fill="#2b6cb0" stroke="#1e4e80"/><text x="81.5" y="58" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">+10</text>
+        <rect x="95" y="36" width="27" height="34" fill="#f3f6fb" stroke="#c9d6e6"/><text x="108.5" y="58" text-anchor="middle" font-size="10" fill="#8a97a8">0</text>
+        <rect x="122" y="36" width="27" height="34" fill="#f3f6fb" stroke="#c9d6e6"/><text x="135.5" y="58" text-anchor="middle" font-size="10" fill="#8a97a8">0</text>
+        <rect x="149" y="36" width="27" height="34" fill="#f3f6fb" stroke="#c9d6e6"/><text x="162.5" y="58" text-anchor="middle" font-size="10" fill="#8a97a8">0</text>
+        <rect x="176" y="36" width="27" height="34" fill="#f3f6fb" stroke="#c9d6e6"/><text x="189.5" y="58" text-anchor="middle" font-size="10" fill="#8a97a8">0</text>
+        <rect x="203" y="36" width="27" height="34" fill="#f3f6fb" stroke="#c9d6e6"/><text x="216.5" y="58" text-anchor="middle" font-size="10" fill="#8a97a8">0</text>
+        <rect x="230" y="36" width="27" height="34" fill="#f3f6fb" stroke="#c9d6e6"/><text x="243.5" y="58" text-anchor="middle" font-size="10" fill="#8a97a8">0</text>
+        <rect x="257" y="36" width="27" height="34" fill="#f3f6fb" stroke="#c9d6e6"/><text x="270.5" y="58" text-anchor="middle" font-size="10" fill="#8a97a8">0</text>
+        <rect x="284" y="36" width="378" height="34" fill="#f3f6fb" stroke="#c9d6e6"/>
+        <text x="473" y="58" text-anchor="middle" font-size="11" fill="#8a97a8">나머지 15칸 전부 0 — 만지지 않았다는 정보도 데이터다</text>
+      </g>
+      <text x="27.5" y="84" text-anchor="middle" font-size="9.5" fill="#6b6660">z1</text>
+      <text x="81.5" y="84" text-anchor="middle" font-size="9.5" font-weight="700" fill="#2b6cb0">z3</text>
+      <text x="135.5" y="84" text-anchor="middle" font-size="9.5" fill="#6b6660">z5</text>
+
+      <text x="14" y="126" font-size="12.5" font-weight="700" fill="#c05621">ΔWet — 종이가 답한 것 (출력, 25칸)</text>
+      <text x="640" y="126" font-size="11" fill="#6b6660">dw1 … dw25</text>
+
+      <g>
+        <rect x="14" y="136" width="27" height="34" fill="#fdf6f1" stroke="#eccdb8"/><text x="27.5" y="158" text-anchor="middle" font-size="9.5" fill="#b08a6a">−0.01</text>
+        <rect x="41" y="136" width="27" height="34" fill="#f7cfae" stroke="#c05621"/><text x="54.5" y="158" text-anchor="middle" font-size="9.5" fill="#7a3610">+0.09</text>
+        <rect x="68" y="136" width="27" height="34" fill="#c05621" stroke="#8a3c15"/><text x="81.5" y="158" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">+0.30</text>
+        <rect x="95" y="136" width="27" height="34" fill="#f7cfae" stroke="#c05621"/><text x="108.5" y="158" text-anchor="middle" font-size="9.5" fill="#7a3610">+0.11</text>
+        <rect x="122" y="136" width="27" height="34" fill="#fdf6f1" stroke="#eccdb8"/><text x="135.5" y="158" text-anchor="middle" font-size="9.5" fill="#b08a6a">−0.00</text>
+        <rect x="149" y="136" width="27" height="34" fill="#fdf6f1" stroke="#eccdb8"/><text x="162.5" y="158" text-anchor="middle" font-size="9.5" fill="#b08a6a">…</text>
+        <rect x="176" y="136" width="486" height="34" fill="#fdf6f1" stroke="#eccdb8"/>
+        <text x="419" y="158" text-anchor="middle" font-size="11" fill="#b08a6a">멀리 떨어진 zone 은 노이즈 수준에서 흔들릴 뿐</text>
+      </g>
+
+      <path d="M81.5,92 L81.5,130" stroke="#9a948c" stroke-dasharray="3 3" fill="none"/>
+      <text x="92" y="112" font-size="11" fill="#6b6660">3번 볼트 하나를 돌렸는데 2·4번도 따라 움직인다 — 이 “퍼짐 모양”이 곧 커널이다</text>
+
+      <rect x="14" y="196" width="648" height="48" rx="6" fill="#f7f5f1" stroke="#c9c2b8" stroke-dasharray="4 3"/>
+      <text x="30" y="216" font-size="11.5" fill="#22201d"><tspan font-weight="700">이 50개 숫자가 한 줄이다.</tspan> 여기에 event_id · lot_id · worked_at 을 붙이면 표의 한 행이 완성된다.</text>
+      <text x="30" y="234" font-size="11.5" fill="#6b6660">깨끗한 이벤트가 40건이면 40행. 그 표 하나가 영향행렬 학습에 들어가는 전부다.</text>
+    </svg>
+  </div>
+  <figcaption>
+    이벤트 하나가 만드는 한 줄. <span style="color:#2b6cb0">파랑</span>은 사람이 한 일,
+    <span style="color:#c05621">주황</span>은 종이가 답한 것. 위 숫자는 뒤에서 실제로 코드를 돌려 얻은 값입니다.
+  </figcaption>
+</figure>
+
+<div class="call key">
+  <span class="tag">이름의 뜻</span>
+  <p>
+    <code>d</code> 는 델타(Δ, 변화량)입니다. <code>dg3</code> = <strong>d</strong>elta <strong>g</strong>ap of zone <strong>3</strong>,
+    <code>dw3</code> = <strong>d</strong>elta <strong>w</strong>et of zone <strong>3</strong>.
+    코드에서는 <code>GAP_DELTA_COLS = ["dg1"…"dg25"]</code>, <code>WET_DELTA_COLS = ["dw1"…"dw25"]</code> 로 고정돼 있습니다.
+  </p>
+  <p style="margin-top:.6rem">
+    “델타 샘플”이라는 이름은 <strong>절대 샘플</strong>과 짝입니다. 절대 샘플은 “지금 상태가 이러면 두께가 얼마”(레벨 모델용),
+    델타 샘플은 “이만큼 바꿨더니 이만큼 변했다”(영향행렬용). 같은 원본에서 두 가지 표를 뽑습니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="fu-oneline" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="anatomy">3. 두 개의 시각, 두 개의 창</h2>
+
+<p>
+이제 질문의 핵심입니다. <code>before</code>, <code>after</code>, <code>settled_at</code> 이 각각 무엇인가.
+답은 그림 하나로 끝납니다 — <strong>시간 축 위에 점 두 개와 상자 두 개</strong>가 있을 뿐입니다.
+</p>
+
+<figure>
+  <div class="figbox">
+    <svg viewBox="0 0 880 340" role="img" aria-label="before 창, worked_at, 순수지연, settled_at, after 창의 시간 축 해부">
+      <defs>
+        <marker id="a2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="#22201d"/>
+        </marker>
+        <marker id="a2s" markerWidth="9" markerHeight="9" refX="1" refY="4.5" orient="auto">
+          <path d="M9,0 L0,4.5 L9,9 z" fill="#22201d"/>
+        </marker>
+      </defs>
+
+      <!-- 창 -->
+      <rect x="145" y="76" width="85" height="164" fill="#9a948c" fill-opacity="0.13" stroke="#9a948c" stroke-dasharray="4 3"/>
+      <rect x="655" y="76" width="85" height="164" fill="#c05621" fill-opacity="0.13" stroke="#c05621" stroke-dasharray="4 3"/>
+      <!-- 순수지연 구간 -->
+      <rect x="230" y="76" width="136" height="164" fill="#2b6cb0" fill-opacity="0.05"/>
+
+      <!-- 축 -->
+      <line x1="50" y1="240" x2="850" y2="240" stroke="#22201d" stroke-width="1.4"/>
+      <text x="850" y="262" text-anchor="end" font-size="11" fill="#6b6660">시간 (1분 눈금)</text>
+
+      <!-- 눈금 -->
+      <g font-size="10.5" fill="#6b6660" text-anchor="middle">
+        <line x1="145" y1="240" x2="145" y2="246" stroke="#9a948c"/><text x="145" y="259">18:55</text>
+        <line x1="230" y1="240" x2="230" y2="246" stroke="#9a948c"/><text x="230" y="259">19:00</text>
+        <line x1="366" y1="240" x2="366" y2="246" stroke="#9a948c"/><text x="366" y="259">19:08</text>
+        <line x1="655" y1="240" x2="655" y2="246" stroke="#9a948c"/><text x="655" y="259">19:25</text>
+        <line x1="740" y1="240" x2="740" y2="246" stroke="#9a948c"/><text x="740" y="259">19:30</text>
+      </g>
+
+      <!-- 측정점(노이즈) -->
+      <g fill="#9a948c">
+        <circle cx="62" cy="212" r="2.2"/><circle cx="79" cy="207" r="2.2"/><circle cx="96" cy="213" r="2.2"/>
+        <circle cx="113" cy="206" r="2.2"/><circle cx="130" cy="211" r="2.2"/><circle cx="147" cy="215" r="2.2"/>
+        <circle cx="164" cy="206" r="2.2"/><circle cx="181" cy="203" r="2.2"/><circle cx="198" cy="212" r="2.2"/>
+        <circle cx="215" cy="208" r="2.2"/><circle cx="232" cy="205" r="2.2"/><circle cx="249" cy="214" r="2.2"/>
+        <circle cx="266" cy="207" r="2.2"/><circle cx="283" cy="211" r="2.2"/><circle cx="300" cy="204" r="2.2"/>
+        <circle cx="317" cy="213" r="2.2"/><circle cx="334" cy="208" r="2.2"/><circle cx="351" cy="210" r="2.2"/>
+        <circle cx="368" cy="206" r="2.2"/><circle cx="385" cy="190" r="2.2"/><circle cx="402" cy="173" r="2.2"/>
+        <circle cx="419" cy="160" r="2.2"/><circle cx="436" cy="150" r="2.2"/><circle cx="453" cy="140" r="2.2"/>
+        <circle cx="470" cy="134" r="2.2"/><circle cx="487" cy="129" r="2.2"/><circle cx="504" cy="125" r="2.2"/>
+        <circle cx="521" cy="122" r="2.2"/><circle cx="538" cy="118" r="2.2"/><circle cx="555" cy="117" r="2.2"/>
+        <circle cx="572" cy="114" r="2.2"/><circle cx="589" cy="116" r="2.2"/><circle cx="606" cy="112" r="2.2"/>
+        <circle cx="623" cy="115" r="2.2"/><circle cx="640" cy="110" r="2.2"/><circle cx="657" cy="113" r="2.2"/>
+        <circle cx="674" cy="108" r="2.2"/><circle cx="691" cy="114" r="2.2"/><circle cx="708" cy="109" r="2.2"/>
+        <circle cx="725" cy="112" r="2.2"/><circle cx="742" cy="107" r="2.2"/><circle cx="759" cy="113" r="2.2"/>
+        <circle cx="776" cy="110" r="2.2"/><circle cx="793" cy="108" r="2.2"/><circle cx="810" cy="112" r="2.2"/>
+      </g>
+      <!-- 참 곡선 -->
+      <path d="M50,210 L366,210 L383,188 L400,172 L434,148 L468,133 L502,125 L570,116 L655,112 L850,110"
+            fill="none" stroke="#c05621" stroke-width="2.4"/>
+
+      <!-- 평균 수평선 -->
+      <line x1="145" y1="210" x2="300" y2="210" stroke="#22201d" stroke-dasharray="5 4" stroke-width="1.3"/>
+      <line x1="600" y1="111" x2="800" y2="111" stroke="#22201d" stroke-dasharray="5 4" stroke-width="1.3"/>
+
+      <!-- ΔWet 화살표 -->
+      <line x1="800" y1="111" x2="800" y2="210" stroke="#22201d" stroke-width="1.6"
+            marker-start="url(#a2s)" marker-end="url(#a2)"/>
+      <text x="812" y="150" font-size="12" font-weight="700" fill="#22201d">ΔWet</text>
+      <text x="812" y="167" font-size="11" fill="#6b6660">= after 평균</text>
+      <text x="812" y="182" font-size="11" fill="#6b6660">− before 평균</text>
+
+      <!-- 세로 마커 -->
+      <line x1="230" y1="60" x2="230" y2="248" stroke="#2b6cb0" stroke-width="2"/>
+      <line x1="655" y1="60" x2="655" y2="248" stroke="#2f6f4e" stroke-width="2"/>
+
+      <text x="234" y="46" font-size="12.5" font-weight="700" fill="#2b6cb0">worked_at (19:00)</text>
+      <text x="234" y="62" font-size="11" fill="#2b6cb0">볼트를 돌린 순간</text>
+      <text x="651" y="46" text-anchor="end" font-size="12.5" font-weight="700" fill="#2f6f4e">settled_at (19:25)</text>
+      <text x="651" y="62" text-anchor="end" font-size="11" fill="#2f6f4e">다시 잠잠해진 순간</text>
+
+      <text x="187" y="96" text-anchor="middle" font-size="12" font-weight="700" fill="#5a544c">before 창</text>
+      <text x="187" y="112" text-anchor="middle" font-size="10.5" fill="#6b6660">5분 · 6점</text>
+      <text x="697" y="96" text-anchor="middle" font-size="12" font-weight="700" fill="#c05621">after 창</text>
+      <text x="697" y="112" text-anchor="middle" font-size="10.5" fill="#c05621">5분 · 6점</text>
+
+      <text x="298" y="232" text-anchor="middle" font-size="10.5" fill="#2b6cb0">순수지연 L</text>
+      <text x="298" y="222" text-anchor="middle" font-size="10.5" fill="#2b6cb0">아직 아무 일도</text>
+
+      <rect x="50" y="284" width="800" height="44" rx="6" fill="#f7f5f1" stroke="#c9c2b8" stroke-dasharray="4 3"/>
+      <text x="66" y="304" font-size="11.5" fill="#22201d"><tspan font-weight="700">핵심:</tspan> delta_samples 는 곡선 전체를 쓰지 않는다. 양 끝의 <tspan font-weight="700">평평한 두 구간만</tspan> 보고 그 높이 차를 잰다.</text>
+      <text x="66" y="321" font-size="11.5" fill="#6b6660">가운데 올라가는 모양(언제·얼마나 빨리)은 response.py 의 몫이다. 여기서는 “최종적으로 얼마나”만 묻는다.</text>
+    </svg>
+  </div>
+  <figcaption>
+    회색 점은 1분마다 찍히는 실제 수분계 측정값(노이즈 포함), 주황 곡선은 그 뒤에 숨은 참값입니다.
+    <code>delta_samples</code> 가 계산하는 것은 <strong>왼쪽 상자의 평균 높이</strong>와 <strong>오른쪽 상자의 평균 높이</strong>의 차, 오직 그것뿐입니다.
+  </figcaption>
+</figure>
+
+<div class="terms">
+  <div class="term">
+    <span class="w">worked_at</span>
+    <span class="r">이벤트가 일어난 시각 · 코드의 <code>e[S.AT]</code></span>
+    <p>작업자가 볼트를 돌린 순간. 2분 안에 여러 볼트를 만졌으면 한 이벤트로 묶고 <strong>그중 가장 이른 시각</strong>을 씁니다(<code>events.build_events</code> 의 <code>min</code>).</p>
+  </div>
+  <div class="term">
+    <span class="w">before</span>
+    <span class="r">조정 직전 5분의 zone별 평균</span>
+    <p><code>[worked_at − 5분, worked_at]</code> 구간, 양 끝 포함이라 <strong>6개 점</strong>. “원래 두께가 얼마였나”의 기준선입니다.</p>
+  </div>
+  <div class="term">
+    <span class="w">settled_at</span>
+    <span class="r">정착 시각 · <code>events.annotate_settling</code> 이 붙임</span>
+    <p>조정 이후 <strong>Wet 평균의 이동표준편차가 처음으로 기준(0.02) 아래로 내려간 시각</strong>. “이제 다시 잠잠해졌다”는 판정입니다.</p>
+  </div>
+  <div class="term">
+    <span class="w">after</span>
+    <span class="r">정착 직후 5분의 zone별 평균</span>
+    <p><code>[settled_at, settled_at + 5분]</code> 구간, 역시 <strong>6개 점</strong>. “다 끝난 뒤 두께가 얼마인가”입니다.</p>
+  </div>
+  <div class="term">
+    <span class="w">ΔWet (dw1…dw25)</span>
+    <span class="r">출력 변화량 · 단위는 Wet 그대로</span>
+    <p><strong>after 평균 − before 평균</strong>, zone 마다 하나씩 25개. “이번 조정으로 두께가 결국 얼마나 변했나”.</p>
+  </div>
+  <div class="term">
+    <span class="w">Δgap (dg1…dg25)</span>
+    <span class="r">입력 변화량 · <code>event_deltas</code> 에서 옴</span>
+    <p>볼트를 돌린 양. 만진 zone 만 값이 있고 <strong>나머지는 0</strong>입니다. 0 은 결측이 아니라 “안 만졌다”는 사실입니다.</p>
+  </div>
+</div>
+
+<div class="call key">
+  <span class="tag">왜 before 창이 worked_at 을 포함하나</span>
+  <p>
+    코드는 <code>at &gt;= start</code> <strong>and</strong> <code>at &lt;= end</code> 로 양 끝을 포함합니다. 그래서 19:00 측정값 자체가 before 에 들어갑니다.
+    조정한 그 순간이 “조정 전” 평균에 들어가는 게 이상해 보이지만, <strong>순수지연이 있기 때문에 괜찮습니다</strong> —
+    19:00 에 볼트를 돌려도 그 종이가 수분계에 도착하는 것은 8분 뒤입니다. 19:00 의 측정값은 아직 옛날 상태입니다.
+  </p>
+  <p style="margin-top:.6rem">
+    거꾸로 말하면 <strong>지연이 0인 공정이었다면 이 한 점이 기준선을 오염시킵니다.</strong>
+    이 코드가 지연 있는 공정을 전제로 쓰였다는 흔적이 이런 데 남아 있습니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="fu-anatomy" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">위 시간축 그림에서 헷갈리는 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="numbers">4. 숫자로 따라가기 — 실제 실행 결과</h2>
+
+<p>
+말로만 하면 남는 게 없으니 실제로 돌려 봅시다. 아래는 <strong>진짜 <code>features.delta_samples()</code> 를 호출해서 얻은 값</strong>입니다
+(설명을 위해 유효 zone 을 5개로 줄인 합성 데이터 — 참값을 알아야 맞았는지 확인할 수 있으므로 정답을 심어 두었습니다).
+</p>
+
+<pre class="plain">심어 둔 참값
+  기본 두께        18.20
+  19:00 에 3번 zone 볼트 +10
+  순수지연 L = 8분, 시정수 τ = 4분
+  최종 변화       zone2 +0.10 · zone3 +0.30 · zone4 +0.10 · 나머지 0
+  측정 노이즈 σ = 0.02  (1분마다 1점)</pre>
+
+<h3>before 창과 after 창에 실제로 들어간 값</h3>
+
+<div class="tablewrap">
+<table>
+  <thead>
+    <tr><th>시각</th><th class="num">z1</th><th class="num">z2</th><th class="num">z3</th><th class="num">z4</th><th class="num">z5</th><th>어느 창</th></tr>
+  </thead>
+  <tbody>
+    <tr class="win-b"><td>18:55</td><td class="num">18.184</td><td class="num">18.191</td><td class="num">18.176</td><td class="num">18.170</td><td class="num">18.201</td><td>before</td></tr>
+    <tr class="win-b"><td>18:56</td><td class="num">18.218</td><td class="num">18.195</td><td class="num">18.185</td><td class="num">18.208</td><td class="num">18.214</td><td>before</td></tr>
+    <tr class="win-b"><td>18:57</td><td class="num">18.194</td><td class="num">18.211</td><td class="num">18.221</td><td class="num">18.196</td><td class="num">18.184</td><td>before</td></tr>
+    <tr class="win-b"><td>18:58</td><td class="num">18.207</td><td class="num">18.205</td><td class="num">18.222</td><td class="num">18.174</td><td class="num">18.187</td><td>before</td></tr>
+    <tr class="win-b"><td>18:59</td><td class="num">18.183</td><td class="num">18.165</td><td class="num">18.203</td><td class="num">18.211</td><td class="num">18.185</td><td>before</td></tr>
+    <tr class="win-b"><td><strong>19:00</strong></td><td class="num">18.228</td><td class="num">18.216</td><td class="num">18.213</td><td class="num">18.208</td><td class="num">18.219</td><td>before <em>(worked_at)</em></td></tr>
+    <tr><td colspan="7" style="text-align:center; color:var(--muted);">⋯ 19:01–19:24 는 어느 창에도 안 들어간다 (올라가는 중) ⋯</td></tr>
+    <tr class="win-a"><td>19:25</td><td class="num">18.202</td><td class="num">18.290</td><td class="num">18.492</td><td class="num">18.289</td><td class="num">18.208</td><td>after <em>(settled_at)</em></td></tr>
+    <tr class="win-a"><td>19:26</td><td class="num">18.200</td><td class="num">18.311</td><td class="num">18.470</td><td class="num">18.317</td><td class="num">18.185</td><td>after</td></tr>
+    <tr class="win-a"><td>19:27</td><td class="num">18.185</td><td class="num">18.295</td><td class="num">18.486</td><td class="num">18.305</td><td class="num">18.189</td><td>after</td></tr>
+    <tr class="win-a"><td>19:28</td><td class="num">18.179</td><td class="num">18.282</td><td class="num">18.524</td><td class="num">18.300</td><td class="num">18.177</td><td>after</td></tr>
+    <tr class="win-a"><td>19:29</td><td class="num">18.200</td><td class="num">18.268</td><td class="num">18.534</td><td class="num">18.269</td><td class="num">18.210</td><td>after</td></tr>
+    <tr class="win-a"><td>19:30</td><td class="num">18.211</td><td class="num">18.271</td><td class="num">18.505</td><td class="num">18.320</td><td class="num">18.209</td><td>after</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>그래서 나온 한 줄</h3>
+
+<div class="tablewrap">
+<table>
+  <thead>
+    <tr><th>zone</th><th class="num">before 평균</th><th class="num">after 평균</th><th class="num">dw (= 차)</th><th class="num">심어 둔 참값</th><th class="num">dg</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>z1</td><td class="num">18.2023</td><td class="num">18.1962</td><td class="num">−0.0061</td><td class="num">0.00</td><td class="num">0</td></tr>
+    <tr class="good"><td>z2</td><td class="num">18.1973</td><td class="num">18.2861</td><td class="num">+0.0888</td><td class="num">+0.10</td><td class="num">0</td></tr>
+    <tr class="good"><td><strong>z3</strong></td><td class="num">18.2032</td><td class="num">18.5020</td><td class="num"><strong>+0.2988</strong></td><td class="num">+0.30</td><td class="num"><strong>+10</strong></td></tr>
+    <tr class="good"><td>z4</td><td class="num">18.1944</td><td class="num">18.2998</td><td class="num">+0.1054</td><td class="num">+0.10</td><td class="num">0</td></tr>
+    <tr><td>z5</td><td class="num">18.1983</td><td class="num">18.1961</td><td class="num">−0.0022</td><td class="num">0.00</td><td class="num">0</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+0.30 을 심었더니 0.2988 이 나왔습니다. 0.10 두 개는 0.0888 과 0.1054. <strong>노이즈가 값의 6%를 넘나드는 데이터에서
+소수 셋째 자리까지 맞은 것</strong>인데, 이게 가능한 이유가 바로 다음 절의 주제입니다.
+</p>
+
+<div class="call def">
+  <span class="tag">읽는 법</span>
+  <p>
+    한 줄을 읽는 방법은 이렇습니다. <strong>“dg 를 보고 무엇을 했는지 알고, dw 를 보고 무슨 일이 일어났는지 안다.”</strong>
+    dg3=+10 · dw=(0, .09, .30, .11, 0) 은 곧
+    <em>“3번을 10만큼 열었더니 3번은 0.30, 옆의 2·4번은 0.10씩 두꺼워졌다”</em> 는 문장입니다.
+    영향행렬이 배우는 것이 정확히 이 문장들입니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="fu-numbers" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">위 표에서 이해 안 되는 숫자가 있으면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="why-window">5. 왜 한 점끼리 빼지 않고 창 평균을 쓰나</h2>
+
+<p>
+가장 단순한 방법은 이것입니다. <em>“조정 직전 한 점과 정착 직후 한 점을 빼면 되지 않나?”</em>
+</p>
+
+<pre class="bad">ΔWet = wet[settled_at] − wet[worked_at]     # ← 하면 안 되는 방식</pre>
+
+<p>
+문제는 수분계가 <strong>참값을 보여주지 않는다</strong>는 것입니다. 매 측정에 σ ≈ 0.02 의 노이즈가 얹힙니다.
+한 점끼리 빼면 그 노이즈 <strong>두 개가 그대로 답에 들어갑니다</strong>. 우리가 재려는 신호가 0.30 인데
+노이즈가 0.03 씩 붙으면 10%가 흔들립니다. 그런데 정작 궁금한 옆 zone 의 반응은 0.10 이라,
+거기서는 흔들림이 30%가 됩니다.
+</p>
+
+<p>
+평균을 내면 노이즈가 서로 상쇄됩니다. n 개를 평균 내면 노이즈의 표준편차는 <strong>√n 분의 1</strong>로 줄어듭니다.
+6점씩 두 창을 쓰면 이론상 √6 ≈ 2.45배 개선입니다.
+</p>
+
+<figure>
+  <div class="figbox">
+    <svg viewBox="0 0 860 250" role="img" aria-label="한 점끼리 빼기와 6점 창 평균의 오차 분포 비교">
+      <line x1="60" y1="196" x2="820" y2="196" stroke="#22201d" stroke-width="1.3"/>
+      <line x1="440" y1="46" x2="440" y2="204" stroke="#2f6f4e" stroke-width="2" stroke-dasharray="5 4"/>
+      <text x="440" y="38" text-anchor="middle" font-size="12" font-weight="700" fill="#2f6f4e">참값 0.30</text>
+
+      <!-- 넓은 분포: 한 점끼리 (sigma 0.0269) -->
+      <path d="M120,196 C220,196 250,120 320,96 C380,76 400,70 440,70 C480,70 500,76 560,96 C630,120 660,196 760,196"
+            fill="#9a948c" fill-opacity="0.22" stroke="#9a948c" stroke-width="2"/>
+      <!-- 좁은 분포: 창 평균 (sigma 0.0118) -->
+      <path d="M300,196 C360,196 380,110 410,72 C425,54 432,48 440,48 C448,48 455,54 470,72 C500,110 520,196 580,196"
+            fill="#c05621" fill-opacity="0.28" stroke="#c05621" stroke-width="2.4"/>
+
+      <g font-size="10.5" fill="#6b6660" text-anchor="middle">
+        <line x1="200" y1="196" x2="200" y2="202" stroke="#9a948c"/><text x="200" y="216">0.24</text>
+        <line x1="320" y1="196" x2="320" y2="202" stroke="#9a948c"/><text x="320" y="216">0.27</text>
+        <line x1="440" y1="196" x2="440" y2="202" stroke="#9a948c"/><text x="440" y="216">0.30</text>
+        <line x1="560" y1="196" x2="560" y2="202" stroke="#9a948c"/><text x="560" y="216">0.33</text>
+        <line x1="680" y1="196" x2="680" y2="202" stroke="#9a948c"/><text x="680" y="216">0.36</text>
+      </g>
+      <text x="440" y="238" text-anchor="middle" font-size="11" fill="#6b6660">추정된 ΔWet (300회 반복)</text>
+
+      <rect x="600" y="52" width="238" height="34" rx="5" fill="#fff" stroke="#c05621"/>
+      <text x="612" y="66" font-size="11" font-weight="700" fill="#c05621">6점 창 평균 (지금 코드)</text>
+      <text x="612" y="80" font-size="11" fill="#6b6660">표준편차 0.0118 · 최대오차 0.036</text>
+
+      <rect x="600" y="96" width="238" height="34" rx="5" fill="#fff" stroke="#9a948c"/>
+      <text x="612" y="110" font-size="11" font-weight="700" fill="#5a544c">한 점끼리 빼기</text>
+      <text x="612" y="124" font-size="11" fill="#6b6660">표준편차 0.0269 · 최대오차 0.086</text>
+
+      <text x="612" y="152" font-size="11.5" font-weight="700" fill="#22201d">실측 2.27배 차이</text>
+      <text x="612" y="168" font-size="11" fill="#6b6660">(이론값 √6 = 2.45)</text>
+    </svg>
+  </div>
+  <figcaption>
+    같은 실험을 300번 반복해 얻은 추정치의 흩어짐. <span style="color:#c05621">주황</span>이 지금 코드의 방식,
+    <span style="color:#5a544c">회색</span>이 한 점끼리 뺐을 때. 둘 다 평균은 0.30 근처로 맞지만
+    <strong>한 번의 이벤트에서 얼마나 믿을 수 있느냐</strong>가 2배 이상 차이납니다.
+  </figcaption>
+</figure>
+
+<div class="call key">
+  <span class="tag">왜 이 차이가 중요한가</span>
+  <p>
+    영향행렬을 배울 때 이벤트는 귀합니다. 사업부가 주는 데이터에 깨끗한 이벤트가 20~40건뿐일 수 있습니다.
+    <strong>표본 수를 늘릴 수 없다면 표본 하나의 품질을 올리는 수밖에 없습니다.</strong>
+    창 평균은 데이터를 더 달라고 하지 않고도 노이즈를 절반 이하로 줄이는, 공짜에 가까운 개선입니다.
+  </p>
+  <p style="margin-top:.6rem">
+    같은 논리가 <code>response.align_events</code> 에도 그대로 적용돼 있습니다 — 거기서도 기준선은 한 점이 아니라
+    직전 15분 평균입니다. 코드 주석이 <em>“features.delta_samples 와 같은 이유”</em> 라고 서로를 가리킵니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="fu-window" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">평균·표준편차 부분에서 막히면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="why-need">6. 이 한 줄은 어디로 가나 — 왜 필요한가</h2>
+
+<p>
+“왜 필요한가”에 대한 답은 세 겹입니다.
+</p>
+
+<h3>① 영향행렬은 이 표 말고는 볼 것이 없다</h3>
+
+<p>
+우리가 알고 싶은 것은 25×25 짜리 영향행렬입니다 — 625개의 숫자. 그런데 이벤트가 40건뿐이면
+625개를 정할 수 없습니다. 그래서 기초편 7장에서 <strong>Toeplitz 가정</strong>을 도입했습니다:
+“볼트 하나를 돌렸을 때 퍼지는 모양은 zone 위치와 무관하다.” 그러면 미지수가 625개에서 <strong>2k+1 = 5개</strong>로 줄어듭니다.
+</p>
+
+<pre class="math">Δwet_i = Σ_{j=−2..+2}  g_j · Δgap_{i+j}
+
+  미지수는 g₋₂, g₋₁, g₀, g₊₁, g₊₂  다섯 개뿐</pre>
+
+<p>
+그런데 이 식을 쓰려면 <code>Δwet</code> 과 <code>Δgap</code> 이 <strong>같은 이벤트에서 짝지어져</strong> 있어야 합니다.
+그 짝짓기를 하는 곳이 <code>delta_samples</code> 이고, 그 외에 이 짝을 만드는 곳은 코드 어디에도 없습니다.
+</p>
+
+<figure>
+  <div class="figbox">
+    <svg viewBox="0 0 860 250" role="img" aria-label="이벤트 한 건이 25개 방정식을 준다">
+      <text x="14" y="24" font-size="12.5" font-weight="700" fill="#22201d">이벤트 1건 = 표 1줄 → 방정식 25개</text>
+
+      <g>
+        <rect x="14" y="40" width="24" height="28" fill="#f3f6fb" stroke="#c9d6e6"/>
+        <rect x="38" y="40" width="24" height="28" fill="#f3f6fb" stroke="#c9d6e6"/>
+        <rect x="62" y="40" width="24" height="28" fill="#2b6cb0" stroke="#1e4e80"/>
+        <rect x="86" y="40" width="24" height="28" fill="#f3f6fb" stroke="#c9d6e6"/>
+        <rect x="110" y="40" width="24" height="28" fill="#f3f6fb" stroke="#c9d6e6"/>
+        <rect x="134" y="40" width="120" height="28" fill="#f3f6fb" stroke="#c9d6e6"/>
+        <text x="74" y="59" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">10</text>
+        <text x="194" y="59" text-anchor="middle" font-size="10" fill="#8a97a8">…0…</text>
+        <text x="264" y="59" font-size="11" fill="#2b6cb0">Δgap (25칸)</text>
+      </g>
+
+      <g font-size="11.5" fill="#22201d" font-family="Consolas,monospace">
+        <text x="14" y="102">zone 1  :  dw1  =  g₀·dg1 + g₊₁·dg2 + g₊₂·dg3</text>
+        <text x="14" y="124">zone 2  :  dw2  =  g₋₁·dg1 + g₀·dg2 + g₊₁·dg3 + g₊₂·dg4</text>
+        <text x="14" y="146">zone 3  :  dw3  =  g₋₂·dg1 + g₋₁·dg2 + g₀·dg3 + g₊₁·dg4 + g₊₂·dg5</text>
+        <text x="14" y="168" fill="#6b6660">   ⋮        (zone 마다 한 줄씩, 모두 25줄)</text>
+        <text x="14" y="190">zone 25 :  dw25 =  g₋₂·dg23 + g₋₁·dg24 + g₀·dg25</text>
+      </g>
+
+      <rect x="540" y="86" width="308" height="110" rx="7" fill="#e8f2ec" stroke="#bcd9c9"/>
+      <text x="558" y="110" font-size="12" font-weight="700" fill="#2f6f4e">이벤트 40건이면</text>
+      <text x="558" y="132" font-size="12" fill="#22201d">방정식 40 × 25 = 1000개</text>
+      <text x="558" y="152" font-size="12" fill="#22201d">미지수 5개</text>
+      <text x="558" y="176" font-size="11.5" fill="#6b6660">→ 소수 이벤트로도 커널이 잡힌다</text>
+
+      <rect x="14" y="212" width="834" height="30" rx="5" fill="#f7f5f1" stroke="#c9c2b8" stroke-dasharray="4 3"/>
+      <text x="30" y="232" font-size="11.5" fill="#6b6660">이 “한 줄을 25개 방정식으로 펼치는” 일은 profile.build_design() 이 한다. 하지만 펼칠 줄 자체를 만드는 것은 delta_samples 다.</text>
+    </svg>
+  </div>
+  <figcaption>
+    표 한 줄이 방정식 25개가 되는 이유. 이것이 “이벤트가 몇십 건뿐인데 어떻게 모델을 배우나”에 대한 답입니다.
+  </figcaption>
+</figure>
+
+<h3>② dg 행렬만으로 “학습 가능한가”를 판정한다</h3>
+
+<p>
+<code>report.py</code> 의 2차 관문이 여기 걸려 있습니다. <code>delta_samples</code> 의 dg 부분만 떼어
+<code>profile.rank_diagnostics()</code> 에 넣고 <strong>유효 랭크</strong>를 봅니다.
+</p>
+
+<pre>dg = ds[features.GAP_DELTA_COLS].to_numpy(dtype=float)   # (n_events, 25)
+rank = profile.rank_diagnostics(dg)</pre>
+
+<p>
+직관은 이렇습니다. <strong>작업자가 늘 3번 볼트만 돌렸다면, 5번 볼트의 효과는 이 데이터로 알 수 없습니다.</strong>
+아무리 좋은 모델을 써도 안 됩니다 — 데이터에 그 정보가 없기 때문입니다.
+랭크는 “서로 다른 방향으로 몇 가지나 밀어봤나”를 세는 숫자이고, 이게 낮으면
+리포트는 <code>verdict = insufficient</code> 를 내고 <strong>사업부에 무엇을 더 달라고 요구할지</strong>를 적습니다.
+</p>
+
+<h3>③ 오염된 이벤트를 여기서 걸러 인과를 지킨다</h3>
+
+<p>
+함수 첫 줄이 이것입니다.
+</p>
+
+<pre>clean = events_df[~events_df[S.CONTAMINATED].astype(bool)]</pre>
+
+<p>
+<code>annotate_settling</code> 이 두 종류를 오염으로 표시해 둡니다.
+</p>
+
+<ul>
+  <li><strong>overlapped</strong> — 아직 정착하지도 않았는데 다음 조정이 왔다. 두 조정의 효과가 겹쳐서
+      <em>어느 쪽이 두께를 움직였는지 알 수 없다</em>. 이 줄을 넣으면 영향행렬은 두 원인의 뒤섞인 평균을 배웁니다.</li>
+  <li><strong>no_settle</strong> — 30분을 기다려도 잠잠해지지 않았다. after 창을 어디에 놓아야 할지 정할 수 없다.</li>
+</ul>
+
+<div class="call def">
+  <span class="tag">세 겹을 한 문장으로</span>
+  <p>
+    <code>delta_samples</code> 는 <strong>원인과 결과를 한 줄에 짝지어 놓는 유일한 장소</strong>입니다.
+    짝이 있어야 영향행렬을 배울 수 있고(①), 짝의 다양성이 있어야 배울 자격이 생기며(②),
+    짝의 순수성이 있어야 배운 것이 참이 됩니다(③).
+  </p>
+</div>
+
+<div class="qmemo" data-qid="fu-need" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">랭크·Toeplitz 쪽이 헷갈리면 여기 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="code">7. 코드를 한 줄씩</h2>
+
+<p>함수 전체는 40줄이 안 됩니다. 순서대로 읽어 봅시다.</p>
+
+<h3>7-1. 깨끗한 이벤트만 남기고 준비</h3>
+
+<pre>clean = events_df[~events_df[S.CONTAMINATED].astype(bool)]
+zone_cols = [S.zone_col(z) for z in valid]      # ["z1","z2",...] — 유효 zone 만
+win = pd.Timedelta(minutes=window_minutes)      # 기본 5분</pre>
+
+<p>
+<code>valid</code> 는 <code>features.valid_zones()</code> 가 준 “한 번이라도 값이 관측된 zone” 목록입니다.
+설비 폭보다 좁은 종이를 쓰면 바깥 zone 은 늘 0(=미사용)이고, 그건 <code>wet_wide</code> 에서 이미 NaN 으로 바뀌어 있습니다.
+</p>
+
+<h3>7-2. 이벤트마다 두 창의 평균을 잰다</h3>
+
+<pre>for _, e in clean.iterrows():
+    before = _window_mean(wet, e[S.LOT], e[S.AT] - win, e[S.AT], zone_cols)
+    after  = _window_mean(wet, e[S.LOT], e[S.SETTLED_AT], e[S.SETTLED_AT] + win, zone_cols)
+    if before is None or after is None:
+        continue                                 # 창에 관측이 하나도 없으면 그 이벤트는 버린다</pre>
+
+<pre class="plain">def _window_mean(wet, lot_id, start, end, zone_cols):
+    g = wet[(wet[S.LOT] == lot_id) &amp; (wet[S.AT] &gt;= start) &amp; (wet[S.AT] &lt;= end)]
+    if g.empty:
+        return None
+    return g[zone_cols].mean(axis=0, skipna=True).to_dict()</pre>
+
+<p>
+읽을 점 세 가지. <strong>(1)</strong> <code>lot_id</code> 로 먼저 거릅니다 — 다른 lot 의 측정이 섞이면
+전혀 다른 종이의 두께를 평균에 넣게 됩니다. <strong>(2)</strong> 양 끝 포함(<code>&gt;=</code>, <code>&lt;=</code>)이라
+5분 창에 6점이 들어갑니다. <strong>(3)</strong> <code>skipna=True</code> 라 중간에 결측이 있어도 남은 점으로 평균을 냅니다.
+</p>
+
+<h3>7-3. ΔWet 을 채우고 Δgap 자리는 0 으로 깔아둔다</h3>
+
+<pre>row = {S.EVENT: e[S.EVENT], S.LOT: e[S.LOT], S.AT: e[S.AT]}
+for z in range(1, S.N_ZONES + 1):
+    col = S.zone_col(z)
+    row[WET_DELTA_COLS[z - 1]] = after.get(col, np.nan) - before.get(col, np.nan)
+    row[GAP_DELTA_COLS[z - 1]] = 0.0</pre>
+
+<div class="call key">
+  <span class="tag">여기서 0 과 NaN 이 갈린다</span>
+  <p>
+    같은 “값이 없음”인데 두 컬럼의 처리가 다릅니다.
+  </p>
+  <ul style="margin-bottom:0">
+    <li><code>dg</code> 는 <strong>0.0</strong> 으로 깝니다 — “이 zone 볼트는 안 만졌다”는 <em>사실</em>이기 때문입니다. 모델에 반드시 알려야 합니다.</li>
+    <li><code>dw</code> 는 유효하지 않은 zone 에서 <strong>NaN</strong> 이 됩니다 — <code>zone_cols</code> 에 없으니 <code>.get()</code> 이 기본값 NaN 을 돌려줍니다.
+        “측정하지 않아서 모른다”이지 “변화가 0이다”가 아닙니다. 0 으로 채우면 모델이 <em>“여기는 아무 반응이 없었다”</em> 는 거짓을 배웁니다.</li>
+  </ul>
+</div>
+
+<p>
+이 NaN 은 나중에 <code>profile.fit_kernel</code> 이
+<code>ok = np.isfinite(y) &amp; np.isfinite(x).all(axis=1)</code> 로 걸러냅니다 — 해당 방정식만 빠지고 나머지는 살아남습니다.
+</p>
+
+<h3>7-4. Δgap 을 실제 값으로 덮어쓴다</h3>
+
+<pre>zoned = event_deltas[event_deltas[S.ZONE].notna()]   # zone 이 있는 항목만
+out = out.set_index(S.EVENT)
+for _, d in zoned.iterrows():
+    if d[S.EVENT] in out.index:
+        out.loc[d[S.EVENT], GAP_DELTA_COLS[int(d[S.ZONE]) - 1]] = d[S.DELTA]</pre>
+
+<p>
+<code>event_deltas</code> 는 <code>events.build_events()</code> 가 만든 “이벤트별 변경 내역”입니다.
+<code>zone</code> 이 <code>NaN</code> 인 행은 zone 없는 스칼라 제어값 — <code>bp_open_rate</code>, <code>pump_rpm</code>,
+<code>os_gap</code>, <code>ds_gap</code> 네 개입니다. 이들은 특정 zone 에 대응하지 않으므로 여기서 빠지고
+<strong>레벨 모델(<code>model/level.py</code>)</strong> 의 피처가 됩니다.
+</p>
+
+<div class="call def">
+  <span class="tag">두 모델의 분업</span>
+  <p>
+    <strong>프로파일 모델</strong>은 “25칸 사이의 <em>모양</em>”을 맡고, <strong>레벨 모델</strong>은 “전체 평균 두께”를 맡습니다.
+    펌프 회전수를 올리면 25칸 전부가 함께 올라가지 특정 칸만 올라가지 않으므로, 그것을 zone 별 영향행렬에 넣으면
+    커널이 상수항을 흡수해 버립니다. 그래서 <code>zone.notna()</code> 한 줄로 갈라 놓았습니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="fu-code" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">코드에서 이해 안 되는 줄을 그대로 붙여넣어도 됩니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="defects">8. 지금 이 코드가 조용히 틀리는 두 지점</h2>
+
+<div class="call warn">
+  <span class="tag">읽기 전에</span>
+  <p>
+    이 절은 설명을 검증하려고 실제로 코드를 돌려보다가 <strong>발견한 것</strong>입니다.
+    둘 다 재현되는 실측이지만, 고칠지 말지·어떻게 고칠지는 아직 결정된 바 없습니다.
+    이 문서는 현상과 근거까지만 적습니다.
+  </p>
+</div>
+
+<h3>8-1. 순수지연이 창보다 길면 settled_at 이 지연 안쪽에 박힌다</h3>
+
+<p>
+<code>_settle_time()</code> 은 이렇게 정착을 찾습니다.
+</p>
+
+<pre>w = max(2, window_minutes)                      # 5
+for i in range(w - 1, len(vals)):
+    if vals[i - w + 1 : i + 1].std(ddof=0) &lt;= std_max:
+        return pd.Timestamp(times[i])</pre>
+
+<p>
+“이동 표준편차가 처음으로 기준 아래로 내려간 시각”. 문제는 <strong>순수지연 구간에서도 Wet 은 평평하다</strong>는 것입니다.
+볼트를 돌려도 그 종이가 수분계에 도착하기 전까지 아무 일도 일어나지 않으니, 그 구간의 표준편차는 그냥 노이즈 수준입니다.
+그러면 이 루프는 <strong>가능한 가장 이른 시각</strong>, 즉 <code>worked_at + 5분</code>을 정착이라고 답합니다.
+</p>
+
+<figure>
+  <div class="figbox">
+    <svg viewBox="0 0 880 260" role="img" aria-label="settled_at 이 순수지연 안쪽에 잡히는 상황">
+      <rect x="145" y="60" width="85" height="150" fill="#9a948c" fill-opacity="0.13" stroke="#9a948c" stroke-dasharray="4 3"/>
+      <rect x="315" y="60" width="85" height="150" fill="#b03a2e" fill-opacity="0.13" stroke="#b03a2e" stroke-dasharray="4 3"/>
+      <rect x="230" y="60" width="136" height="150" fill="#2b6cb0" fill-opacity="0.05"/>
+
+      <line x1="50" y1="210" x2="850" y2="210" stroke="#22201d" stroke-width="1.3"/>
+      <path d="M50,180 L366,180 L383,158 L400,142 L434,118 L468,103 L502,95 L570,86 L655,82 L850,80"
+            fill="none" stroke="#c05621" stroke-width="2.4"/>
+
+      <line x1="230" y1="46" x2="230" y2="218" stroke="#2b6cb0" stroke-width="2"/>
+      <line x1="315" y1="46" x2="315" y2="218" stroke="#b03a2e" stroke-width="2"/>
+
+      <text x="234" y="38" font-size="12" font-weight="700" fill="#2b6cb0">worked_at 19:00</text>
+      <text x="311" y="38" text-anchor="end" font-size="12" font-weight="700" fill="#b03a2e">settled_at 19:05</text>
+      <text x="311" y="54" text-anchor="end" font-size="10.5" fill="#b03a2e">(반응 시작 전!)</text>
+
+      <text x="187" y="80" text-anchor="middle" font-size="11.5" font-weight="700" fill="#5a544c">before 창</text>
+      <text x="357" y="80" text-anchor="middle" font-size="11.5" font-weight="700" fill="#b03a2e">after 창</text>
+
+      <line x1="366" y1="60" x2="366" y2="218" stroke="#2f6f4e" stroke-width="1.6" stroke-dasharray="4 3"/>
+      <text x="372" y="76" font-size="11" fill="#2f6f4e">여기서야 반응이 시작된다 (19:08)</text>
+
+      <text x="298" y="234" text-anchor="middle" font-size="11" fill="#2b6cb0">순수지연 8분</text>
+
+      <line x1="820" y1="80" x2="820" y2="180" stroke="#9a948c" stroke-width="1.4" stroke-dasharray="3 3"/>
+      <text x="812" y="120" text-anchor="end" font-size="11" fill="#6b6660">진짜 변화 0.30</text>
+      <text x="812" y="136" text-anchor="end" font-size="11" font-weight="700" fill="#b03a2e">잰 값 0.03</text>
+
+      <rect x="50" y="242" width="800" height="1" fill="none"/>
+    </svg>
+  </div>
+  <figcaption>
+    두 상자가 <strong>둘 다 반응 전 구간</strong>에 앉아 있습니다. 평평한 구간에서 평평한 구간을 빼면 0 이 나옵니다.
+  </figcaption>
+</figure>
+
+<p>순수지연 L 을 바꿔가며 30회씩 돌린 결과입니다(창 5분, <code>std_max</code>=0.02, 나머지는 기본 설정).</p>
+
+<div class="tablewrap">
+<table>
+  <thead>
+    <tr><th class="num">순수지연 L</th><th>settled_at</th><th class="num">잰 dw3 (참값 0.30)</th><th class="num">dw2 (0.10)</th><th class="num">dw4 (0.10)</th></tr>
+  </thead>
+  <tbody>
+    <tr class="good"><td class="num">0분</td><td>T0+5.3분</td><td class="num">+0.2547</td><td class="num">+0.0873</td><td class="num">+0.0791</td></tr>
+    <tr class="good"><td class="num">2분</td><td>T0+6.1분</td><td class="num">+0.2363</td><td class="num">+0.0800</td><td class="num">+0.0732</td></tr>
+    <tr><td class="num">4분</td><td>T0+5.0분</td><td class="num">+0.1654</td><td class="num">+0.0569</td><td class="num">+0.0494</td></tr>
+    <tr><td class="num">5분</td><td>T0+5.0분</td><td class="num">+0.1266</td><td class="num">+0.0440</td><td class="num">+0.0365</td></tr>
+    <tr class="bad"><td class="num">6분</td><td>T0+5.0분</td><td class="num">+0.0909</td><td class="num">+0.0321</td><td class="num">+0.0246</td></tr>
+    <tr class="bad"><td class="num"><strong>8분</strong></td><td>T0+5.0분</td><td class="num"><strong>+0.0329</strong></td><td class="num">+0.0128</td><td class="num">+0.0053</td></tr>
+    <tr class="bad"><td class="num">12분</td><td>T0+5.0분</td><td class="num">+0.0022</td><td class="num">+0.0025</td><td class="num">−0.0050</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+L 이 창 길이(5분)를 넘는 순간 <code>settled_at</code> 은 <strong>T0+5분에 고정</strong>되고, 측정된 gain 은 0 을 향해 무너집니다.
+L=8분이면 참값의 1/9 입니다. 더 나쁜 것은 <strong>모양도 망가진다</strong>는 점입니다 — 대칭이어야 할 dw2 와 dw4 가
++0.0128 대 +0.0053 으로 어긋납니다. 남은 것이 신호가 아니라 노이즈이기 때문입니다.
+</p>
+
+<div class="call warn">
+  <span class="tag">왜 하필 이 프로젝트에서 문제인가</span>
+  <p>
+    이 파이프라인이 존재하는 이유 자체가 <strong>“순수지연이 있다”</strong> 입니다. 실제로 추정된 L 은 8분 근처였고,
+    그 값이 그럴듯한지 확인하려고 라인 속도를 곱해 거리로 환산하는 검산까지 붙였습니다(9월 3일 커밋).
+    즉 이 코드는 <strong>자기가 다루기로 한 바로 그 조건에서 무너집니다.</strong>
+  </p>
+  <p style="margin-top:.6rem">
+    기존 테스트가 이걸 못 잡은 이유도 분명합니다.
+    <code>test_coating_events_settling.py</code> 의 데이터는 전부 <em>19:01 에 곧바로 18.2 → 18.5 로 튀는</em> 모양,
+    즉 <strong>순수지연이 0인 신호</strong>입니다. 테스트가 검증하는 세계와 코드가 살아야 할 세계가 다릅니다.
+  </p>
+</div>
+
+<p>
+파생 효과가 하나 더 있습니다. <code>overlapped</code> 판정은 <code>다음 이벤트 시각 &lt; settled_at</code> 으로 하는데,
+<code>settled_at</code> 이 실제보다 이르면 <strong>겹친 이벤트가 겹치지 않은 것으로 통과합니다</strong>.
+오염 비율이 낮게 나와 “데이터가 깨끗하다”는 잘못된 안심까지 따라옵니다.
+</p>
+
+<p>
+방향만 적자면, 고치려면 <em>“반응이 시작된 뒤부터 정착을 찾는다”</em>는 조건이 필요합니다 —
+추정된 L 이후부터 탐색을 시작하거나, 창 평균이 노이즈 바닥을 넘어선 적이 있어야 정착을 인정하는 식입니다.
+다만 L 을 알려면 <code>response.py</code> 가 먼저 돌아야 하므로 <strong>모듈 간 의존 순서를 건드리는 결정</strong>이고,
+그건 이 문서가 정할 일이 아닙니다.
+</p>
+
+<h3>8-2. 한 이벤트 안에서 같은 zone 을 두 번 만지면 마지막 값만 남는다</h3>
+
+<p>
+<code>event_deltas</code> 는 “변경 한 건 = 한 행”입니다. 그런데 병합 창(기본 2분) 안에서 같은 볼트를 두 번 돌리면
+<strong>같은 이벤트·같은 zone 으로 두 행</strong>이 생깁니다. 그리고 7-4 의 루프는 그 자리에 <code>=</code> 로 대입하므로
+<strong>뒤 행이 앞 행을 덮어씁니다</strong>.
+</p>
+
+<pre class="bad">19:00  zone3  100 → 105   (delta +5)
+19:01  zone3  105 → 110   (delta +5)
+       실제 순변화 = +10
+
+event_deltas:
+  L1#1  30030840  zone 3.0  delta 5.0
+  L1#1  30030840  zone 3.0  delta 5.0
+
+delta_samples 결과:
+  dg3 = 5.0        ← 합(10.0) 이 아니라 마지막 값</pre>
+
+<p>
+효과는 이렇습니다. 두께는 +10 만큼 돌린 결과로 변했는데 모델에는 +5 라고 적힙니다.
+그러면 “5 만큼 돌렸더니 이만큼 변하더라”를 배우게 되어 <strong>gain 이 2배로 부풀려집니다</strong>.
+8-1 이 gain 을 0 쪽으로 눌렀다면 이건 반대 방향으로 밉니다 — 두 오차가 상쇄되지도 않고, 이벤트마다 다르게 섞입니다.
+</p>
+
+<p>
+겉으로 티가 안 나는 이유도 있습니다. 이벤트 요약의 <code>n_items</code> 는 <code>nunique()</code> 라 이 경우에도 <strong>1</strong> 입니다.
+표를 눈으로 훑어서는 두 번 만졌다는 사실이 보이지 않습니다.
+</p>
+
+<div class="call key">
+  <span class="tag">두 문제의 공통점</span>
+  <p>
+    둘 다 <strong>예외를 던지지 않고, 그럴듯한 숫자를 냅니다.</strong> 이 프로젝트가 커밋 메시지마다 경계해 온 실패 양식 그대로입니다 —
+    <em>“조용히 하나를 고르면 잘못된 열로 파이프라인 전체가 돌고 결과는 그럴듯해 보인다”</em>(<code>schemas.require_columns</code> 주석).
+    그 원칙을 컬럼 매핑에는 적용했지만, 시간 창과 델타 누적에는 아직 적용하지 않았습니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="fu-defects" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 두 문제를 어떻게 다룰지에 대한 생각이나 반론을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="quiz">9. 이해했는지 확인하기</h2>
+
+<p>다섯 문제입니다. 정답을 고르면 이유가 나옵니다.</p>
+
+<div class="quiz" data-answer="1">
+  <p class="q">Q1. <code>before</code> 창을 “조정 직전 5분의 평균”으로 잡는 가장 큰 이유는?</p>
+  <button class="opt" data-i="0">조정 전 5분 동안 작업자가 다른 준비를 하기 때문에</button>
+  <button class="opt" data-i="1">한 점만 쓰면 그 점의 측정 노이즈가 ΔWet 에 그대로 실리기 때문에</button>
+  <button class="opt" data-i="2">5분이 수분계의 응답 시간이기 때문에</button>
+  <button class="opt" data-i="3">lot 이 바뀌는 주기가 5분이기 때문에</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q2. 만지지 않은 zone 의 <code>dg</code> 는 0.0, 유효하지 않은 zone 의 <code>dw</code> 는 NaN 입니다. 왜 다르게 두나?</p>
+  <button class="opt" data-i="0">dg 는 정수, dw 는 실수라서</button>
+  <button class="opt" data-i="1">pandas 가 입력 컬럼에는 NaN 을 허용하지 않아서</button>
+  <button class="opt" data-i="2">“안 만졌다”는 아는 사실이고, “측정 안 됐다”는 모르는 것이라서</button>
+  <button class="opt" data-i="3">0 으로 채우면 랭크 계산이 실패해서</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q">Q3. 깨끗한 이벤트가 40건뿐인데도 Toeplitz 커널을 추정할 수 있는 이유는?</p>
+  <button class="opt" data-i="0">릿지 정규화가 부족한 데이터를 메워주기 때문에</button>
+  <button class="opt" data-i="1">이벤트를 여러 lot 에서 합치면 400건이 되기 때문에</button>
+  <button class="opt" data-i="2">커널의 미지수가 원래 625개뿐이라서</button>
+  <button class="opt" data-i="3">한 이벤트가 zone 25개에 대해 방정식 25개를 주고, 미지수는 5개뿐이라서</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <p class="q">Q4. 순수지연이 12분인 공정에서 <code>settled_at</code> 이 <code>worked_at + 5분</code>으로 잡혔습니다. 결과는?</p>
+  <button class="opt" data-i="0">두 창이 모두 반응 전 구간에 앉아 ΔWet 이 0 에 가깝게 나온다</button>
+  <button class="opt" data-i="1">ΔWet 이 참값보다 크게 나와 gain 이 과대추정된다</button>
+  <button class="opt" data-i="2">이벤트가 no_settle 로 오염 처리되어 자동으로 배제된다</button>
+  <button class="opt" data-i="3">after 창이 lot 경계를 넘어 다른 종이를 재게 된다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="q">Q5. <code>event_deltas</code> 에서 <code>zone</code> 이 NaN 인 행(펌프 회전수 등)을 <code>delta_samples</code> 가 버리는 이유는?</p>
+  <button class="opt" data-i="0">그 항목들은 작업자가 아니라 설비가 자동으로 바꾸기 때문에</button>
+  <button class="opt" data-i="1">특정 zone 에 대응하지 않아 25칸 벡터에 넣을 자리가 없고, 전체 레벨을 움직이는 효과는 레벨 모델의 몫이라서</button>
+  <button class="opt" data-i="2">그 항목들은 Wet 에 아무 영향을 주지 않기 때문에</button>
+  <button class="opt" data-i="3">원본 데이터에서 그 항목들은 결측이 너무 많기 때문에</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="fu-quiz" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제가 있으면 왜 헷갈렸는지 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="wrap">10. 정리</h2>
+
+<ul>
+  <li><strong>무엇인가.</strong> <code>delta_samples()</code> 는 “작업자가 볼트를 만진 사건” 하나를
+      <strong>입력 25칸(Δgap) + 출력 25칸(ΔWet)</strong> 짜리 표 한 줄로 바꿉니다.</li>
+  <li><strong>before / after.</strong> 조정 직전 5분과 정착 직후 5분, 각각 6개 점의 zone 별 평균입니다.
+      <strong>ΔWet = after − before.</strong></li>
+  <li><strong>settled_at.</strong> <code>annotate_settling</code> 이 붙여 놓은 “다시 잠잠해진 시각”.
+      after 창을 <em>어디에 놓을지</em> 정하는 유일한 기준입니다.</li>
+  <li><strong>왜 창 평균인가.</strong> 한 점끼리 빼면 노이즈 두 개가 답에 실립니다. 6점씩 평균 내면
+      실측으로 오차 표준편차가 2.27배 줄어듭니다 — 이벤트를 더 달라고 하지 않고 얻는 개선입니다.</li>
+  <li><strong>왜 필요한가.</strong> 원인과 결과가 한 줄에서 짝지어지는 유일한 장소입니다.
+      영향행렬 학습, 유효 랭크 판정, 오염 이벤트 배제가 전부 이 표에서 시작합니다.</li>
+  <li><strong>지금의 한계.</strong> 순수지연이 창(5분)보다 길면 <code>settled_at</code> 이 지연 안쪽에 박혀
+      gain 이 0 으로 무너지고, 한 이벤트에서 같은 zone 을 두 번 만지면 Δgap 이 합이 아닌 마지막 값이 됩니다.
+      둘 다 예외 없이 그럴듯한 숫자를 냅니다.</li>
+</ul>
+
+<div class="backlink">
+  ← <a href="2026-09-02-explanation-coating-lag-gain-basics.html">기초편: 지연·gain 공식과 ML 을 바로 못 쓰는 이유</a><br>
+  ← <a href="2026-09-01-explanation-coating-dead-time.html">1편: 지연 분석의 속살</a>
+</div>
+
+<div class="qmemo" data-qid="fu-wrap" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">전체를 읽고 남은 질문을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+</main>
+</div>
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-09-04-explanation-coating-lag-gain-basics-followup.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\TestProject\\docs\\understanding\\2026-09-04-explanation-coating-lag-gain-basics-followup.html';
+  });
+})();
+
+(function () {
+  var FB = {
+    0: [
+      '조정 전 구간에 특별한 작업이 있는 것은 아닙니다. 창을 쓰는 이유는 노이즈입니다.',
+      '맞습니다. 수분계 측정마다 σ≈0.02 의 노이즈가 얹히는데, 한 점끼리 빼면 그 노이즈 두 개가 그대로 ΔWet 에 들어갑니다. 6점 평균을 쓰면 실측으로 오차 표준편차가 0.0269 → 0.0118 로 줄었습니다(2.27배).',
+      '5분은 수분계 응답 시간이 아니라 COATING_SETTLE_WINDOW_MINUTES 설정값입니다. 정착 판정 창과 같은 값을 재사용합니다.',
+      'lot 주기와는 무관합니다. 오히려 _window_mean 은 lot_id 로 먼저 걸러 다른 lot 이 섞이지 않게 합니다.'
+    ],
+    1: [
+      '자료형과는 상관없습니다. 둘 다 float 로 들어갑니다.',
+      'pandas 는 어느 컬럼에나 NaN 을 허용합니다. 이유는 의미론 쪽입니다.',
+      '맞습니다. dg=0 은 "이 볼트는 안 만졌다"는 확정된 사실이라 모델이 반드시 알아야 합니다. 반면 측정되지 않은 zone 의 dw 는 "모른다"이지 "변화가 0"이 아니어서, 0 으로 채우면 모델이 거짓을 배웁니다. NaN 으로 두면 fit_kernel 의 isfinite 필터가 그 방정식만 빼고 나머지는 씁니다.',
+      '랭크 계산은 dg 만 쓰고 0 이어도 잘 돕니다. 오히려 0 이 있어야 "어느 방향으로 밀었나"가 표현됩니다.'
+    ],
+    2: [
+      '릿지는 과적합을 눌러줄 뿐 없는 정보를 만들지 못합니다. 표본이 늘어나는 진짜 이유는 따로 있습니다.',
+      'lot 을 합치면 이벤트 수는 늘지만, 40건만으로도 되는 이유의 설명은 아닙니다.',
+      '커널 미지수는 원래 625개(25×25)였고, Toeplitz 가정으로 2k+1=5개까지 줄인 것입니다.',
+      '맞습니다. build_design 이 이벤트 하나를 zone 25개에 대한 25개 방정식으로 펼칩니다. 40건이면 방정식 1000개에 미지수 5개라 넉넉히 결정됩니다. response.py 가 zone 을 합쳐 하나의 L 을 보는 것도 같은 수법입니다.'
+    ],
+    3: [
+      '맞습니다. before 창 [T0−5, T0] 도, after 창 [T0+5, T0+10] 도 둘 다 반응이 시작되기 전(12분 지연)입니다. 평평한 구간에서 평평한 구간을 빼니 ΔWet 은 노이즈만 남습니다. 실측에서 L=12분일 때 dw3 = +0.0022 (참값 0.30) 였습니다.',
+      '방향이 반대입니다. 반응 전 구간을 재므로 과소추정되어 0 으로 무너집니다.',
+      'no_settle 로 걸리지 않는 것이 문제의 핵심입니다. 지연 구간은 조용하므로 이동표준편차가 기준 아래라 "정착했다"고 통과합니다.',
+      'lot 경계와는 무관합니다. _window_mean 이 lot_id 로 먼저 거릅니다.'
+    ],
+    4: [
+      '누가 바꿨는지는 기준이 아닙니다. build_events 는 prev_value 가 있는 모든 제어 항목 변경을 이벤트로 봅니다.',
+      '맞습니다. bp_open_rate·pump_rpm·os_gap·ds_gap 은 특정 zone 에 대응하지 않습니다. 이들은 25칸 전체를 함께 올리고 내리므로, zone 별 영향행렬에 넣으면 커널이 상수항을 흡수해 버립니다. 그래서 프로파일(모양)은 여기서, 레벨(평균 두께)은 model/level.py 에서 나눠 맡습니다.',
+      '영향이 없어서가 아닙니다. 오히려 전체 레벨에는 큰 영향을 줍니다 — 그래서 레벨 모델의 피처가 됩니다.',
+      '결측률 때문이 아니라 zone 대응이 없기 때문입니다.'
+    ]
+  };
+  document.querySelectorAll('.quiz').forEach(function (box, qi) {
+    var ans = parseInt(box.dataset.answer, 10);
+    var fb = box.querySelector('.fb');
+    box.querySelectorAll('.opt').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var i = parseInt(btn.dataset.i, 10);
+        box.querySelectorAll('.opt').forEach(function (b) {
+          b.classList.remove('correct', 'wrong');
+        });
+        btn.classList.add(i === ans ? 'correct' : 'wrong');
+        if (i !== ans) {
+          box.querySelectorAll('.opt')[ans].classList.add('correct');
+        }
+        fb.textContent = (i === ans ? '정답. ' : '아쉽습니다. ') + FB[qi][i];
+        fb.className = 'fb show ' + (i === ans ? 'ok' : 'no');
+      });
+    });
+  });
+})();
+</script>

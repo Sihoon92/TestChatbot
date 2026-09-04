@@ -1542,6 +1542,8 @@ ML 은 물리를 모르므로 데이터에 보이는 패턴을 그대로 배웁�
     <tr><td><code>parse.py</code></td><td>파일을 읽는 <strong>유일한</strong> 곳. 뒤 단계는 전부 DataFrame 만 받는 순수 함수</td></tr>
     <tr><td><code>pivot.py</code></td><td>계단형 데이터를 "바뀐 시점"만 남기게 압축</td></tr>
     <tr><td><code>events.py</code></td><td>변경을 이벤트로 묶고, 정착 시각을 찾고, 오염된 것을 표시</td></tr>
+    <tr><td><code>features.py</code></td><td>Wet 을 25칸 wide 로 펴고, <strong>이벤트 하나를 (Δgap 25, ΔWet 25) 표 한 줄로</strong> 바꿈 — 입력과 출력이 처음 만나는 합류점
+      (<a href="2026-09-04-explanation-coating-lag-gain-basics-followup.html">자세히</a>)</td></tr>
     <tr><td><code>panel.py</code></td><td>1분 간격 격자를 만듦 (lag 을 주려면 등간격이어야 함)</td></tr>
     <tr class="good"><td><code>response.py</code></td><td><strong>지연 담당.</strong> 정렬 → 응답 곡선 → L·τ·settle 판정</td></tr>
     <tr class="good"><td><code>model/profile.py</code></td><td><strong>gain 담당.</strong> Toeplitz 커널, 랭크 진단</td></tr>
@@ -1553,14 +1555,35 @@ ML 은 물리를 모르므로 데이터에 보이는 패턴을 그대로 배웁�
 </table>
 </div>
 
-<div class="qmemo" data-qid="code-map" data-status="open">
+<div class="qmemo" data-qid="code-map" data-status="answered">
   <div class="qmemo-head">
     <span class="qmemo-label">질문 메모</span>
     <span class="qmemo-hint">특정 파일이 왜 그렇게 나뉘어 있는지 궁금하면 적어두세요.</span>
   </div>
   <div class="qmemo-question" contenteditable="true"
-       data-placeholder="여기에 질문을 적어보세요..."></div>
-  <div class="qmemo-answer" hidden></div>
+       data-placeholder="여기에 질문을 적어보세요...">features.delta_samples() 이해가 안된다. 구체적인 예를 들어서 설명해줘. before, after, settled_at 이 무엇인지, deltaWet 은 무엇인지 등. 이게 왜 필요한지.</div>
+  <div class="qmemo-answer">
+    <p style="margin-top:0">
+      좋은 지적입니다 — 위 표에 <code>features.py</code> 가 빠져 있었습니다(방금 한 줄 추가했습니다).
+      그 누락이 헷갈림의 절반이었습니다. <code>delta_samples()</code> 는
+      <strong>“작업자가 볼트를 만진 사건” 하나를 “입력 25칸(Δgap) + 출력 25칸(ΔWet)짜리 표 한 줄”로 바꾸는 함수</strong>이고,
+      입력과 출력이 처음으로 한 표에서 만나는 합류점입니다.
+    </p>
+    <ul>
+      <li><strong>before</strong> — 조정 직전 5분(<code>[worked_at−5분, worked_at]</code>, 6점)의 zone 별 Wet 평균. “원래 두께”.</li>
+      <li><strong>settled_at</strong> — <code>events.annotate_settling</code> 이 붙인 “다시 잠잠해진 시각”. after 창을 어디 놓을지 정합니다.</li>
+      <li><strong>after</strong> — <code>[settled_at, settled_at+5분]</code>(6점)의 평균. “다 끝난 뒤 두께”.</li>
+      <li><strong>ΔWet</strong> — <code>after − before</code>, zone 마다 하나씩 25개. 한 점끼리 빼지 않는 이유는 노이즈입니다(실측 2.27배 차이).</li>
+    </ul>
+    <p>
+      전체 설명은 별도 문서로 만들었습니다 — 시간축 해부도, 실제 실행 숫자, 코드 한 줄씩 읽기, 퀴즈까지 있습니다:
+      <a href="2026-09-04-explanation-coating-lag-gain-basics-followup.html"><strong>delta_samples — 이벤트 하나를 표 한 줄로 바꾸는 일</strong></a>.
+    </p>
+    <p style="margin-bottom:0">
+      덧붙여, 그 글을 쓰며 코드를 실제로 돌려보다 <strong>순수지연이 창(5분)보다 길면 <code>settled_at</code> 이 지연 안쪽에 박혀
+      gain 이 0 으로 무너지는 현상</strong>을 확인했습니다. 후속 문서 8장에 실측과 함께 적어 두었습니다.
+    </p>
+  </div>
 </div>
 
 
