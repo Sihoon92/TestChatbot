@@ -1,5 +1,6 @@
 """샘플 테이블 — Wet=0 을 0 으로 두면 레벨이 통째로 왜곡된다."""
 import numpy as np
+import pytest
 import pandas as pd
 
 from app.coating import features
@@ -80,3 +81,125 @@ def test_delta_columns_are_25_each():
     assert len(features.WET_DELTA_COLS) == 25
     assert features.GAP_DELTA_COLS[0] == "dg1"
     assert features.WET_DELTA_COLS[24] == "dw25"
+
+
+# ── 절대 샘플 · lot 최종 조건 ───────────────────────────────────────
+# 레벨 모델과 베이스라인의 입력이다. 델타 샘플(이벤트별 변화량)과 달리
+# "이 제어 상태에서 평균 두께가 얼마였나" 를 한 줄로 만든다.
+
+import pandas as pd  # noqa: E402
+
+from app.coating import schemas as SS  # noqa: E402
+
+
+def _changes(rows) -> pd.DataFrame:
+    """(lot, item, 시각, 값, 직전값) 튜플로 changes 표를 만든다."""
+    return pd.DataFrame(
+        [{SS.LOT: l, SS.ITEM: i, SS.AT: pd.Timestamp(t), SS.VALUE: v,
+          SS.PREV_VALUE: p} for l, i, t, v, p in rows]
+    )
+
+
+def _bounds(rows) -> pd.DataFrame:
+    return pd.DataFrame(
+        [{SS.LOT: l, "start": pd.Timestamp(s), "end": pd.Timestamp(e),
+          SS.PRODUCT: pr} for l, s, e, pr in rows]
+    )
+
+
+def _wet_mean(lot, start, minutes, value) -> pd.DataFrame:
+    at = pd.date_range(pd.Timestamp(start), periods=minutes, freq="min")
+    return pd.DataFrame({SS.LOT: lot, SS.AT: at, SS.WET_MEAN: value})
+
+
+def test_absolute_samples_makes_one_row_per_stable_window():
+    """제어값이 안 바뀐 구간마다 한 줄. 여기서는 변경이 한 번 있으므로 두 줄."""
+    ch = _changes([
+        ("L1", "50030111", "2026-01-01 00:00", 100.0, None),
+        ("L1", "10030009", "2026-01-01 00:00", 50.0, None),
+        ("L1", "50030111", "2026-01-01 01:00", 120.0, 100.0),
+    ])
+    bounds = _bounds([("L1", "2026-01-01 00:00", "2026-01-01 02:00", "BNB48X1")])
+    wm = _wet_mean("L1", "2026-01-01 00:00", 121, 18.0)
+    out = features.absolute_samples(ch, wm, bounds, wait_minutes=10, min_window_minutes=20)
+    assert len(out) == 2
+    assert list(out[SS.PRODUCT]) == ["BNB48X1", "BNB48X1"]
+
+
+def test_absolute_samples_carries_the_control_state_of_each_window():
+    """두 번째 구간은 바뀐 RPM 을 들고 있어야 한다. 안 그러면 입력과 출력이
+    어긋난 채로 학습된다."""
+    ch = _changes([
+        ("L1", "50030111", "2026-01-01 00:00", 100.0, None),
+        ("L1", "10030009", "2026-01-01 00:00", 50.0, None),
+        ("L1", "50030111", "2026-01-01 01:00", 120.0, 100.0),
+    ])
+    bounds = _bounds([("L1", "2026-01-01 00:00", "2026-01-01 02:00", "BNB48X1")])
+    wm = _wet_mean("L1", "2026-01-01 00:00", 121, 18.0)
+    out = features.absolute_samples(ch, wm, bounds, 10, 20).sort_values(SS.AT)
+    assert list(out["pump_rpm"]) == [100.0, 120.0]
+    assert list(out["bp_open_rate"]) == [50.0, 50.0]   # 안 바뀐 값은 유지된다
+
+
+def test_absolute_samples_waits_before_measuring():
+    """조정 직후는 아직 반영 전이다. wait 만큼 지난 뒤부터 평균 낸다."""
+    ch = _changes([("L1", "50030111", "2026-01-01 00:00", 100.0, None)])
+    bounds = _bounds([("L1", "2026-01-01 00:00", "2026-01-01 01:00", "P")])
+    wm = _wet_mean("L1", "2026-01-01 00:00", 61, 18.0)
+    wm.loc[wm[SS.AT] < pd.Timestamp("2026-01-01 00:30"), SS.WET_MEAN] = 99.0
+    out = features.absolute_samples(ch, wm, bounds, wait_minutes=30, min_window_minutes=20)
+    assert len(out) == 1
+    assert out[SS.WET_MEAN].iloc[0] == pytest.approx(18.0)
+
+
+def test_absolute_samples_drops_windows_too_short_to_settle():
+    """짧은 구간은 반영이 끝나기 전이라 그 Wet 은 이 제어값의 결과가 아니다."""
+    ch = _changes([
+        ("L1", "50030111", "2026-01-01 00:00", 100.0, None),
+        ("L1", "50030111", "2026-01-01 00:05", 120.0, 100.0),
+        ("L1", "50030111", "2026-01-01 00:10", 130.0, 120.0),
+    ])
+    bounds = _bounds([("L1", "2026-01-01 00:00", "2026-01-01 00:15", "P")])
+    wm = _wet_mean("L1", "2026-01-01 00:00", 16, 18.0)
+    assert features.absolute_samples(ch, wm, bounds, 10, 20).empty
+
+
+def test_absolute_samples_skips_windows_without_wet():
+    """Wet 이 없는 구간은 버린다 - 0 으로 채우면 레벨이 통째로 왜곡된다."""
+    ch = _changes([("L1", "50030111", "2026-01-01 00:00", 100.0, None)])
+    bounds = _bounds([("L1", "2026-01-01 00:00", "2026-01-01 02:00", "P")])
+    wm = _wet_mean("L1", "2026-01-01 00:00", 121, 18.0)
+    wm[SS.WET_MEAN] = np.nan
+    assert features.absolute_samples(ch, wm, bounds, 10, 20).empty
+
+
+def test_lot_finals_takes_the_last_control_state_of_each_lot():
+    """베이스라인이 쓰는 '그 lot 이 최종적으로 안착한 조건'."""
+    ch = _changes([
+        ("L1", "50030111", "2026-01-01 00:00", 100.0, None),
+        ("L1", "50030111", "2026-01-01 01:00", 120.0, 100.0),
+        ("L2", "50030111", "2026-01-02 00:00", 90.0, None),
+    ])
+    bounds = _bounds([
+        ("L1", "2026-01-01 00:00", "2026-01-01 02:00", "BNB48X1"),
+        ("L2", "2026-01-02 00:00", "2026-01-02 02:00", "BNB48X1"),
+    ])
+    out = features.lot_finals(ch, bounds).set_index(SS.LOT)
+    assert out.loc["L1", "pump_rpm"] == 120.0
+    assert out.loc["L2", "pump_rpm"] == 90.0
+    assert out.loc["L1", SS.PRODUCT] == "BNB48X1"
+
+
+def test_lot_finals_orders_by_lot_end_so_baselines_never_see_the_future():
+    """베이스라인은 과거만 본다. 그 '과거' 를 정하는 시각이 여기서 나온다."""
+    ch = _changes([
+        ("L2", "50030111", "2026-01-02 00:00", 90.0, None),
+        ("L1", "50030111", "2026-01-01 00:00", 100.0, None),
+    ])
+    bounds = _bounds([
+        ("L1", "2026-01-01 00:00", "2026-01-01 02:00", "P"),
+        ("L2", "2026-01-02 00:00", "2026-01-02 02:00", "P"),
+    ])
+    out = features.lot_finals(ch, bounds)
+    assert list(out[SS.LOT]) == ["L1", "L2"]
+    assert out[SS.AT].is_monotonic_increasing

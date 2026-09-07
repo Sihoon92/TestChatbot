@@ -40,3 +40,14 @@ def fit_level(df: pd.DataFrame, alpha: float) -> tuple[Pipeline, list[str]]:
     model = build_level_model(alpha, feats)
     model.fit(df[feats + [PRODUCT_COL]], df[TARGET_COL])
     return model, feats
+
+
+def coefficients(model: Pipeline, feats: list[str]) -> dict:
+    """피처별 계수. 부호가 물리와 맞는지 사람이 볼 수 있어야 한다.
+
+    스케일러를 거친 뒤의 계수라 단위가 원래 값이 아니다. 크기 비교가 아니라
+    **부호와 상대 크기**를 보는 용도다 - 토출량↑ ⇒ 로딩↑ 이 안 나오면 그
+    자체가 발견이다(데이터가 물리와 어긋났거나 교란변수가 있다).
+    """
+    ridge = model.named_steps["ridge"]
+    return {name: float(c) for name, c in zip(feats, ridge.coef_[: len(feats)])}

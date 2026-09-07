@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from app.coating import dump as dump_mod
+from app.coating import evaluate
 from app.coating import events as ev_mod
 from app.coating import features, panel as panel_mod, parse, pivot, response
 from app.coating import schemas as S
@@ -46,6 +47,9 @@ DUMP_TABLES = (
     # 커널이 실제로 무엇을 보고 그 모양이 됐는지. 이것이 없으면 "물리로 보기
     # 어렵다" 를 받은 사람이 다음에 열 것이 없다 - 판정만 있고 근거가 없다.
     "07_delta_samples",
+    # 레벨 쪽 입력 둘. 커널이 막혀도 이쪽은 굴러가므로 따로 열어볼 수 있어야 한다.
+    "08_absolute_samples",
+    "09_lot_finals",
 )
 
 
@@ -131,7 +135,17 @@ def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict
         "missing_control_items": missing,
         "tuning_end": segment.tuning_end_last_change(changes).to_dict("records"),
     }
+    bounds = segment.lot_bounds(deduped)
+    abs_samples = features.absolute_samples(
+        changes, wm, bounds,
+        s.coating_settle_max_wait_minutes, s.coating_settle_window_minutes,
+    )
+    if tables is not None:
+        tables["08_absolute_samples"] = abs_samples
+        tables["09_lot_finals"] = features.lot_finals(changes, bounds)
+
     facts["kernel"] = _kernel_facts(ds, dg, s)
+    facts["level"] = evaluate.compare_level_models(abs_samples, s.coating_ridge_alpha)
     facts["dynamics"] = _dynamics_facts(readings, ev, dl, s, tables)
     facts.update(_verdict(facts))
     return facts
@@ -375,6 +389,47 @@ def _kernel_bar(kernel: list[float], width: int = 36) -> list[str]:
     return out
 
 
+def _level_lines(lv: dict) -> list[str]:
+    """레벨 모델 절. 이 절의 산출물은 정확도가 아니라 "모델이 필요한가" 다.
+
+    영향행렬과 나란히 두는 이유: Wet 은 레벨(평균 두께)과 프로파일(폭 방향
+    모양)로 나뉘고 둘의 담당이 다르다. 한쪽이 막혀도 다른 쪽은 갈 수 있는데,
+    절이 하나뿐이면 그 사실이 안 보인다.
+    """
+    if not lv:
+        return []
+    lines = [
+        "## 레벨 모델 (제어값 → 평균 두께)",
+        f"- 절대 샘플 {lv['n_samples']}건 · lot {lv['n_lots']}개"
+        f" · 평가 lot {lv['n_eval_lots']}개 (walk-forward, 과거만 본다)",
+    ]
+    if lv["features"]:
+        lines.append(
+            f"- 제어 피처: {lv['features']}"
+            + (f" · 이 중 실제로 변하는 것: {lv['varying_features']}"
+               if lv["varying_features"] != lv["features"] else "")
+        )
+    if lv["mae_model"] is None:
+        return lines + [f"- **판정: 아직 못 낸다** — {lv['reason']}", ""]
+
+    lines += [
+        f"- MAE — 모델 {lv['mae_model']:.4f} · 직전 lot {lv['mae_prev_lot']:.4f}"
+        f" · 전역 중앙값 {lv['mae_global']:.4f}",
+        f"- **판정: {lv['verdict']}** — {lv['reason']}",
+    ]
+    if lv["coefficients"]:
+        signs = ", ".join(f"{k} {v:+.3f}" for k, v in lv["coefficients"].items())
+        lines.append(f"- 계수(표준화 후, 부호를 본다): {signs}")
+        # 물리 정합성. 토출량이 늘면 로딩이 늘어야 한다.
+        rpm = lv["coefficients"].get("pump_rpm")
+        if rpm is not None and rpm < 0:
+            lines.append(
+                "  - ⚠ Pump RPM 계수가 음수다. 토출량↑ ⇒ 로딩↑ 이라는 물리와"
+                " 어긋난다. 교란변수(고형분·점도)가 빠졌을 가능성을 먼저 본다."
+            )
+    return lines + [""]
+
+
 def render_markdown(f: dict) -> str:
     lines = [
         "# 코팅 초기조건 데이터 실사 리포트",
@@ -397,6 +452,7 @@ def render_markdown(f: dict) -> str:
         f"- 상위 특이값: {[round(x, 3) for x in f['singular_values']]}",
         "",
         *_kernel_lines(f.get("kernel") or {"zones": _EMPTY_ZONES}),
+        *_level_lines(f.get("level") or {}),
         *_dynamics_lines(f.get("dynamics") or {}),
         "## 유효 폭",
         f"- 유효 zone: {f['valid_zones']}",

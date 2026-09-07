@@ -270,3 +270,56 @@ def test_kernel_lines_call_out_unexplained_rank_shortfall():
     md = "\n".join(report._kernel_lines(kf))
     assert "설명 안 된 결손 4" in md
     assert "03_event_deltas" in md
+
+
+# ── 레벨 모델 절 ────────────────────────────────────────────────────
+
+
+def test_level_section_appears_on_sample_even_though_it_cannot_judge():
+    """샘플은 9분짜리라 lot 이 1개다. 판정은 못 내도 절은 있어야 한다."""
+    md = report.render_markdown(report.profile_dataset(SAMPLE, DICT))
+    assert "## 레벨 모델" in md
+    assert "아직 못 낸다" in md
+
+
+def test_level_facts_say_why_they_cannot_judge():
+    """'왜 못 내는지' 가 없으면 사용자가 다음에 무엇을 할지 정할 수 없다."""
+    lv = report.profile_dataset(SAMPLE, DICT)["level"]
+    assert lv["verdict"] == "insufficient"
+    assert lv["reason"]
+
+
+def test_level_lines_report_the_three_maes_side_by_side():
+    """모델만 적으면 '좋아 보이는데 아무것도 개선 못 하는' 결과를 못 알아챈다."""
+    md = "\n".join(report._level_lines({
+        "n_samples": 60, "n_lots": 20, "n_eval_lots": 15,
+        "features": ["pump_rpm"], "varying_features": ["pump_rpm"],
+        "mae_model": 0.10, "mae_prev_lot": 0.25, "mae_global": 0.40,
+        "coefficients": {"pump_rpm": 0.35},
+        "verdict": "model_helps", "reason": "제어값이 두께를 설명한다.",
+    }))
+    assert "모델 0.1000" in md and "직전 lot 0.2500" in md and "전역 중앙값 0.4000" in md
+    assert "model_helps" in md
+
+
+def test_level_lines_flag_a_physically_impossible_coefficient():
+    """토출량↑ ⇒ 로딩↑ 이 안 나오면 그 자체가 발견이다."""
+    md = "\n".join(report._level_lines({
+        "n_samples": 60, "n_lots": 20, "n_eval_lots": 15,
+        "features": ["pump_rpm"], "varying_features": ["pump_rpm"],
+        "mae_model": 0.10, "mae_prev_lot": 0.25, "mae_global": 0.40,
+        "coefficients": {"pump_rpm": -0.35},
+        "verdict": "model_helps", "reason": "...",
+    }))
+    assert "물리와" in md and "고형분" in md
+
+
+def test_level_lines_separate_available_from_varying_features():
+    """넷 다 있는데 하나만 변하면 그 사실이 보여야 한다."""
+    md = "\n".join(report._level_lines({
+        "n_samples": 60, "n_lots": 20, "n_eval_lots": 15,
+        "features": ["bp_open_rate", "pump_rpm"], "varying_features": ["pump_rpm"],
+        "mae_model": None, "mae_prev_lot": None, "mae_global": None,
+        "coefficients": {}, "verdict": "insufficient", "reason": "표본 부족",
+    }))
+    assert "실제로 변하는 것: ['pump_rpm']" in md
