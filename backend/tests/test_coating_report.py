@@ -203,3 +203,70 @@ def test_facts_carry_line_speed_from_settings():
     만지지 않는다는 경계를 지키기 위한 것이다."""
     facts = report.profile_dataset(SAMPLE, DICT)
     assert facts["dynamics"]["line_speed_mpm"] == get_settings().coating_line_speed_mpm
+
+
+# ── 영향행렬 절 ─────────────────────────────────────────────────────
+
+
+def test_kernel_section_appears_even_when_kernel_cannot_be_fit():
+    """샘플은 이벤트가 0건이라 커널이 안 나온다. 그래도 절은 있어야 한다 —
+    절이 통째로 사라지면 '안 쟀다' 와 '재서 못 냈다' 를 구별할 수 없다."""
+    md = report.render_markdown(report.profile_dataset(SAMPLE, DICT))
+    assert "## 영향행렬" in md
+    assert "커널을 뽑지 못했다" in md
+
+
+def test_kernel_section_reports_never_adjusted_zones_on_sample():
+    """제어값이 하나도 안 변한 구간이므로 모든 zone 이 '안 움직임' 이다."""
+    kf = report.profile_dataset(SAMPLE, DICT)["kernel"]
+    assert kf["zones"]["n_adjusted"] == 0
+    assert kf["zones"]["unexplained_shortfall"] == 0
+
+
+def test_kernel_lines_draw_bell_shape_and_pass_verdict():
+    """커널이 나왔을 때의 모양. 판정 문장과 막대가 함께 나와야 한다."""
+    kf = {
+        "half_width": 2, "alpha": 1.0,
+        "zones": {
+            "n_adjusted": 22, "never_adjusted": [1, 25], "locked_pairs": [(6, 7)],
+            "effective_rank": 21, "reachable_rank": 21, "unexplained_shortfall": 0,
+        },
+        "diagnostics": report.profile.kernel_diagnostics(
+            [0.05, 0.20, 0.50, 0.20, 0.05]
+        ),
+    }
+    md = "\n".join(report._kernel_lines(kf))
+    assert "종 모양이다" in md
+    assert "한 번도 안 움직인 zone: [1, 25]" in md
+    assert "항상 같이 움직인 쌍: [(6, 7)]" in md
+    assert "█" in md
+
+
+def test_kernel_lines_flag_truncated_spread_with_setting_name():
+    """가장자리가 크면 k 를 늘리라고 말한다 — 어느 설정인지까지 적어야 행동이 된다."""
+    kf = {
+        "half_width": 2, "alpha": 1.0,
+        "zones": {
+            "n_adjusted": 22, "never_adjusted": [], "locked_pairs": [],
+            "effective_rank": 22, "reachable_rank": 22, "unexplained_shortfall": 0,
+        },
+        "diagnostics": report.profile.kernel_diagnostics(
+            [0.40, 0.45, 0.50, 0.45, 0.40]
+        ),
+    }
+    md = "\n".join(report._kernel_lines(kf))
+    assert "COATING_KERNEL_HALF_WIDTH" in md
+
+
+def test_kernel_lines_call_out_unexplained_rank_shortfall():
+    """없는 zone·묶인 쌍으로 설명 안 되는 결손은 반드시 눈에 띄어야 한다."""
+    kf = {
+        "half_width": 2, "alpha": 1.0,
+        "zones": {
+            "n_adjusted": 22, "never_adjusted": [1, 25], "locked_pairs": [],
+            "effective_rank": 18, "reachable_rank": 22, "unexplained_shortfall": 4,
+        },
+    }
+    md = "\n".join(report._kernel_lines(kf))
+    assert "설명 안 된 결손 4" in md
+    assert "03_event_deltas" in md

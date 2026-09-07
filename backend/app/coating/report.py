@@ -24,6 +24,12 @@ from app.coating.model import profile
 from app.config import get_settings
 
 _MIN_EVENTS = 20  # Toeplitz 커널(2k+1개)을 견고하게 추정하는 하한
+# 커널 절을 못 채울 때의 빈 값. 리포트는 어떤 경우에도 같은 절을 갖는다 -
+# 절이 통째로 사라지면 "안 쟀다" 와 "재서 0 이다" 를 구별할 수 없다.
+_EMPTY_ZONES = {
+    "n_adjusted": 0, "never_adjusted": [], "locked_pairs": [],
+    "effective_rank": 0, "reachable_rank": 0, "unexplained_shortfall": 0,
+}
 
 # 덤프로 남기는 중간 산출물. 번호는 파이프라인 순서다 - 폴더를 열었을 때
 # 무엇이 무엇 다음인지가 파일 이름만으로 보여야 한다.
@@ -121,9 +127,35 @@ def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict
         "missing_control_items": missing,
         "tuning_end": segment.tuning_end_last_change(changes).to_dict("records"),
     }
+    facts["kernel"] = _kernel_facts(ds, dg, s)
     facts["dynamics"] = _dynamics_facts(readings, ev, dl, s, tables)
     facts.update(_verdict(facts))
     return facts
+
+
+def _kernel_facts(ds, dg, s) -> dict:
+    """영향행렬 — 랭크가 "풀 수 있다" 고 한 뒤에 실제로 풀어 본다.
+
+    지금까지 이 리포트는 rank_diagnostics 로 자격만 물었다. 자격과 답은 다른
+    사실이라, 랭크가 22 여도 커널이 두 봉우리로 나오면 식별된 것이 아니다.
+
+    못 뽑아도 리포트는 계속 간다. 커널은 이 리포트의 결론이 아니라 관측이고,
+    여기서 예외를 던지면 앞 절의 멀쩡한 판정까지 같이 사라진다.
+    """
+    zones = profile.zone_adjustment_diagnostics(dg)
+    out = {"zones": zones, "half_width": s.coating_kernel_half_width,
+           "alpha": s.coating_ridge_alpha}
+    if not len(ds) or zones["effective_rank"] < 1:
+        return out
+    dw = ds[features.WET_DELTA_COLS].to_numpy(dtype=float)
+    try:
+        kernel = profile.fit_kernel(
+            dg, dw, s.coating_kernel_half_width, s.coating_ridge_alpha
+        )
+    except (np.linalg.LinAlgError, ValueError):
+        return out
+    out["diagnostics"] = profile.kernel_diagnostics(kernel)
+    return out
 
 
 def _dynamics_facts(readings, ev, dl, s, tables=None) -> dict:
@@ -264,6 +296,81 @@ def _not_identifiable_lines(d: dict) -> list[str]:
     ]
 
 
+def _kernel_lines(kf: dict) -> list[str]:
+    """영향행렬 섹션. 랭크 결손을 zone 의 말로 옮기고, 커널을 눈으로 보게 한다.
+
+    막대를 그리는 이유는 장식이 아니다. 종 모양인지 두 봉우리인지는 숫자 다섯
+    개를 읽는 것보다 모양을 보는 쪽이 빠르고, 이 판정의 실패 양식이 정확히
+    "숫자는 그럴듯한데 모양이 물리가 아닌 것" 이다.
+    """
+    z = kf["zones"]
+    lines = [
+        "## 영향행렬 (조정 → 이웃으로 퍼짐)",
+        f"- 조정된 zone: {z['n_adjusted']} / {S.N_ZONES}",
+    ]
+    if z["never_adjusted"]:
+        lines.append(
+            f"- 한 번도 안 움직인 zone: {z['never_adjusted']}"
+            " — 항목이 없거나 작업자가 안 건드리는 자리다. 랭크 결손의 정상적인 이유다."
+        )
+    if z["locked_pairs"]:
+        lines.append(
+            f"- 항상 같이 움직인 쌍: {z['locked_pairs']}"
+            " — 이 둘의 기여는 이 데이터로 영영 가를 수 없다. 따로 움직인 구간을 요청한다."
+        )
+    lines.append(
+        f"- 도달 가능 랭크 {z['reachable_rank']} · 실제 {z['effective_rank']}"
+        f" → 설명 안 된 결손 {z['unexplained_shortfall']}"
+    )
+    if z["unexplained_shortfall"] > 0:
+        lines.append(
+            "  - ⚠ 위 둘로 설명되지 않는 결손이 남았다. 세 개 이상이 묶여 움직이는"
+            " 패턴일 수 있다 — 03_event_deltas 를 직접 본다(`--dump`)."
+        )
+
+    d = kf.get("diagnostics")
+    if not d:
+        return lines + ["- 커널을 뽑지 못했다 (표본 또는 랭크 부족).", ""]
+
+    lines.append(
+        f"- 커널 (k={kf['half_width']}, ridge α={kf['alpha']:g})"
+        " — 볼트 하나를 1 움직였을 때 offset 만큼 떨어진 zone 이 받는 몫"
+    )
+    lines += _kernel_bar(d["kernel"])
+    mark = "종 모양이다" if d["plausible"] else "물리로 보기 어렵다"
+    lines.append(f"- **판정: {mark}** — " + " ".join(d["reasons"]))
+    lines.append(
+        f"- 중심 집중도 {d['mass_ratio']:.0%} · 좌우 비대칭 {d['asymmetry']:.2f}"
+        f" · 가장자리 비 {d['edge_ratio']:.2f}"
+    )
+    if d["truncated"]:
+        lines.append(
+            "  - ⚠ 가장자리 탭이 아직 크다. 퍼짐이 k 에서 잘렸다는 뜻이다 —"
+            " COATING_KERNEL_HALF_WIDTH 를 늘려 다시 본다."
+        )
+    if d["asymmetry"] > 0.2:
+        lines.append(
+            "  - ⚠ 좌우가 뚜렷이 다르다. 흐름 방향 효과일 수도, zone 정렬이"
+            " 틀린 것일 수도 있다 — 둘은 다른 문제다."
+        )
+    return lines + [""]
+
+
+def _kernel_bar(kernel: list[float], width: int = 36) -> list[str]:
+    """커널을 막대로. 부호가 뒤집힌 탭은 다른 글자로 찍어 눈에 걸리게 한다."""
+    scale = max((abs(v) for v in kernel), default=0.0) or 1.0
+    k = (len(kernel) - 1) // 2
+    center_sign = 1.0 if kernel[k] >= 0 else -1.0
+    out = []
+    for i, v in enumerate(kernel):
+        n = int(round(abs(v) / scale * width))
+        glyph = "█" if v * center_sign >= 0 else "▒"
+        off = i - k
+        out.append(f"      {off:+d}" if off else "      " + " 0")
+        out[-1] += f"  {v:+8.4f}  {glyph * n}"
+    return out
+
+
 def render_markdown(f: dict) -> str:
     lines = [
         "# 코팅 초기조건 데이터 실사 리포트",
@@ -285,6 +392,7 @@ def render_markdown(f: dict) -> str:
         f"- Δgap 유효 랭크: {f['effective_rank']} / 25",
         f"- 상위 특이값: {[round(x, 3) for x in f['singular_values']]}",
         "",
+        *_kernel_lines(f.get("kernel") or {"zones": _EMPTY_ZONES}),
         *_dynamics_lines(f.get("dynamics") or {}),
         "## 유효 폭",
         f"- 유효 zone: {f['valid_zones']}",
