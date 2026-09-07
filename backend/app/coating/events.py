@@ -123,6 +123,86 @@ def _settle_time(
     return None
 
 
+# 간격 분포를 나눌 칸. 세션 안(몇 분)과 세션 사이(시간 단위)가 갈리는 자리를
+# 사람이 눈으로 찾을 수 있을 만큼만 잘게 쪼갠다.
+_GAP_EDGES = [0, 1, 2, 3, 5, 10, 20, 60, float("inf")]
+_GAP_LABELS = ["0~1분", "1~2분", "2~3분", "3~5분", "5~10분",
+               "10~20분", "20~60분", "60분+"]
+
+
+def change_gaps(changes: pd.DataFrame) -> pd.Series:
+    """제어값이 바뀐 시각들 사이의 간격(분). lot 안에서만 잰다. ★순수
+
+    build_events 의 merge_minutes 가 무엇이어야 하는지는 이 분포가 답한다.
+    한 번의 튜닝 안에서 볼트를 옮겨 잡는 간격과, 튜닝과 튜닝 사이의 간격은
+    자릿수가 다를 것이다. 그 사이의 골이 병합창으로 쓸 값이다.
+    """
+    if changes.empty:
+        return pd.Series(dtype="float64")
+    ctrl = changes[changes[S.ITEM].isin(S.CONTROL_ITEM_IDS)]
+    if S.PREV_VALUE in ctrl.columns:
+        ctrl = ctrl[ctrl[S.PREV_VALUE].notna()]
+    if ctrl.empty:
+        return pd.Series(dtype="float64")
+    # 같은 시각에 여러 항목이 바뀐 것은 간격 0 이 아니라 '한 순간' 이다.
+    at = ctrl[[S.LOT, S.AT]].drop_duplicates().sort_values([S.LOT, S.AT])
+    return at.groupby(S.LOT)[S.AT].diff() / pd.Timedelta(minutes=1)
+
+
+def gap_histogram(changes: pd.DataFrame) -> pd.DataFrame:
+    """간격 분포를 칸으로 나눠 센다. ★순수
+
+    두 봉우리 사이의 빈 칸이 곧 "여기부터는 다른 조정" 이라는 경계다. 골이
+    없으면 작업자가 쉼 없이 조정한다는 뜻이고, 그때는 병합창을 어떻게 잡아도
+    깨끗한 실험이 안 나온다 - 그것도 결론이다.
+    """
+    g = change_gaps(changes).dropna()
+    cut = pd.cut(g, bins=_GAP_EDGES, labels=_GAP_LABELS, right=False)
+    counts = cut.value_counts().reindex(_GAP_LABELS, fill_value=0)
+    total = int(counts.sum())
+    return pd.DataFrame({
+        "bucket": _GAP_LABELS,
+        "n": counts.to_numpy(dtype=int),
+        "ratio": (counts.to_numpy(dtype=float) / total) if total else 0.0,
+    })
+
+
+def merge_sensitivity(
+    changes: pd.DataFrame,
+    merge_windows=(1, 2, 3, 5, 10, 15, 20),
+    pre_minutes: int = 30,
+    post_minutes: int = 60,
+    bounds: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """병합창을 바꿔가며 '쓸 수 있는 것' 이 얼마나 되는지. ★순수
+
+    "조정 이벤트 35건" 은 관측이 아니다. merge_minutes=2 가 만든 숫자이고, 그
+    2 는 검증된 적이 없다. 창이 좁으면 한 번의 튜닝이 여러 묶음으로 쪼개지는데,
+    쪼개진 묶음들은 서로가 서로의 이웃이 되어 **격리에서 다 같이 탈락한다**.
+    데이터가 사라지는 것이 아니라 우리가 버리는 것이다.
+
+    세는 것은 이벤트 수가 아니라 **Δgap 항목 수**다. 커널이 먹는 것은 이벤트가
+    아니라 (이벤트 × 조정된 zone) 이라, 이벤트 3건으로 쪼개진 것보다 6항목을
+    담은 1건이 낫다.
+    """
+    rows = []
+    for mw in merge_windows:
+        ev, dl = build_events(changes, mw)
+        if ev.empty:
+            rows.append({"merge_minutes": mw, "n_clusters": 0,
+                         "n_isolated": 0, "n_items": 0})
+            continue
+        iso = isolation(ev, pre_minutes, post_minutes, bounds)
+        keep = set(iso.loc[iso["isolated"], S.EVENT])
+        rows.append({
+            "merge_minutes": mw,
+            "n_clusters": int(len(ev)),
+            "n_isolated": int(len(keep)),
+            "n_items": int(dl[dl[S.EVENT].isin(keep)].shape[0]),
+        })
+    return pd.DataFrame(rows)
+
+
 def isolation(
     events_df: pd.DataFrame,
     pre_minutes: int,

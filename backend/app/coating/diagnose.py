@@ -373,12 +373,26 @@ def render_isolation(path, s) -> str:
     bounds = segment.lot_bounds(deduped)
     ev, _ = ev_mod.build_events(changes, s.coating_event_merge_minutes)
 
+    n_changes = int(len(
+        changes[changes[S.ITEM].isin(S.CONTROL_ITEM_IDS)
+                & changes[S.PREV_VALUE].notna()]
+    ))
     lines = [
         "# 제어 구간 격리 — 쓸 수 있는 이벤트가 몇 건인가",
         "",
-        f"- lot {len(bounds)}개 · 조정 이벤트 {len(ev)}건",
-        "- 이 판정은 Wet 을 보지 않는다. 이벤트 시각만으로 정해지므로 L 을 몰라도",
-        "  쓸 수 있고, 그래서 L 을 재는 데 쓸 수 있다.",
+        # 층위를 명시한다. "이벤트 N건" 만 적으면 그것이 관측인 줄 알지만,
+        # 실제로는 merge_minutes 가 만든 숫자다.
+        f"- lot {len(bounds)}개",
+        f"- **변경** {n_changes}건 — 제어 항목 29개 중 무엇이든 값이 바뀐 횟수."
+        " 이건 데이터가 그대로 준다.",
+        f"- **묶음** {len(ev)}건 — 위를 {s.coating_event_merge_minutes}분"
+        " 이내로 이어 붙인 것(COATING_EVENT_MERGE_MINUTES). **설정이 만든 숫자다.**",
+        "- **쓸 수 있는 이벤트** — 묶음 중 앞뒤로 격리된 것. 아래 표.",
+        "",
+        "이 판정은 Wet 을 보지 않는다. 이벤트 시각만으로 정해지므로 L 을 몰라도",
+        "쓸 수 있고, 그래서 L 을 재는 데 쓸 수 있다.",
+        "",
+        "## 1. 격리 창을 바꿔가며",
         "",
         "   뒤 창   앞 창   홀로 선 이벤트",
     ]
@@ -410,7 +424,93 @@ def render_isolation(path, s) -> str:
             b = "없음" if pd.isna(r.gap_before) else f"{r.gap_before:.0f}"
             a = "없음" if pd.isna(r.gap_after) else f"{r.gap_after:.0f}"
             lines.append(f"    {getattr(r, S.EVENT)}   앞 {b:>5}   뒤 {a:>5}")
+
+    lines += ["", "## 2. 변경 사이의 간격 분포 — 병합창은 몇 분이어야 하나", ""]
+    hist = ev_mod.gap_histogram(changes)
+    peak = max(hist["n"]) or 1
+    for r in hist.itertuples(index=False):
+        bar = "█" * int(round(r.n / peak * 28))
+        lines.append(f"   {r.bucket:>8}  {r.n:>5} ({r.ratio:>4.0%})  {bar}")
+    lines += ["", _gap_verdict(hist)]
+
+    lines += ["", "## 3. 병합창을 바꾸면 쓸 수 있는 것이 얼마나 달라지나", ""]
+    sens = ev_mod.merge_sensitivity(
+        changes,
+        pre_minutes=s.coating_isolation_pre_minutes,
+        post_minutes=s.coating_isolation_post_minutes,
+        bounds=bounds,
+    )
+    lines.append("   병합창   묶음   격리 통과   쓸 수 있는 Δgap 항목")
+    for r in sens.itertuples(index=False):
+        mark = "  ← 현재" if r.merge_minutes == s.coating_event_merge_minutes else ""
+        lines.append(
+            f"   {r.merge_minutes:>4}분  {r.n_clusters:>5}   {r.n_isolated:>7}건"
+            f"   {r.n_items:>14}개{mark}"
+        )
+    lines += ["", _merge_verdict(sens, s.coating_event_merge_minutes)]
     return LF.join(lines) + LF
+
+
+def _gap_verdict(hist: pd.DataFrame) -> str:
+    """분포에 골이 있는가. 골이 곧 "여기부터는 다른 조정" 이라는 경계다.
+
+    가장 긴 빈 구간을 찾는다. 첫 빈 칸만 보면 골이 여러 칸에 걸쳐 있을 때 그
+    폭을 잃는데, 그 폭이 곧 "병합창을 이 사이 아무 값으로 둬도 된다" 는 여유다.
+    """
+    n = hist["n"].to_numpy()
+    if n.sum() == 0:
+        return "- 변경이 없어 분포를 낼 수 없다."
+    labels = list(hist["bucket"])
+
+    best, run_start = None, None
+    for i in range(len(n) + 1):
+        empty = i < len(n) and n[i] == 0
+        if empty and run_start is None:
+            run_start = i
+        elif not empty and run_start is not None:
+            # 양쪽에 값이 있어야 골이다. 앞뒤 끝의 빈 칸은 그냥 범위 밖이다.
+            if n[:run_start].sum() > 0 and (i < len(n)):
+                span = i - run_start
+                if best is None or span > best[1] - best[0]:
+                    best = (run_start, i)
+            run_start = None
+
+    if best is None:
+        return (
+            "- 뚜렷한 골이 없다. 조정 간격이 연속적으로 퍼져 있어 '한 번의 튜닝' 을"
+            " 간격만으로 가르기 어렵다는 뜻이다 — 아래 3번 표에서 쓸 수 있는 항목이"
+            " 가장 많아지는 창을 고른다."
+        )
+    lo, hi = _lower(labels[best[0]]), _lower(labels[best[1]])
+    return (
+        f"- **{lo}~{hi}분 구간이 비어 있다.** 그 아래는 한 번의 튜닝 안에서 볼트를"
+        " 옮겨 잡은 간격이고, 그 위는 튜닝과 튜닝 사이의 간격이라는 뜻이다."
+        f" 병합창을 이 사이 아무 값으로 둬도 결과가 같다 - 실제로 무엇이 최선인지는"
+        " 아래 3번 표가 정한다."
+    )
+
+
+def _lower(label: str) -> str:
+    """'3~5분' → '3'. 칸 라벨에서 아래쪽 경계만 꺼낸다."""
+    return label.replace("분+", "").replace("분", "").split("~")[0]
+
+
+def _merge_verdict(sens: pd.DataFrame, current: int) -> str:
+    """지금 창이 얼마나 손해인지 한 문장으로."""
+    if sens.empty or sens["n_items"].max() == 0:
+        return "- 어느 병합창에서도 쓸 수 있는 이벤트가 없다."
+    best = sens.loc[sens["n_items"].idxmax()]
+    now = sens[sens["merge_minutes"] == current]
+    n_now = int(now["n_items"].iloc[0]) if len(now) else 0
+    if int(best["merge_minutes"]) == current:
+        return f"- **현재 {current}분이 최선이다.** 쓸 수 있는 Δgap 항목 {n_now}개."
+    return (
+        f"- **{int(best['merge_minutes'])}분으로 넓히면 Δgap 항목이 {n_now}개 →"
+        f" {int(best['n_items'])}개로 는다.** 지금 창이 한 번의 튜닝을 여러 묶음으로"
+        " 쪼개고, 쪼개진 것들이 서로의 이웃이 되어 격리에서 함께 탈락하고 있다."
+        " 데이터가 없는 것이 아니라 우리가 버리고 있다 —"
+        f" COATING_EVENT_MERGE_MINUTES 를 {int(best['merge_minutes'])} 로 두고 다시 본다."
+    )
 
 
 def _isolation_verdict(table: pd.DataFrame, n_current: int) -> str:

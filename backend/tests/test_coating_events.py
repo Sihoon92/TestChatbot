@@ -159,3 +159,69 @@ def test_isolation_table_reports_total_for_context():
     """몇 건 중 몇 건인지가 없으면 숫자를 못 읽는다."""
     t = ev_mod.isolation_table(_ev([0, 20, 45]), windows=(10,))
     assert t["n_events"].iloc[0] == 3
+
+
+# ── 병합창 자체를 의심하기 ──────────────────────────────────────────
+# "이벤트 35건" 은 관측이 아니라 merge_minutes=2 가 만든 숫자다. 그 값이
+# 맞는지는 데이터가 답해야 하고, 답하려면 바꿔가며 재 봐야 한다.
+
+
+def _chg(offsets, lot="L1"):
+    base = pd.Timestamp("2026-02-02 06:00")
+    return pd.DataFrame([
+        {SS.LOT: lot, SS.ITEM: SS.GAP_ITEM_IDS[i % 25],
+         SS.AT: base + pd.Timedelta(minutes=m),
+         SS.VALUE: 41.0, SS.PREV_VALUE: 40.0}
+        for i, m in enumerate(offsets)
+    ])
+
+
+def test_change_gaps_are_intervals_between_consecutive_changes():
+    g = ev_mod.change_gaps(_chg([0, 5, 10, 300]))
+    assert list(g.dropna()) == [5.0, 5.0, 290.0]
+
+
+def test_change_gaps_do_not_cross_lots():
+    ch = pd.concat([_chg([0, 5], "L1"), _chg([0, 3], "L2")], ignore_index=True)
+    assert sorted(ev_mod.change_gaps(ch).dropna()) == [3.0, 5.0]
+
+
+def test_gap_histogram_shows_where_the_valley_is():
+    """세션 안 간격(5분)과 세션 사이 간격(300분)이 갈리면 골이 보인다.
+    그 골이 곧 병합창으로 쓸 값이다."""
+    h = ev_mod.gap_histogram(_chg([0, 5, 10, 300, 305, 600]))
+    counts = dict(zip(h["bucket"], h["n"]))
+    assert counts["3~5분"] + counts["5~10분"] == 3       # 세션 안
+    assert counts["60분+"] == 2                          # 세션 사이
+    assert counts["1~2분"] == 0                          # 골
+
+
+def test_merge_sensitivity_shows_data_lost_to_a_narrow_window():
+    """병합창이 좁으면 한 번의 튜닝이 쪼개지고, 쪼개진 것들이 서로를 탈락시킨다."""
+    ch = _chg([0, 5, 10, 300, 303, 600])
+    t = ev_mod.merge_sensitivity(ch, merge_windows=(2, 6), pre_minutes=30,
+                                 post_minutes=60).set_index("merge_minutes")
+    assert t.loc[2, "n_clusters"] == 6
+    assert t.loc[6, "n_clusters"] == 3
+    # 넓히면 쓸 수 있는 것이 늘어난다 - 이것이 이 표의 요점이다
+    assert t.loc[6, "n_isolated"] > t.loc[2, "n_isolated"]
+    assert t.loc[6, "n_items"] > t.loc[2, "n_items"]
+
+
+def test_merge_sensitivity_counts_items_not_just_events():
+    """이벤트 수보다 Δgap 항목 수가 중요하다 - 커널이 먹는 것은 항목이다."""
+    ch = _chg([0, 1, 2])                      # 2분 창에서 한 묶음, 3항목
+    t = ev_mod.merge_sensitivity(ch, merge_windows=(2,), pre_minutes=1,
+                                 post_minutes=1)
+    assert t["n_clusters"].iloc[0] == 1
+    assert t["n_items"].iloc[0] == 3
+
+
+def test_merge_sensitivity_is_zero_when_nothing_was_adjusted():
+    """제어값이 한 번도 안 바뀐 구간. 행이 없는 것이 아니라 0 이 나와야 한다 -
+    표가 통째로 비면 '안 쟀다' 와 '재서 0 이다' 를 구별할 수 없다."""
+    empty = _chg([0]).iloc[0:0]                 # 열은 있고 행만 없다
+    t = ev_mod.merge_sensitivity(empty, merge_windows=(2, 6),
+                                 pre_minutes=1, post_minutes=1)
+    assert list(t["n_clusters"]) == [0, 0]
+    assert list(t["n_items"]) == [0, 0]

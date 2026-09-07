@@ -336,3 +336,53 @@ def test_cli_requires_choosing_what_to_diagnose():
     with pytest.raises(SystemExit) as e:
         diagnose.main([])
     assert "--isolation" in str(e.value) and "--dump" in str(e.value)
+
+
+# ── 병합창 진단 ─────────────────────────────────────────────────────
+
+
+def _hist(counts):
+    from app.coating.events import _GAP_LABELS
+    total = sum(counts) or 1
+    return pd.DataFrame({"bucket": _GAP_LABELS, "n": counts,
+                         "ratio": [c / total for c in counts]})
+
+
+def test_gap_verdict_reports_the_whole_valley_not_just_its_first_cell():
+    """골이 여러 칸에 걸치면 그 폭이 곧 '이 사이 아무 값으로나' 라는 여유다."""
+    #        0~1 1~2 2~3 3~5 5~10 10~20 20~60 60+
+    text = diagnose._gap_verdict(_hist([0, 0, 3, 0, 0, 4, 0, 2]))
+    assert "3~10분" in text
+
+
+def test_gap_verdict_ignores_empty_cells_at_the_edges():
+    """앞뒤 끝의 빈 칸은 골이 아니라 그냥 범위 밖이다."""
+    text = diagnose._gap_verdict(_hist([0, 0, 5, 4, 3, 0, 0, 0]))
+    assert "골이 없다" in text
+
+
+def test_gap_verdict_says_so_when_gaps_are_continuous():
+    """간격이 연속적으로 퍼져 있으면 간격만으로는 못 가른다."""
+    text = diagnose._gap_verdict(_hist([1, 2, 3, 4, 3, 2, 1, 1]))
+    assert "골이 없다" in text
+    assert "3번 표" in text
+
+
+def test_merge_verdict_quantifies_what_a_narrow_window_costs():
+    """'넓히면 좋다' 로는 부족하다 - 몇 개에서 몇 개로 느는지가 있어야 한다."""
+    sens = pd.DataFrame([
+        {"merge_minutes": 2, "n_clusters": 35, "n_isolated": 3, "n_items": 4},
+        {"merge_minutes": 10, "n_clusters": 12, "n_isolated": 9, "n_items": 40},
+    ])
+    text = diagnose._merge_verdict(sens, current=2)
+    assert "4개" in text and "40개" in text
+    assert "COATING_EVENT_MERGE_MINUTES" in text
+    assert "우리가 버리고 있다" in text
+
+
+def test_merge_verdict_confirms_when_current_is_already_best():
+    sens = pd.DataFrame([
+        {"merge_minutes": 2, "n_clusters": 35, "n_isolated": 9, "n_items": 40},
+        {"merge_minutes": 10, "n_clusters": 12, "n_isolated": 5, "n_items": 20},
+    ])
+    assert "현재 2분이 최선" in diagnose._merge_verdict(sens, current=2)
