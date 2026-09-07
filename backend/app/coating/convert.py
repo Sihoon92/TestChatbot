@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from app.coating import console
 from app.coating import parse
 from app.coating import schemas as S
 from app.config import get_settings
@@ -131,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> str:
+    console.use_utf8()
     args = build_parser().parse_args(argv)
     s = get_settings()
     in_path = (

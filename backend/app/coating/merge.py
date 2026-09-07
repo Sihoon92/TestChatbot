@@ -46,6 +46,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from app.coating import console
 from app.coating import parse
 from app.coating import schemas as S
 
@@ -431,6 +432,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> str:
+    console.use_utf8()
     args = build_parser().parse_args(argv)
     paths = [Path(p) for p in args.input_paths]
     missing = [p for p in paths if not p.exists()]

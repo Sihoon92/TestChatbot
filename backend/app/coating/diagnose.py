@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from app.coating import console
 from app.coating import features
 from app.coating import response as resp
 from app.coating import schemas as S
@@ -34,6 +35,8 @@ _NULL_RATIO = 1e-6
 _ZONE_WEIGHT = 0.15
 # k 스윕 기본 범위. 25 zone 에서 k=6 이면 13탭이라 이보다 넓힐 이유가 없다.
 DEFAULT_WIDTHS = (1, 2, 3, 4, 5, 6)
+# 줄바꿈. 이 모듈의 출력은 전부 줄 목록을 이어 붙여 만든다.
+LF = "\n"
 
 
 def expected_center_tap(aligned: pd.DataFrame, curve: pd.DataFrame) -> dict:
@@ -354,19 +357,109 @@ def load_dump(dump_dir) -> dict:
     return out
 
 
+def render_isolation(path, s) -> str:
+    """원본에서 바로 격리 표를 낸다. ★파일을 읽는 두 번째 가장자리.
+
+    리포트 전체를 돌리지 않고도 "쓸 수 있는 이벤트가 몇 건인가" 만 보려는
+    경로다. 창을 정하는 일은 이 표를 몇 번 들여다보는 일이라, 그때마다
+    파이프라인 전체를 도는 것은 비싸다.
+    """
+    from app.coating import events as ev_mod, parse, pivot, segment
+
+    fmt = parse.format_for(path, None, s.coating_input_format)
+    readings = parse.load_readings(path, parse.DEFAULT_DICT_PATH, source=fmt)
+    deduped = pivot.dedupe_minute(readings)
+    changes = pivot.compress_runs(deduped)
+    bounds = segment.lot_bounds(deduped)
+    ev, _ = ev_mod.build_events(changes, s.coating_event_merge_minutes)
+
+    lines = [
+        "# 제어 구간 격리 — 쓸 수 있는 이벤트가 몇 건인가",
+        "",
+        f"- lot {len(bounds)}개 · 조정 이벤트 {len(ev)}건",
+        "- 이 판정은 Wet 을 보지 않는다. 이벤트 시각만으로 정해지므로 L 을 몰라도",
+        "  쓸 수 있고, 그래서 L 을 재는 데 쓸 수 있다.",
+        "",
+        "   뒤 창   앞 창   홀로 선 이벤트",
+    ]
+    if ev.empty:
+        return LF.join(lines + ["", "- 조정 이벤트가 0건이다."]) + LF
+
+    table = ev_mod.isolation_table(ev, bounds=bounds)
+    for r in table.itertuples(index=False):
+        lines.append(
+            f"   {r.post_minutes:>4}분  {r.pre_minutes:>4}분"
+            f"   {r.n_isolated:>4} / {r.n_events} ({r.ratio:.0%})"
+        )
+    cur = ev_mod.isolation(
+        ev, s.coating_isolation_pre_minutes, s.coating_isolation_post_minutes, bounds
+    )
+    n = int(cur["isolated"].sum())
+    lines += [
+        "",
+        f"- 현재 설정 앞{s.coating_isolation_pre_minutes}분 /"
+        f" 뒤{s.coating_isolation_post_minutes}분 → **{n}건**",
+        "",
+        _isolation_verdict(table, n),
+    ]
+    # 탈락 사유는 몇 건만 보여 준다. 전부 찍으면 표가 묻힌다.
+    rejected = cur[~cur["isolated"]].head(5)
+    if len(rejected):
+        lines += ["", "  탈락 예시 — 이웃까지의 간격(분)"]
+        for r in rejected.itertuples(index=False):
+            b = "없음" if pd.isna(r.gap_before) else f"{r.gap_before:.0f}"
+            a = "없음" if pd.isna(r.gap_after) else f"{r.gap_after:.0f}"
+            lines.append(f"    {getattr(r, S.EVENT)}   앞 {b:>5}   뒤 {a:>5}")
+    return LF.join(lines) + LF
+
+
+def _isolation_verdict(table: pd.DataFrame, n_current: int) -> str:
+    """표를 읽어 다음 행동을 한 문장으로 만든다.
+
+    표만 주면 "그래서 뭘 하라는 건가" 가 남는다. 셋으로 갈리고 각각 할 일이 다르다.
+    """
+    if n_current > 0:
+        return (
+            f"- **{n_current}건으로 시작할 수 있다.** 동특성(L·τ·T_s)을 이 이벤트들로"
+            " 재고, 나온 L+T_s 를 격리 창으로 다시 써서 표본을 늘린다."
+        )
+    alive = table[table["n_isolated"] > 0]
+    if alive.empty:
+        return (
+            "- **어느 창에서도 홀로 선 이벤트가 없다.** 조정이 쉼 없이 이어졌다는"
+            " 뜻이라 설정으로는 못 푼다. 조정 없이 2시간 이상 연속 운전한 구간이"
+            " 포함된 데이터를 요청한다."
+        )
+    best = alive.iloc[0]
+    return (
+        f"- 현재 설정에서는 0건이지만 뒤 창을 {best['post_minutes']:.0f}분으로 낮추면"
+        f" {best['n_isolated']:.0f}건이 산다. COATING_ISOLATION_POST_MINUTES 를"
+        f" {best['post_minutes']:.0f}, PRE 를 {best['pre_minutes']:.0f} 로 두고"
+        " 리포트를 다시 돌린다."
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m app.coating.diagnose",
         description="덤프를 되읽어 커널이 왜 그 모양인지 따진다.",
         epilog=(
-            "예) python -m app.coating.diagnose \\\n"
+            "예) 제어 구간 격리 표 — 리포트를 안 돌려도 된다\n"
+            "    python -m app.coating.diagnose \\\n"
+            "      --isolation data/coating/raw/merged.parquet\n\n"
+            "예) 커널 진단 — 리포트를 --dump 로 먼저 돌린다\n"
+            "    python -m app.coating.diagnose \\\n"
             "      --dump data/coating/reports/dump/20260907-101500"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
-        "--dump", dest="dump_dir", required=True, metavar="PATH",
-        help="리포트가 --dump 로 남긴 폴더",
+        "--isolation", dest="isolation_input", default=None, metavar="PARQUET",
+        help="원본 parquet 에서 제어 구간 격리 표만 낸다. 리포트를 안 돌려도 된다.",
+    )
+    p.add_argument(
+        "--dump", dest="dump_dir", default=None, metavar="PATH",
+        help="리포트가 --dump 로 남긴 폴더 (커널 진단용)",
     )
     p.add_argument(
         "--alpha", type=float, default=None,
@@ -376,12 +469,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> str:
+    console.use_utf8()
     # 설정은 CLI 가 아무것도 안 줬을 때만 본다(.env 단일 출처).
     from app.config import get_settings
 
     args = build_parser().parse_args(argv)
-    alpha = args.alpha if args.alpha is not None else get_settings().coating_ridge_alpha
-    text = render(load_dump(args.dump_dir), alpha)
+    s = get_settings()
+    if args.isolation_input:
+        text = render_isolation(args.isolation_input, s)
+    elif args.dump_dir:
+        alpha = args.alpha if args.alpha is not None else s.coating_ridge_alpha
+        text = render(load_dump(args.dump_dir), alpha)
+    else:
+        # 둘 다 안 주면 무엇을 진단할지 모른다. 기본값을 정하지 않는 이유는
+        # 하나가 원본을, 다른 하나가 파생물을 읽어서 값이 다른 것을 본다는 데 있다.
+        raise SystemExit(
+            "무엇을 진단할지 정해야 한다.\n"
+            "  --isolation <원본 parquet>   제어 구간 격리 표 (리포트 불필요)\n"
+            "  --dump <덤프 폴더>            커널 진단 (리포트를 --dump 로 먼저 돌린다)"
+        )
     print(text)
     return text
 

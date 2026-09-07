@@ -294,3 +294,45 @@ def test_sweep_verdict_sends_shift_to_the_equipment_not_the_data():
     assert "밀렸다" in text
     assert "설비" in text
     assert "COATING_RIDGE_ALPHA" not in text
+
+
+# ── 격리 표 CLI ─────────────────────────────────────────────────────
+
+
+def test_isolation_verdict_starts_work_when_events_survive():
+    t = pd.DataFrame([{"post_minutes": 60, "pre_minutes": 30,
+                       "n_events": 9, "n_isolated": 3, "ratio": 1 / 3}])
+    text = diagnose._isolation_verdict(t, n_current=3)
+    assert "3건으로 시작할 수 있다" in text
+    assert "L+T_s" in text
+
+
+def test_isolation_verdict_points_at_a_narrower_window():
+    """현재 창에서 0건이어도 살아나는 창이 있으면 그 값을 짚어 준다."""
+    t = pd.DataFrame([
+        {"post_minutes": 10, "pre_minutes": 5, "n_events": 9,
+         "n_isolated": 4, "ratio": 0.44},
+        {"post_minutes": 60, "pre_minutes": 30, "n_events": 9,
+         "n_isolated": 0, "ratio": 0.0},
+    ])
+    text = diagnose._isolation_verdict(t, n_current=0)
+    assert "COATING_ISOLATION_POST_MINUTES" in text
+    assert "10" in text
+
+
+def test_isolation_verdict_asks_for_data_when_nothing_ever_survives():
+    """어느 창에서도 0 이면 설정으로는 못 푼다 - 데이터를 요청해야 한다."""
+    t = pd.DataFrame([{"post_minutes": w, "pre_minutes": w // 2,
+                       "n_events": 9, "n_isolated": 0, "ratio": 0.0}
+                      for w in (10, 30, 60)])
+    text = diagnose._isolation_verdict(t, n_current=0)
+    assert "설정으로는 못 푼다" in text
+    assert "요청한다" in text
+
+
+def test_cli_requires_choosing_what_to_diagnose():
+    """둘 다 안 주면 무엇을 볼지 모른다. 기본값을 정하면 원본과 파생물 중
+    엉뚱한 쪽을 조용히 본다."""
+    with pytest.raises(SystemExit) as e:
+        diagnose.main([])
+    assert "--isolation" in str(e.value) and "--dump" in str(e.value)

@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from app.coating import console
 from app.coating import dump as dump_mod
 from app.coating import evaluate
 from app.coating import events as ev_mod
@@ -681,6 +682,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> tuple[str, str]:
+    console.use_utf8()
     args = build_parser().parse_args(argv)
     s = get_settings()
     source = parse.format_for(
