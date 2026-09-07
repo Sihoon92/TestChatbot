@@ -524,14 +524,49 @@ lot 이 아무리 길어도 소용없습니다.</div>
      600분 | [60, 180, 300, 420, 540] |            0 | NaN — 판정 불가
     1200분 | [100, 600]               |          957 | 0.0211</code></pre>
 
-<div class="qmemo" data-qid="guard-intuition" data-status="open">
+<div class="qmemo" data-qid="guard-intuition" data-status="answered">
   <div class="qmemo-head">
-    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-label">질문 메모 — 답변됨</span>
     <span class="qmemo-hint">가드 밴드 그림에서 막히는 곳이 있으면 여기에.</span>
   </div>
   <div class="qmemo-question" contenteditable="true"
-       data-placeholder="여기에 질문을 적어보세요..."></div>
-  <div class="qmemo-answer" hidden></div>
+       data-placeholder="여기에 질문을 적어보세요...">① 이벤트 앞/뒤 60분을 자르는 것이 왜 60분인가? 그럼 너무 많은 데이터를 자르니까 당연히 조용한 구간이 없다고 나올 것 같다. ② 하나의 이벤트의 시작과 끝이 무엇인가? 제어를 시작하는 시점과 끝을 데이터 관점에서 어떻게 구분하나? 여기서 말하는 제어 변수는 무엇인가? ③ 왜 앞/뒤로 해당 시간을 자르나? 이게 조용한 구간을 구하는 것과 어떻게 연계되나?</div>
+  <div class="qmemo-answer">
+    <p><b>①의 직관이 맞습니다 — 60분은 근거가 약합니다.</b> 이 값은 물리에서
+    나온 것이 아니라 <code>COATING_RESPONSE_POST_MINUTES</code>(“응답 곡선을
+    이벤트 뒤 몇 분까지 그릴 것인가”)를 <b>재사용</b>한 것입니다. 물리가 요구하는
+    가드는 조정의 그림자가 걷힐 때까지, 즉 <b>L + T_s = 9 + 21 = 30분</b>입니다.
+    60분은 그 두 배입니다.</p>
+
+    <p><b>게다가 “앞” 60분은 인과적으로 틀렸습니다.</b> 10시에 볼트를 돌렸다고
+    9시 10분의 Wet 이 흔들릴 수는 없습니다. 원인은 결과보다 먼저 옵니다.
+    앞쪽은 기록 지연과 로그에 안 남는 준비 동작만 덮으면 되므로 <b>5분</b>이면
+    충분합니다.</p>
+
+    <p><b>②</b> 이벤트의 <b>시작</b>은 2분 이내로 묶인 변경 덩어리의 <b>첫 변경
+    시각</b>입니다. <b>끝은 이벤트 표에 아예 없습니다</b> — <code>worked_at</code>
+    과 <code>n_items</code> 뿐입니다. 그래서 모든 이벤트에 똑같은 고정폭을
+    씌우는 것 말고 방법이 없었습니다. (다만 <code>annotate_settling</code> 이
+    <code>settled_at</code> 을 이미 계산해 두는데, <code>noise_floor</code> 가
+    그걸 안 봅니다.) <b>제어 변수는 29개</b>입니다 — 스칼라 4개(BP open rate,
+    Pump RPM, OS Gap, DS Gap) + T_Block 볼트 25개. 이 중 무엇이든 바뀌면
+    조정입니다. Wet 은 결과라서 제외됩니다.</p>
+
+    <p><b>③</b> 자르는 이유는 <b>σ 를 오염시키지 않기 위해</b>입니다. 조정 뒤
+    L+T_s 동안의 ΔWet 은 “저절로 흔들린 양”이 아니라 “우리가 만든 변화”라,
+    이걸 σ 에 넣으면 σ 가 부풀고 그러면 진짜 반응을 노이즈로 착각해 놓칩니다.
+    <b>자르는 것 자체는 반드시 필요합니다</b> — 얼마나, 어느 쪽으로가 틀렸을
+    뿐입니다.</p>
+
+    <p><b>실측으로 확인했습니다.</b> 앞5/뒤30 으로 바꾸면 조용한 분이 <b>4~6배</b>
+    늘고 <b>σ 는 2% 안에서 같습니다</b>(0.0209 → 0.0213). 180분 lot 에서는
+    “판정 불가”가 그냥 사라집니다. 즉 지금의 가드는 85분을 더 자르면서
+    아무것도 얻지 못하고 있습니다.</p>
+
+    <p>→ 자세한 내용, 이벤트 묶기 다이어그램, 비대칭 가드 실측표, 제안 코드는
+    <b><a href="2026-09-07-02-explanation-coating-noise-floor-followup.html">가드
+    밴드 다시 보기 (후속 문서)</a></b> 에 있습니다.</p>
+  </div>
 </div>
 
 <!-- ============================================================ -->
