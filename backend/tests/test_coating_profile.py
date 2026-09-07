@@ -152,3 +152,77 @@ def test_zone_diagnostics_rank_is_capped_by_event_count():
     assert d["effective_rank"] == 10
     assert d["reachable_rank"] == 10
     assert d["unexplained_shortfall"] == 0
+
+
+# ── 판정할 힘이 있는가 ──────────────────────────────────────────────
+# "종 모양이 아니다" 에는 커널이 정말 그런 경우와 표본이 모자란 경우가 섞여
+# 있다. 둘의 다음 행동이 정반대라 반드시 갈라야 한다.
+
+
+def _conv_samples(n_events, step, noise, seed, kernel=(0.0004, 0.0015, 0.0031, 0.0015, 0.0004)):
+    rng = np.random.default_rng(seed)
+    dg = np.zeros((n_events, S.N_ZONES))
+    for e in range(n_events):
+        for z in rng.choice(np.arange(1, 24), size=3, replace=False):
+            dg[e, z] = rng.choice([-1, 1]) * step
+    dw = (profile.build_design(dg, 2) @ np.array(kernel)).reshape(n_events, S.N_ZONES)
+    dw += rng.normal(0, noise, (n_events, S.N_ZONES)) + rng.normal(0, 0.3, (n_events, 1))
+    dw[:, [0, 17, 24]] = np.nan                       # zone 1·18·25 Wet 결측
+    return dg, dw
+
+
+def test_standard_errors_shrink_with_more_events():
+    """SE 는 √n 으로 줄어야 한다. 안 그러면 표본이 늘어도 판정이 안 열린다."""
+    few = profile.kernel_standard_errors(*_conv_samples(40, 1, 0.0095, 0), k=2, alpha=1.0)
+    many = profile.kernel_standard_errors(*_conv_samples(400, 1, 0.0095, 0), k=2, alpha=1.0)
+    assert many[2] < few[2] / 2
+
+
+def test_standard_errors_shrink_with_bigger_moves():
+    """조정 폭이 커도 SE 가 줄어야 한다 - 이쪽이 표본을 늘리는 것보다 싸다는
+    권고의 근거다."""
+    small = profile.kernel_standard_errors(*_conv_samples(40, 1, 0.0095, 1), k=2, alpha=1.0)
+    big = profile.kernel_standard_errors(*_conv_samples(40, 5, 0.0095, 1), k=2, alpha=1.0)
+    assert big[2] < small[2] / 3
+
+
+def test_shape_is_not_resolvable_at_the_measured_condition():
+    """실측 조건(조정 폭 1단위·30건)에서는 모양을 판정할 수 없다.
+    이 저장소가 이 조건에서 낸 '물리 아님' 은 커널이 틀렸다는 뜻이 아니다."""
+    dg, dw = _conv_samples(30, 1, 0.0095, 0)
+    r = profile.shape_is_resolvable(
+        profile.fit_kernel(dg, dw, 2, 1.0),
+        profile.kernel_standard_errors(dg, dw, 2, 1.0),
+    )
+    assert r["resolvable"] is False
+
+
+def test_shape_becomes_resolvable_when_moves_get_bigger():
+    """같은 30건이라도 조정 폭이 5배면 열린다."""
+    dg, dw = _conv_samples(30, 5, 0.0095, 0)
+    r = profile.shape_is_resolvable(
+        profile.fit_kernel(dg, dw, 2, 1.0),
+        profile.kernel_standard_errors(dg, dw, 2, 1.0),
+    )
+    assert r["resolvable"] is True
+
+
+def test_shape_resolvability_needs_both_gates():
+    """중심이 0 과 구별돼도 이웃과 안 갈리면 '감소한다' 를 말할 수 없다."""
+    flat = np.array([0.30, 0.30, 0.31, 0.30, 0.30])
+    se = np.full(5, 0.01)
+    r = profile.shape_is_resolvable(flat, se)
+    assert r["center_snr"] > 2
+    assert r["resolvable"] is False
+    assert "이웃" in r["reason"]
+
+
+def test_standard_errors_are_nan_when_samples_are_too_few():
+    """파라미터보다 관측이 적으면 SE 를 낼 수 없다 - 0 을 주면 판정이 열린다."""
+    dg = np.zeros((1, S.N_ZONES))
+    dg[0, 5] = 1.0
+    dw = np.full((1, S.N_ZONES), np.nan)
+    dw[0, 5] = 0.1
+    se = profile.kernel_standard_errors(dg, dw, 2, 1.0)
+    assert np.isnan(se).all()
+    assert profile.shape_is_resolvable(np.zeros(5), se)["resolvable"] is False

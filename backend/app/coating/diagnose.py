@@ -49,13 +49,25 @@ def expected_center_tap(aligned: pd.DataFrame, curve: pd.DataFrame) -> dict:
     Δgap 을 수십 번 반복해 담고 있어서, 그대로 중앙값을 내면 관측 창 길이가
     통계에 섞인다.
     """
-    out = {"final": None, "median_abs_dgap": None, "expected": None, "n_pairs": 0}
+    out = {"final": None, "median_abs_dgap": None, "expected": None,
+           "n_pairs": 0, "tail_sem": None, "significant": False}
     if aligned.empty or curve.empty:
         return out
     final = resp.dynamics(curve, sigma=0.0).get("final")
     uniq = aligned.groupby([S.EVENT, S.ZONE])[resp.D_GAP].first()
     med = float(np.nanmedian(np.abs(uniq.to_numpy(dtype=float)))) if len(uniq) else None
     out.update(final=final, median_abs_dgap=med, n_pairs=int(len(uniq)))
+
+    # final 은 뒤쪽 1/4 의 평균일 뿐 유의성 검정을 통과한 값이 아니다. 노이즈
+    # 수준의 final 로 기대 탭을 만들면, 노이즈를 노이즈에 견주고 "크기가 맞다"
+    # 는 결론이 나온다 - 실측에서 실제로 그렇게 나왔다.
+    post = curve[curve[resp.LAG] >= 0]
+    if len(post):
+        q = max(1, len(post) // 4)
+        sem = float(post.tail(q)["sem"].mean())
+        out["tail_sem"] = sem
+        if final is not None and np.isfinite(final) and sem > 0:
+            out["significant"] = bool(abs(final) >= 2.0 * sem)
     if final is not None and med and np.isfinite(final) and med > 0:
         out["expected"] = float(abs(final) / med)
     return out
@@ -81,8 +93,16 @@ def sweep_kernels(
         except (np.linalg.LinAlgError, ValueError):
             continue
         d = profile.kernel_diagnostics(kernel)
+        se = profile.kernel_standard_errors(delta_gap, delta_wet, k, alpha)
+        res = profile.shape_is_resolvable(kernel, se)
         rows.append({
             "k": k,
+            "se": se.tolist(),
+            "se_center": float(se[k]),
+            "resolvable": res["resolvable"],
+            "center_snr": res["center_snr"],
+            "gap_snr": res["neighbour_gap_snr"],
+            "resolve_reason": res["reason"],
             # 봉우리가 어느 offset 에 섰나. k 를 넓혀도 같은 자리에 계속 서면
             # 그것은 노이즈가 아니라 zone 대응이 그만큼 밀렸다는 뜻이다.
             "peak_offset": int(np.argmax(np.abs(kernel))) - k,
@@ -179,6 +199,16 @@ def render(tables: dict, alpha: float) -> str:
     at_k2 = next((r for r in swept if r["k"] == 2), None)
     if exp["expected"] is None or at_k2 is None:
         lines += ["- 05_aligned·06_response_curve 가 없거나 비어 대조할 수 없다.", ""]
+    elif not exp["significant"]:
+        # 여기서 비율을 내면 노이즈를 노이즈에 견주게 된다.
+        lines += [
+            f"- 동특성 최종 변화량 {exp['final']:+.4f} (뒤쪽 구간 SEM"
+            f" {exp['tail_sem']:.4f}) — **2σ 를 못 넘는다**",
+            "- **대조 불가.** 기준으로 쓸 반응 자체가 관측되지 않았다. 이 값으로"
+            " 기대 탭을 만들면 노이즈를 노이즈에 견주는 셈이라, 어떤 비율이 나와도"
+            " 뜻이 없다. 동특성 절이 '지연 추정 불가' 라면 1절은 건너뛰고 2절만 본다.",
+            "",
+        ]
     else:
         ratio = abs(at_k2["center"]) / exp["expected"]
         lines += [
@@ -186,22 +216,30 @@ def render(tables: dict, alpha: float) -> str:
             f"{exp['median_abs_dgap']:.4g}",
             f"  → 기대 중심 탭 ≈ {exp['expected']:.4g} (이웃으로 새는 몫이 있으니 **상한**)",
             f"- 실제 중심 탭 {at_k2['center']:+.4g} (k=2) → 기대 대비 {ratio:.0%}",
-            "",
-            _scale_verdict(ratio),
-            "",
         ]
+        if exp["final"] * at_k2["center"] < 0:
+            lines.append(
+                "- ⚠ **부호가 반대다.** 동특성은 한쪽, 커널은 다른 쪽을 가리킨다."
+                " 둘 중 하나는 반응이 아니다 - 크기 비교보다 이것이 먼저다."
+            )
+        lines += ["", _scale_verdict(ratio), ""]
 
     lines += [
         "## 2. k 스윕 — 잘림인가 노이즈인가",
         "",
-        "     k       중심   봉우리위치  가장자리비  비대칭  집중도  판정",
+        "     k       중심        ±SE   중심σ  이웃차σ  봉우리  비대칭  판정",
     ]
     for r in swept:
-        mark = "종 모양" if r["plausible"] else "물리 아님"
+        if not r["resolvable"]:
+            mark = "판정 불가"
+        elif r["plausible"]:
+            mark = "종 모양"
+        else:
+            mark = "물리 아님"
         lines.append(
-            f"    {r['k']:>2}  {r['center']:+9.4g}  {r['peak_offset']:>+9d}"
-            f"  {r['edge_ratio']:>9.2f}  {r['asymmetry']:>6.2f}"
-            f"  {r['mass_ratio']:>6.0%}  {mark}"
+            f"    {r['k']:>2}  {r['center']:+9.4g}  {r['se_center']:9.4g}"
+            f"  {r['center_snr']:>5.1f}  {r['gap_snr']:>6.1f}"
+            f"  {r['peak_offset']:>+6d}  {r['asymmetry']:>6.2f}  {mark}"
         )
     lines += ["", _sweep_verdict(swept), ""]
 
@@ -249,6 +287,18 @@ def _scale_verdict(ratio: float) -> str:
 def _sweep_verdict(rows: list[dict]) -> str:
     if not rows:
         return "- 커널을 하나도 못 뽑았다."
+    # 모양을 판정할 힘이 없으면 모양에 대해 아무 말도 하지 않는다. "물리 아님"
+    # 과 "판정 불가" 는 다음 행동이 정반대다 - 앞은 모델을, 뒤는 표본을 고친다.
+    if not any(r["resolvable"] for r in rows):
+        worst = min(rows, key=lambda r: r["gap_snr"] if np.isfinite(r["gap_snr"]) else 0)
+        return (
+            "- **어느 k 에서도 모양을 판정할 힘이 없다.** "
+            + worst["resolve_reason"]
+            + " 위 표의 '물리 아님' 은 커널이 틀렸다는 뜻이 아니라 이 표본으로는"
+            " 종 모양인지 아닌지를 말할 수 없다는 뜻이다. 모델이 아니라 표본을"
+            " 고쳐야 한다 — **조정 폭을 키우는 것이 이벤트를 늘리는 것보다 훨씬"
+            " 싸다**(필요 표본은 폭의 제곱에 반비례한다)."
+        )
     shift = peak_offset_consensus(rows)
     if shift is not None:
         return (

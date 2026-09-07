@@ -233,3 +233,84 @@ def zone_adjustment_diagnostics(delta_gap: np.ndarray) -> dict:
         "reachable_rank": int(max(0, reachable)),
         "unexplained_shortfall": int(max(0, reachable - rank)),
     }
+
+
+def kernel_standard_errors(
+    delta_gap: np.ndarray, delta_wet: np.ndarray, k: int, alpha: float
+) -> np.ndarray:
+    """탭마다의 표준오차. ★순수
+
+    커널 모양을 판정하려면 탭들이 서로 구별돼야 한다. 중심과 이웃의 차이가
+    표준오차 안에 들어가면 "종 모양이 아니다" 는 데이터가 아니라 표본이 하는
+    말이다 - 이 저장소가 지연 판정에서 이미 쓴 논리(σ 를 먼저 재고 필요한
+    표본 수를 낸 뒤에 숫자를 낸다)의 공간 축 판이다.
+
+    릿지 추정량의 분산이다.  Var(ĝ) = σ²·A⁻¹XᵀX·A⁻¹,  A = XᵀX + αI
+    σ² 는 잔차에서 낸다. 노이즈를 따로 가정하지 않아도 되므로, 데이터가
+    스스로 "이 표본으로 모양을 말할 수 있는가" 에 답하게 된다.
+    """
+    n_events, n_zones = delta_gap.shape
+    width = 2 * k + 1
+
+    y = delta_wet - np.nanmean(delta_wet, axis=1, keepdims=True)
+    y = y.reshape(-1)
+    x = build_design(delta_gap, k).reshape(n_events, n_zones, width)
+    x = (x - np.nanmean(x, axis=1, keepdims=True)).reshape(-1, width)
+    ok = np.isfinite(y) & np.isfinite(x).all(axis=1)
+    x, y = x[ok], y[ok]
+    if len(y) <= width:
+        return np.full(width, np.nan)
+
+    xtx = x.T @ x
+    a_inv = np.linalg.inv(xtx + alpha * np.eye(width))
+    resid = y - x @ (a_inv @ (x.T @ y))
+    # 자유도는 관측 수에서 파라미터 수를 뺀다. 릿지의 유효 자유도는 이보다
+    # 작지만, 그쪽으로 가면 SE 가 작아져 판정이 관대해진다 - 보수적으로 둔다.
+    sigma2 = float(resid @ resid) / (len(y) - width)
+    var = sigma2 * (a_inv @ xtx @ a_inv)
+    return np.sqrt(np.maximum(np.diag(var), 0.0))
+
+
+def shape_is_resolvable(kernel: np.ndarray, se: np.ndarray) -> dict:
+    """이 표본으로 모양을 판정할 수 있는가. ★순수
+
+    "종 모양이 아니다" 에는 두 가지가 섞여 있다. 커널이 정말 종 모양이 아닌
+    경우와, 표본이 모자라 모양을 말할 수 없는 경우다. 둘의 다음 행동이 정반대라
+    (앞은 모델을 바꾸고 뒤는 데이터를 더 모은다) 반드시 갈라야 한다.
+
+    두 관문이다.
+        중심이 0 과 구별되는가        아니면 커널 자체가 관측되지 않은 것이다
+        중심과 이웃이 서로 구별되는가  아니면 '감소한다' 를 말할 근거가 없다
+    """
+    kernel = np.asarray(kernel, dtype=float)
+    se = np.asarray(se, dtype=float)
+    k = (len(kernel) - 1) // 2
+    center, se_center = kernel[k], se[k]
+    if not np.isfinite(se_center) or se_center == 0:
+        return {"resolvable": False, "center_snr": float("nan"),
+                "neighbour_gap_snr": float("nan"),
+                "reason": "표준오차를 낼 수 없다 - 표본이 파라미터 수 이하다."}
+
+    center_snr = float(abs(center) / se_center)
+    # 중심과 바로 이웃의 차이. 이것이 SE 에 묻히면 감소 여부를 말할 수 없다.
+    nb = [kernel[k - 1], kernel[k + 1]] if k >= 1 else []
+    nb_se = [np.hypot(se_center, se[k - 1]), np.hypot(se_center, se[k + 1])] if k >= 1 else []
+    gap_snr = (
+        float(min(abs(center - v) / s for v, s in zip(nb, nb_se) if s > 0))
+        if nb else float("inf")
+    )
+
+    if center_snr < 2.0:
+        reason = (f"중심 탭이 0 과 구별되지 않는다 ({center:+.4g} ± {se_center:.4g},"
+                  f" {center_snr:.1f}σ). 커널이 관측되지 않았다.")
+    elif gap_snr < 2.0:
+        reason = (f"중심과 이웃이 서로 구별되지 않는다 ({gap_snr:.1f}σ)."
+                  " 모양을 말할 근거가 없다.")
+    else:
+        reason = f"중심 {center_snr:.1f}σ · 중심-이웃 차 {gap_snr:.1f}σ — 모양을 판정할 수 있다."
+    return {
+        "resolvable": bool(center_snr >= 2.0 and gap_snr >= 2.0),
+        "center_snr": center_snr,
+        "neighbour_gap_snr": gap_snr,
+        "reason": reason,
+    }

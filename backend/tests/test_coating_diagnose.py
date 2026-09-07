@@ -90,14 +90,62 @@ def test_sweep_verdict_names_the_setting_to_change():
     assert "COATING_KERNEL_HALF_WIDTH" in text
 
 
-def test_sweep_verdict_calls_pure_noise_noise():
-    """ΔWet 이 Δgap 과 무관하면 k 를 바꿔도 모양이 안 잡힌다."""
+def test_sweep_verdict_says_undecidable_not_wrong_when_underpowered():
+    """ΔWet 이 Δgap 과 무관하면 탭이 0 과 구별되지 않는다. 그때 "물리 아님" 은
+    커널이 틀렸다는 뜻이 아니라 말할 힘이 없다는 뜻이고, 둘은 다음 행동이
+    정반대다 - 앞은 모델을, 뒤는 표본을 고친다."""
     rng = np.random.default_rng(3)
     dg = rng.normal(size=(40, S.N_ZONES)) * 10
     dw = rng.normal(size=(40, S.N_ZONES)) * 0.05      # 완전히 독립
     text = diagnose._sweep_verdict(diagnose.sweep_kernels(dg, dw, alpha=1.0))
-    assert "노이즈 쪽" in text
-    assert "COATING_RIDGE_ALPHA" in text
+    assert "판정할 힘이 없다" in text
+    assert "조정 폭" in text
+
+
+def test_underpowered_rows_are_marked_undecidable_in_the_table():
+    """표에서도 '물리 아님' 과 '판정 불가' 가 갈려야 한다."""
+    rng = np.random.default_rng(8)
+    dg = rng.normal(size=(40, S.N_ZONES)) * 10
+    dw = rng.normal(size=(40, S.N_ZONES)) * 0.05
+    tables = {
+        "07_delta_samples": _samples(dg, dw),
+        "05_aligned": pd.DataFrame(), "06_response_curve": pd.DataFrame(),
+    }
+    assert "판정 불가" in diagnose.render(tables, alpha=1.0)
+
+
+def test_resolvable_kernel_is_not_called_undecidable():
+    """신호가 충분하면 게이트가 열려야 한다 - 안 그러면 아무것도 판정 못 한다."""
+    dg, dw = _wide_kernel_samples()
+    rows = diagnose.sweep_kernels(dg, dw, alpha=1.0)
+    assert any(r["resolvable"] for r in rows)
+    assert "COATING_KERNEL_HALF_WIDTH" in diagnose._sweep_verdict(rows)
+
+
+def test_scale_section_refuses_to_compare_noise_with_noise():
+    """final 이 2σ 를 못 넘으면 기대 탭을 만들지 않는다. 실측에서 노이즈끼리
+    견주어 '크기는 맞다' 가 나왔던 자리다."""
+    dg, dw = _wide_kernel_samples()
+    curve = _curve(final=0.0018)
+    curve["sem"] = 0.0020                              # final < 2·SEM
+    tables = {
+        "07_delta_samples": _samples(dg, dw),
+        "05_aligned": _aligned(d_gap=1.0), "06_response_curve": curve,
+    }
+    text = diagnose.render(tables, alpha=1.0)
+    assert "대조 불가" in text
+    assert "크기는 맞다" not in text
+
+
+def test_scale_section_flags_sign_disagreement():
+    """동특성과 커널이 반대 방향을 가리키면 크기 비교보다 그것이 먼저다."""
+    dg, dw = _wide_kernel_samples()                    # 커널 중심은 양수
+    tables = {
+        "07_delta_samples": _samples(dg, dw),
+        "05_aligned": _aligned(d_gap=1.0),
+        "06_response_curve": _curve(final=-0.5),       # 동특성은 음수
+    }
+    assert "부호가 반대다" in diagnose.render(tables, alpha=1.0)
 
 
 def test_null_space_finds_conserving_group():
