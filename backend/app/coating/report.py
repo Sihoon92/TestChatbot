@@ -50,6 +50,8 @@ DUMP_TABLES = (
     # 레벨 쪽 입력 둘. 커널이 막혀도 이쪽은 굴러가므로 따로 열어볼 수 있어야 한다.
     "08_absolute_samples",
     "09_lot_finals",
+    # 어느 이벤트가 왜 홀로 서지 못했는지. 격리 표의 근거다.
+    "10_event_isolation",
 )
 
 
@@ -144,9 +146,10 @@ def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict
         tables["08_absolute_samples"] = abs_samples
         tables["09_lot_finals"] = features.lot_finals(changes, bounds)
 
+    facts["isolation"] = _isolation_facts(ev, bounds, s)
     facts["kernel"] = _kernel_facts(ds, dg, s)
     facts["level"] = evaluate.compare_level_models(abs_samples, s.coating_ridge_alpha)
-    facts["dynamics"] = _dynamics_facts(readings, ev, dl, s, tables)
+    facts["dynamics"] = _dynamics_facts(readings, ev, dl, s, bounds, tables)
     facts.update(_verdict(facts))
     return facts
 
@@ -176,20 +179,93 @@ def _kernel_facts(ds, dg, s) -> dict:
     return out
 
 
-def _dynamics_facts(readings, ev, dl, s, tables=None) -> dict:
+def _isolation_facts(ev, bounds, s) -> dict:
+    """제어 구간 격리 — 창을 넓혀가며 몇 건이 홀로 서는지.
+
+    이 표가 먼저 나와야 창을 고를 수 있다. 60분 격리가 3건뿐이라면 그 자체가
+    사업부에 낼 요구서이고, 30분에서 20건이 산다면 거기서 시작하면 된다.
+    숫자를 고르는 일을 사람에게 남기되 고를 근거를 함께 준다.
+    """
+    if ev.empty:
+        return {"table": [], "n_isolated": 0,
+                "pre": s.coating_isolation_pre_minutes,
+                "post": s.coating_isolation_post_minutes}
+    table = ev_mod.isolation_table(ev, bounds=bounds).to_dict("records")
+    iso = ev_mod.isolation(
+        ev, s.coating_isolation_pre_minutes, s.coating_isolation_post_minutes, bounds
+    )
+    return {
+        "table": table,
+        "n_isolated": int(iso["isolated"].sum()),
+        "pre": s.coating_isolation_pre_minutes,
+        "post": s.coating_isolation_post_minutes,
+    }
+
+
+def _isolation_lines(f: dict) -> list[str]:
+    """격리 절. 이벤트 수만으로는 알 수 없는 것을 말한다.
+
+    "이벤트 35건" 과 "그중 홀로 선 것 4건" 은 전혀 다른 사실이고, 뒤가 실제로
+    쓸 수 있는 수다. 앞만 적으면 표본이 있는 줄 안다.
+    """
+    if not f:
+        return []
+    lines = [
+        "## 제어 구간 격리 (앞뒤로 다른 조정이 없는 이벤트)",
+        "",
+        "  뒤 창   앞 창   홀로 선 이벤트",
+    ]
+    for r in f["table"]:
+        lines.append(
+            f"  {r['post_minutes']:>4}분  {r['pre_minutes']:>4}분"
+            f"   {r['n_isolated']:>3} / {r['n_events']} ({r['ratio']:.0%})"
+        )
+    lines += [
+        "",
+        f"- 현재 설정({f['pre']}/{f['post']}분)에서 **{f['n_isolated']}건**"
+        " — 동특성은 이 이벤트들로만 잰다.",
+        "- 이 판정은 Wet 을 보지 않는다. 이벤트 시각만으로 정해지므로 L 을"
+        " 몰라도 쓸 수 있고, 그래서 L 을 재는 데 쓸 수 있다.",
+    ]
+    if f["n_isolated"] == 0:
+        lines.append(
+            "  - ⚠ 홀로 선 이벤트가 없다. 위 표에서 건수가 살아나는 창을 골라"
+            " COATING_ISOLATION_PRE/POST_MINUTES 를 낮춘다. 표 전체가 0 이면"
+            " 조정이 쉼 없이 이어졌다는 뜻이고, 그때는 조용한 구간을 요청해야 한다."
+        )
+    return lines + [""]
+
+
+def _dynamics_facts(readings, ev, dl, s, bounds, tables=None) -> dict:
     """동특성 — "지연이 몇 분인가" 보다 "지연을 말할 수 있는가" 가 먼저다.
 
     표본이 모자란 채로 낸 L 은 숫자처럼 보여서 더 위험하다. 그래서 못 낼 때는
     숫자 자리에 '몇 건이 더 필요한지' 를 넣는다.
+
+    쓸 이벤트는 **격리**로 고른다. 정착 판정(annotate_settling)으로 고르면
+    순환에 빠진다 - 정착 시각을 제대로 잡으려면 L 이 필요한데 L 을 여기서
+    재기 때문이다. 게다가 그 판정은 순수 지연 구간을 "이미 정착함" 으로 읽는다
+    (반응 전이라 평평하니까). 격리는 이벤트 시각만 보므로 그 고리 밖에 있다.
     """
     p = panel_mod.build_panel(
         pivot.dedupe_minute(readings), s.coating_panel_ffill_max_minutes
     )
+    # σ 의 가드는 **모든** 이벤트로 친다. 격리 여부와 무관하게 조정은 Wet 을
+    # 흔들고, 그 흔들림이 σ 에 섞이면 안 된다.
     sigma, quiet_minutes = response.noise_floor(
         panel_mod.build_delta(p), ev, s.coating_response_post_minutes
     )
+    iso = ev_mod.isolation(
+        ev, s.coating_isolation_pre_minutes, s.coating_isolation_post_minutes, bounds
+    ) if len(ev) else ev
+    # CONTAMINATED 를 떼고 넘긴다. align_events 가 그 열을 보면 정착 기반
+    # 판정이 다시 끼어들어 격리로 고른 뜻이 사라진다.
+    usable = (
+        iso[iso["isolated"]].drop(columns=[S.CONTAMINATED], errors="ignore")
+        if len(iso) else ev
+    )
     aligned = response.align_events(
-        p, ev, dl, s.coating_response_pre_minutes,
+        p, usable, dl, s.coating_response_pre_minutes,
         s.coating_response_post_minutes, s.coating_settle_window_minutes,
     )
     curve = response.response_curve(aligned)
@@ -199,7 +275,8 @@ def _dynamics_facts(readings, ev, dl, s, tables=None) -> dict:
         # 곡선을 직접 보는 것 말고는 확인할 방법이 없다.
         tables["05_aligned"] = aligned
         tables["06_response_curve"] = curve
-    n_clean = int((~ev[S.CONTAMINATED].astype(bool)).sum()) if len(ev) else 0
+        tables["10_event_isolation"] = iso
+    n_clean = int(len(usable))
     n_pairs = aligned.groupby([S.EVENT, S.ZONE]).ngroups if len(aligned) else 0
     # τ 를 아직 모를 때의 대입값. 관측 창의 절반을 쓴다 - 이보다 느린 반응은
     # 애초에 이 창으로 못 본다.
@@ -451,6 +528,7 @@ def render_markdown(f: dict) -> str:
         f"- Δgap 유효 랭크: {f['effective_rank']} / 25",
         f"- 상위 특이값: {[round(x, 3) for x in f['singular_values']]}",
         "",
+        *_isolation_lines(f.get("isolation") or {}),
         *_kernel_lines(f.get("kernel") or {"zones": _EMPTY_ZONES}),
         *_level_lines(f.get("level") or {}),
         *_dynamics_lines(f.get("dynamics") or {}),

@@ -323,3 +323,39 @@ def test_level_lines_separate_available_from_varying_features():
         "coefficients": {}, "verdict": "insufficient", "reason": "표본 부족",
     }))
     assert "실제로 변하는 것: ['pump_rpm']" in md
+
+
+# ── 제어 구간 격리 절 ───────────────────────────────────────────────
+
+
+def test_isolation_section_appears_with_the_tradeoff_table():
+    """창을 얼마로 잡을지는 데이터가 답할 일이다. 그 곡선이 리포트에 있어야 한다."""
+    md = report.render_markdown(report.profile_dataset(SAMPLE, DICT))
+    assert "## 제어 구간 격리" in md
+    assert "홀로 선 이벤트" in md
+
+
+def test_isolation_section_says_it_does_not_look_at_wet():
+    """이 판정이 Wet 과 무관하다는 사실이 이 절의 존재 이유다 - 그래야 L 을
+    모르는 상태에서 쓸 수 있고, 그래서 L 을 잴 수 있다."""
+    md = report.render_markdown(report.profile_dataset(SAMPLE, DICT))
+    assert "Wet 을 보지 않는다" in md
+
+
+def test_isolation_section_names_the_settings_when_nothing_survives():
+    """0 건이면 어느 설정을 낮출지까지 적어야 행동이 된다."""
+    md = "\n".join(report._isolation_lines({
+        "table": [{"post_minutes": 60, "pre_minutes": 30,
+                   "n_events": 35, "n_isolated": 0, "ratio": 0.0}],
+        "n_isolated": 0, "pre": 30, "post": 60,
+    }))
+    assert "COATING_ISOLATION_PRE/POST_MINUTES" in md
+    assert "조용한 구간을 요청" in md
+
+
+def test_dynamics_uses_isolated_events_not_settling():
+    """정착으로 고르면 순환에 빠진다. 격리로 골라야 L 을 모르는 채로 시작할 수 있다."""
+    import inspect
+    src = inspect.getsource(report._dynamics_facts)
+    assert "isolation(" in src
+    assert "iso[iso[\"isolated\"]]" in src
