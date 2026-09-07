@@ -1,0 +1,1230 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>코팅 실사 리포트 — 돌리는 법과 읽는 법</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --fg:#22201d; --muted:#6b6660; --line:#e2ded8;
+    --card:#ffffff; --accent:#2f6f4e; --accent-soft:#e8f2ec;
+    --in:#2b6cb0; --in-soft:#e4eefa;
+    --out:#c05621; --out-soft:#fdeee2;
+    --noise:#9a948c;
+    --warn:#b03a2e; --warn-soft:#fbe9e7;
+    --ok:#2f6f4e;
+    --code-bg:#f4f2ee;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,-apple-system,sans-serif;
+    line-height:1.85; font-size:17px; word-break:keep-all;
+  }
+  .wrap{max-width:60rem; margin:0 auto; padding:0 1.2rem 8rem;}
+  header.hero{padding:3.5rem 0 2rem; border-bottom:1px solid var(--line); margin-bottom:2rem;}
+  header.hero .kicker{
+    color:var(--accent); font-weight:700; font-size:.85rem; letter-spacing:.08em;
+    text-transform:uppercase; margin-bottom:.6rem;
+  }
+  h1{font-size:2.05rem; line-height:1.35; margin:.2rem 0 .8rem; letter-spacing:-.02em;}
+  header.hero p.sub{color:var(--muted); font-size:1.05rem; margin:0;}
+  h2{font-size:1.5rem; margin:3.5rem 0 1rem; padding-top:1.2rem; border-top:2px solid var(--fg); letter-spacing:-.01em;}
+  h3{font-size:1.15rem; margin:2.2rem 0 .6rem; color:var(--accent);}
+  h4{font-size:1rem; margin:1.6rem 0 .4rem;}
+  p{margin:.9rem 0;}
+  a{color:var(--accent);}
+  ul,ol{padding-left:1.4rem;}
+  li{margin:.45rem 0;}
+  code{
+    background:var(--code-bg); padding:.12em .38em; border-radius:.3em;
+    font-family:"Cascadia Mono",Consolas,"D2Coding",monospace; font-size:.9em;
+  }
+  pre{
+    background:var(--code-bg); border:1px solid var(--line); border-left:3px solid var(--in);
+    padding:1rem 1.1rem; border-radius:.5rem; overflow-x:auto;
+    white-space:pre; font-family:"Cascadia Mono",Consolas,"D2Coding",monospace;
+    font-size:.86rem; line-height:1.65;
+  }
+  pre.plain{border-left-color:var(--muted);}
+  pre.out{border-left-color:var(--out); background:#fffaf6;}
+  pre.bad{border-left-color:var(--warn); background:#fdf4f2;}
+  pre.ok{border-left-color:var(--accent); background:#f5faf7;}
+  nav.toc{background:var(--card); border:1px solid var(--line); border-radius:.7rem; padding:1.2rem 1.4rem; margin:2rem 0;}
+  nav.toc h2{border:none; margin:0 0 .6rem; padding:0; font-size:1.05rem;}
+  nav.toc ol{margin:0; padding-left:1.3rem;}
+  nav.toc li{margin:.3rem 0;}
+  nav.toc a{text-decoration:none;}
+  nav.toc a:hover{text-decoration:underline;}
+  .call{border-radius:.6rem; padding:1rem 1.2rem; margin:1.4rem 0; border:1px solid var(--line); background:var(--card);}
+  .call .tag{
+    display:inline-block; font-size:.72rem; font-weight:700; letter-spacing:.06em;
+    text-transform:uppercase; padding:.14rem .5rem; border-radius:.3rem; margin-bottom:.5rem;
+  }
+  .call.def{background:var(--accent-soft); border-color:#bcd9c9;}
+  .call.def .tag{background:var(--accent); color:#fff;}
+  .call.key{background:#fff8e6; border-color:#e8d9a8;}
+  .call.key .tag{background:#a67c00; color:#fff;}
+  .call.warn{background:var(--warn-soft); border-color:#f0c4bd;}
+  .call.warn .tag{background:var(--warn); color:#fff;}
+  .call p:first-of-type{margin-top:0;}
+  .call p:last-child{margin-bottom:0;}
+  figure{margin:1.8rem 0; padding:0;}
+  figure svg{display:block; width:100%; height:auto; max-width:100%;}
+  figcaption{color:var(--muted); font-size:.87rem; margin-top:.6rem; text-align:center; line-height:1.6;}
+  .figbox{background:var(--card); border:1px solid var(--line); border-radius:.6rem; padding:1.1rem; overflow-x:auto;}
+  .tablewrap{overflow-x:auto; margin:1.4rem 0;}
+  table{border-collapse:collapse; width:100%; font-size:.92rem; background:var(--card);}
+  th,td{border:1px solid var(--line); padding:.5rem .7rem; text-align:left;}
+  th{background:#f2efea; font-weight:700;}
+  td.num{text-align:right; font-variant-numeric:tabular-nums;}
+  tr.bad td{background:#fdf2f0;}
+  tr.good td{background:#f0f7f3;}
+  tr.hl td{background:#fff8e6;}
+  .terms{display:grid; grid-template-columns:repeat(auto-fill,minmax(15rem,1fr)); gap:.9rem; margin:1.5rem 0;}
+  .term{background:var(--card); border:1px solid var(--line); border-radius:.6rem; padding:.9rem 1rem;}
+  .term .w{font-weight:700; font-size:1rem; display:block; margin-bottom:.15rem;}
+  .term .r{color:var(--muted); font-size:.8rem; display:block; margin-bottom:.4rem;}
+  .term p{margin:.3rem 0 0; font-size:.9rem; line-height:1.65;}
+  .backlink{background:var(--accent-soft); border:1px solid #bcd9c9; border-radius:.6rem; padding:.9rem 1.1rem; margin:1.4rem 0; font-size:.93rem;}
+  .qmemo{border:2px dashed #c9c2b8; background:#f7f5f1; border-radius:.6rem; padding:.9rem 1.1rem; margin:1.6rem 0;}
+  .qmemo[data-status="answered"]{border:2px solid var(--accent); background:var(--accent-soft);}
+  .qmemo-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:.6rem; margin-bottom:.5rem;}
+  .qmemo-label{font-weight:700; font-size:.85rem; color:var(--accent);}
+  .qmemo-hint{font-size:.78rem; color:var(--muted);}
+  .qmemo-question{
+    min-height:2.6rem; background:#fff; border:1px solid var(--line); border-radius:.4rem;
+    padding:.55rem .7rem; font-size:.95rem; outline:none;
+  }
+  .qmemo-question:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(47,111,78,.12);}
+  .qmemo-question:empty:before{content:attr(data-placeholder); color:#a8a29a;}
+  .qmemo-answer{margin-top:.7rem; padding:.7rem .9rem; background:#fff; border-left:3px solid var(--accent); border-radius:.3rem; font-size:.93rem;}
+  .qmemo-answer:before{content:"답변"; display:block; font-size:.72rem; font-weight:700; color:var(--accent); letter-spacing:.06em; margin-bottom:.3rem;}
+  #qmemo-bar{
+    position:fixed; left:0; right:0; bottom:0; z-index:50;
+    background:rgba(255,255,255,.97); border-top:1px solid var(--line);
+    padding:.7rem 1.2rem; display:flex; align-items:center; gap:.9rem; flex-wrap:wrap;
+    box-shadow:0 -2px 12px rgba(0,0,0,.05);
+  }
+  #qmemo-save-btn{
+    background:var(--accent); color:#fff; border:none; border-radius:.4rem;
+    padding:.5rem 1rem; font-size:.9rem; font-weight:700; cursor:pointer; font-family:inherit;
+  }
+  #qmemo-save-btn:hover{background:#255a3f;}
+  #qmemo-saymsg{font-size:.78rem; color:var(--muted); word-break:break-all;}
+  .quiz{background:var(--card); border:1px solid var(--line); border-radius:.7rem; padding:1.2rem 1.3rem; margin:1.5rem 0;}
+  .quiz .q{font-weight:700; margin:0 0 .8rem;}
+  .quiz .opt{
+    display:block; width:100%; text-align:left; background:#fbfaf8;
+    border:1px solid var(--line); border-radius:.45rem; padding:.6rem .8rem;
+    margin:.4rem 0; font-size:.95rem; cursor:pointer; font-family:inherit; color:var(--fg); line-height:1.6;
+  }
+  .quiz .opt:hover{background:#f2efea;}
+  .quiz .opt.correct{background:#e8f2ec; border-color:var(--accent); font-weight:600;}
+  .quiz .opt.wrong{background:var(--warn-soft); border-color:var(--warn);}
+  .quiz .fb{margin-top:.7rem; padding:.7rem .9rem; border-radius:.4rem; font-size:.92rem; display:none; line-height:1.7;}
+  .quiz .fb.show{display:block;}
+  .quiz .fb.ok{background:var(--accent-soft); border-left:3px solid var(--accent);}
+  .quiz .fb.no{background:var(--warn-soft); border-left:3px solid var(--warn);}
+  .cheat{background:var(--card); border:1px solid var(--line); border-radius:.7rem; padding:.4rem 1.2rem 1rem; margin:1.5rem 0;}
+  @media (max-width:640px){
+    body{font-size:16px;} h1{font-size:1.6rem;} h2{font-size:1.3rem;} .wrap{padding:0 1rem 8rem;}
+  }
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <div class="kicker">Coating · Runbook</div>
+  <h1>코팅 실사 리포트 — 돌리는 법과 읽는 법</h1>
+  <p class="sub">명령어 한 줄이 무엇을 만들고, 그 리포트의 각 숫자를 어떻게 읽어야 하며, <code>insufficient</code> 가 떴을 때 사업부에 무엇을 요구해야 하는가.</p>
+</header>
+
+<div class="backlink">
+  <strong>먼저 읽으면 좋은 글.</strong>
+  이 문서는 “돌리고 읽는” 실무편입니다. 왜 이런 걸 재는지는
+  <a href="2026-09-02-explanation-coating-lag-gain-basics.html">지연·gain 기초편</a>,
+  표 한 줄이 만들어지는 과정은
+  <a href="2026-09-04-explanation-coating-lag-gain-basics-followup.html">delta_samples 편</a>에 있습니다.
+  <br><span style="color:var(--muted); font-size:.9em">이 글의 모든 출력은 실제로 실행해 얻은 것입니다. 지어낸 숫자는 없습니다.</span>
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#bg">이 리포트가 답하는 질문 — 배경</a></li>
+    <li><a href="#run">실행 — 명령어 세 개</a></li>
+    <li><a href="#gate">직관 — 두 개의 관문과 세 개의 판정</a></li>
+    <li><a href="#read">리포트를 위에서 아래로 읽기</a></li>
+    <li><a href="#dyn">동특성 섹션 — L·τ·T_s 는 어떻게 나왔나</a></li>
+    <li><a href="#insufficient">막혔을 때 — 무엇을 요구할 것인가</a></li>
+    <li><a href="#dump">숫자를 못 믿을 때 — <code>--dump</code></a></li>
+    <li><a href="#code">코드 지도 — 어느 함수가 어느 줄을 만드나</a></li>
+    <li><a href="#quiz">이해했는지 확인하기</a></li>
+    <li><a href="#cheat">치트시트</a></li>
+  </ol>
+  <p style="margin:.9rem 0 0; font-size:.87rem; color:var(--muted);">
+    읽다가 막히는 곳마다 <strong>질문 메모</strong> 상자가 있습니다. 적으면 이 브라우저에 자동 저장되고,
+    맨 아래 <strong>질문 저장</strong> 을 누르면 질문이 박힌 사본이 <em>같은 파일 이름</em>으로 내려받아집니다.
+    원본 자리에 덮어쓴 뒤 Claude 에게 “질문에 답해줘” 라고 하면 됩니다.
+  </p>
+</nav>
+
+<main>
+
+<h2 id="bg">1. 이 리포트가 답하는 질문 — 배경</h2>
+
+<h3>처음 보는 사람을 위해 (익숙하면 건너뛰세요)</h3>
+
+<p>
+코팅 공정은 움직이는 종이 위에 액체를 발라 말리는 일입니다. 폭 방향으로 25칸(zone)이 있고,
+칸마다 <strong>다이 볼트</strong>가 하나씩 있어 그것을 돌리면 그 칸의 도포량이 바뀝니다.
+결과는 라인 아래쪽 <strong>수분계</strong>가 1분마다 25칸을 재서 알려줍니다 — 이 값이 Wet 입니다.
+</p>
+
+<p>
+목표는 “두께를 목표치에 맞추려면 어느 볼트를 얼마나 돌려야 하는가”를 자동으로 계산하는 것입니다.
+그러려면 먼저 <strong>볼트 ↔ 두께의 관계</strong>를 데이터에서 배워야 합니다. 그런데 여기서
+사람들이 흔히 건너뛰는 질문이 하나 있습니다.
+</p>
+
+<div class="call def">
+  <span class="tag">이 리포트의 존재 이유</span>
+  <p>
+    <strong>“모델이 얼마나 정확한가”보다 “이 데이터로 학습이 <em>가능하기는</em> 한가”가 먼저다.</strong>
+  </p>
+  <p style="margin-top:.6rem">
+    사업부에서 받은 로그로 무작정 모델을 돌리면 숫자는 <em>반드시</em> 나옵니다. 그 숫자가 의미가 있는지는
+    별개 문제입니다. 이 리포트는 모델을 만들기 <strong>전에</strong> 데이터를 실사(due diligence)해서,
+    가능하면 통과시키고 불가능하면 <strong>무엇이 얼마나 부족한지를 요구 가능한 형태로</strong> 적어 줍니다.
+  </p>
+</div>
+
+<h3>이 글에 필요한 만큼의 배경</h3>
+
+<p>
+원본은 “세로로 긴 로그”입니다 — 한 행이 <em>(lot, 시각, 제품, 항목ID, 값)</em> 하나입니다.
+항목ID 중 일부는 <strong>입력</strong>(볼트 25개 + 스칼라 제어값 4개)이고 나머지가 <strong>출력</strong>(Wet 25칸)입니다.
+값은 계단형이라, 사람이 볼트를 돌린 순간부터 새 값이 계속 찍힙니다.
+</p>
+
+<p>
+파이프라인은 이 로그에서 <strong>조정 이벤트</strong>를 뽑아내고(“누가 언제 무엇을 얼마나 돌렸나”),
+각 이벤트에 대해 Wet 이 어떻게 반응했는지를 봅니다. 리포트는 그 과정에서 나온 사실들을
+markdown 과 HTML 두 벌로 씁니다.
+</p>
+
+<div class="qmemo" data-qid="rh-bg" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="run">2. 실행 — 명령어 세 개</h2>
+
+<p>
+전부 <code>backend/</code> 에서 실행합니다. 실질적으로 외울 명령은 <strong>하나</strong>이고, 나머지 둘은 준비 단계입니다.
+</p>
+
+<figure>
+  <div class="figbox">
+    <svg viewBox="0 0 880 300" role="img" aria-label="convert·merge·report 명령의 흐름과 산출물">
+      <defs>
+        <marker id="rar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="#6b6660"/>
+        </marker>
+      </defs>
+
+      <rect x="14" y="30" width="150" height="56" rx="7" fill="#fff" stroke="#e2ded8"/>
+      <text x="89" y="52" text-anchor="middle" font-size="12.5" font-weight="700">원본</text>
+      <text x="89" y="70" text-anchor="middle" font-size="11" fill="#6b6660">.xlsx / .csv</text>
+
+      <rect x="212" y="30" width="168" height="56" rx="7" fill="#e4eefa" stroke="#2b6cb0"/>
+      <text x="296" y="52" text-anchor="middle" font-size="12" font-weight="700" fill="#2b6cb0">convert</text>
+      <text x="296" y="70" text-anchor="middle" font-size="10.5" fill="#2b6cb0">Excel 없이 읽히게</text>
+
+      <rect x="212" y="112" width="168" height="56" rx="7" fill="#e4eefa" stroke="#2b6cb0"/>
+      <text x="296" y="134" text-anchor="middle" font-size="12" font-weight="700" fill="#2b6cb0">merge</text>
+      <text x="296" y="152" text-anchor="middle" font-size="10.5" fill="#2b6cb0">기종별 파일 합치기</text>
+
+      <rect x="428" y="66" width="164" height="70" rx="9" fill="#fff8e6" stroke="#a67c00" stroke-width="2.5"/>
+      <text x="510" y="92" text-anchor="middle" font-size="13.5" font-weight="700">report</text>
+      <text x="510" y="112" text-anchor="middle" font-size="10.5" fill="#6b6660">실사 판정</text>
+      <text x="510" y="128" text-anchor="middle" font-size="10.5" fill="#6b6660">(외울 명령은 이것 하나)</text>
+
+      <rect x="646" y="18" width="212" height="46" rx="7" fill="#f0f7f3" stroke="#bcd9c9"/>
+      <text x="662" y="38" font-size="11.5" font-weight="700" fill="#2f6f4e">data_profile.md</text>
+      <text x="662" y="54" font-size="10.5" fill="#6b6660">사람이 읽는 판정문</text>
+
+      <rect x="646" y="74" width="212" height="46" rx="7" fill="#f0f7f3" stroke="#bcd9c9"/>
+      <text x="662" y="94" font-size="11.5" font-weight="700" fill="#2f6f4e">data_profile.html</text>
+      <text x="662" y="110" font-size="10.5" fill="#6b6660">같은 내용, 메일에 붙일 용</text>
+
+      <rect x="646" y="130" width="212" height="60" rx="7" fill="#fdeee2" stroke="#c05621"/>
+      <text x="662" y="150" font-size="11.5" font-weight="700" fill="#c05621">dump/&lt;시각&gt;/*.csv</text>
+      <text x="662" y="166" font-size="10.5" fill="#6b6660">중간 산출물 6개 표</text>
+      <text x="662" y="182" font-size="10.5" fill="#6b6660">--dump 를 줬을 때만</text>
+
+      <path d="M164,58 L212,58" stroke="#6b6660" fill="none" marker-end="url(#rar)"/>
+      <path d="M380,58 C404,58 404,90 428,90" stroke="#6b6660" fill="none" marker-end="url(#rar)"/>
+      <path d="M380,140 C404,140 404,116 428,116" stroke="#6b6660" fill="none" marker-end="url(#rar)"/>
+      <path d="M296,86 L296,112" stroke="#6b6660" fill="none" marker-end="url(#rar)" stroke-dasharray="3 3"/>
+      <path d="M592,88 C620,88 620,42 646,42" stroke="#6b6660" fill="none" marker-end="url(#rar)"/>
+      <path d="M592,100 L646,98" stroke="#6b6660" fill="none" marker-end="url(#rar)"/>
+      <path d="M592,116 C620,116 620,156 646,158" stroke="#c05621" fill="none" marker-end="url(#rar)"/>
+
+      <text x="176" y="128" font-size="10.5" fill="#6b6660">기종이 여럿일 때만</text>
+
+      <rect x="14" y="216" width="844" height="66" rx="7" fill="#f7f5f1" stroke="#c9c2b8" stroke-dasharray="4 3"/>
+      <text x="30" y="238" font-size="12" font-weight="700">경로·형식을 안 적으면 .env 가 정한다.</text>
+      <text x="30" y="258" font-size="11.5" fill="#6b6660">COATING_INPUT_PATH · COATING_INPUT_FORMAT · COATING_DATA_DIR · COATING_DUMP_ENABLED …</text>
+      <text x="30" y="274" font-size="11.5" fill="#6b6660">CLI 인자는 .env 를 덮어쓴다. 인자가 없을 때만 .env 를 본다 — 기본값 결정은 run() 한 곳이다.</text>
+    </svg>
+  </div>
+  <figcaption>세 명령의 관계. 실데이터가 이미 parquet 이면 <code>report</code> 하나만 있으면 됩니다.</figcaption>
+</figure>
+
+<h3>2-1. 평소에 쓰는 것</h3>
+
+<pre>cd backend
+python -m app.coating.report</pre>
+
+<p>
+인자가 하나도 없으면 <code>.env</code> 의 <code>COATING_INPUT_PATH</code> 를 읽습니다. 출력은 두 줄로 찍힙니다.
+</p>
+
+<pre class="out">C:\...\backend\data\coating\reports\data_profile.md
+C:\...\backend\data\coating\reports\data_profile.html</pre>
+
+<h3>2-2. 다른 파일을 볼 때</h3>
+
+<pre>python -m app.coating.report --input data/coating/raw/2026년1월_A라인.csv
+python -m app.coating.report --input raw/원본.xlsx --sheet 데이터
+python -m app.coating.report --input raw/원본.parquet --out /tmp/보고서 --dump</pre>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th style="width:22%">인자</th><th>생략하면</th><th>언제 쓰나</th></tr></thead>
+  <tbody>
+    <tr><td><code>--input</code> (<code>--csv</code>)</td><td><code>COATING_INPUT_PATH</code></td><td>다른 원본을 한 번만 볼 때</td></tr>
+    <tr><td><code>--format</code></td><td>확장자로 판별 → 모르면 <code>COATING_INPUT_FORMAT</code></td><td>확장자가 실제 형식과 다를 때</td></tr>
+    <tr><td><code>--sheet</code></td><td><code>COATING_XLSX_SHEET</code> → 비면 첫 시트</td><td>xlsx 에 시트가 여럿일 때</td></tr>
+    <tr><td><code>--out</code></td><td><code>&lt;COATING_DATA_DIR&gt;/reports</code></td><td>결과를 딴 데 쌓고 싶을 때</td></tr>
+    <tr><td><code>--encoding</code></td><td>BOM·시그니처 판별 → <code>COATING_CSV_ENCODINGS</code></td><td>한글이 깨질 때 <code>cp949</code> 등으로 강제</td></tr>
+    <tr><td><code>--dict</code></td><td>패키지에 든 <code>item_dictionary.csv</code></td><td>항목 사전을 새로 받았을 때</td></tr>
+    <tr class="hl"><td><code>--dump</code></td><td><code>COATING_DUMP_ENABLED</code> (기본 false)</td><td><strong>결과가 이상할 때. 이 글 7장.</strong></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>2-3. 준비 단계 — xlsx 를 받았을 때</h3>
+
+<pre>python -m app.coating.convert --input data/coating/raw/원본.xlsx --sheet 데이터
+    -> data/coating/raw/원본.parquet
+python -m app.coating.report  --input data/coating/raw/원본.parquet</pre>
+
+<p>
+한 번 바꿔 두면 그 뒤로 Excel(COM)이 필요 없고 읽기도 훨씬 빠릅니다. DRM 걸린 원본을 매번 여는 것보다 안전합니다.
+</p>
+
+<h3>2-4. 준비 단계 — 기종이 여럿일 때</h3>
+
+<pre>python -m app.coating.merge \
+    --input data/coating/raw/48X1.parquet data/coating/raw/50S1.parquet \
+    --out   data/coating/raw/merged.parquet
+python -m app.coating.report --input data/coating/raw/merged.parquet</pre>
+
+<div class="call key">
+  <span class="tag">왜 합쳐도 되나</span>
+  <p>
+    라인 속도가 설비 고정값(전 제품 공통)이라 <strong>순수 지연 L 은 기종이 달라도 같습니다</strong>.
+    그래서 지연을 재는 표본은 합칠수록 좋습니다. 다만 <code>product</code> 열은 보존됩니다 — <strong>gain 은 다르기</strong> 때문입니다.
+    커널이 기종별 gain 을 같다고 강제하므로 영향행렬은 제품별로 갈라 봐야 하고, 호기가 다른 파일이 섞였는지도 이 열로 확인합니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="rh-run" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">명령어·설정 관계에서 헷갈리는 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="gate">3. 직관 — 두 개의 관문과 세 개의 판정</h2>
+
+<p>
+리포트 맨 윗줄은 언제나 <strong>판정</strong>입니다. 나머지는 그 판정의 근거입니다.
+판정은 관문 두 개를 순서대로 통과하느냐로 갈립니다.
+</p>
+
+<figure>
+  <div class="figbox">
+    <svg viewBox="0 0 880 320" role="img" aria-label="두 관문과 세 판정의 분기">
+      <defs>
+        <marker id="gar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="#6b6660"/>
+        </marker>
+      </defs>
+
+      <rect x="14" y="120" width="150" height="56" rx="7" fill="#fff" stroke="#e2ded8"/>
+      <text x="89" y="142" text-anchor="middle" font-size="12" font-weight="700">깨끗한 이벤트</text>
+      <text x="89" y="160" text-anchor="middle" font-size="11" fill="#6b6660">n_clean_events</text>
+
+      <rect x="222" y="112" width="176" height="72" rx="9" fill="#e4eefa" stroke="#2b6cb0" stroke-width="2"/>
+      <text x="310" y="138" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2b6cb0">1차 관문</text>
+      <text x="310" y="158" text-anchor="middle" font-size="12" fill="#22201d">≥ 20 건인가?</text>
+      <text x="310" y="175" text-anchor="middle" font-size="10.5" fill="#6b6660">_MIN_EVENTS</text>
+
+      <rect x="456" y="112" width="176" height="72" rx="9" fill="#fdeee2" stroke="#c05621" stroke-width="2"/>
+      <text x="544" y="138" text-anchor="middle" font-size="12.5" font-weight="700" fill="#c05621">2차 관문</text>
+      <text x="544" y="158" text-anchor="middle" font-size="12" fill="#22201d">유효 랭크 ≥ 3 인가?</text>
+      <text x="544" y="175" text-anchor="middle" font-size="10.5" fill="#6b6660">effective_rank</text>
+
+      <rect x="690" y="118" width="176" height="60" rx="9" fill="#e8f2ec" stroke="#2f6f4e" stroke-width="2.5"/>
+      <text x="778" y="143" text-anchor="middle" font-size="14" font-weight="700" fill="#2f6f4e">trainable</text>
+      <text x="778" y="163" text-anchor="middle" font-size="10.5" fill="#6b6660">모델을 만들어도 된다</text>
+
+      <rect x="222" y="24" width="176" height="58" rx="9" fill="#fbe9e7" stroke="#b03a2e"/>
+      <text x="310" y="48" text-anchor="middle" font-size="13" font-weight="700" fill="#b03a2e">insufficient</text>
+      <text x="310" y="68" text-anchor="middle" font-size="10.5" fill="#6b6660">이벤트가 없거나 모자라다</text>
+
+      <rect x="456" y="24" width="176" height="58" rx="9" fill="#fbe9e7" stroke="#b03a2e"/>
+      <text x="544" y="48" text-anchor="middle" font-size="13" font-weight="700" fill="#b03a2e">rank_deficient</text>
+      <text x="544" y="68" text-anchor="middle" font-size="10.5" fill="#6b6660">늘 같은 패턴으로만 조정했다</text>
+
+      <path d="M164,148 L222,148" stroke="#6b6660" fill="none" marker-end="url(#gar)"/>
+      <path d="M398,148 L456,148" stroke="#2f6f4e" fill="none" marker-end="url(#gar)"/>
+      <path d="M632,148 L690,148" stroke="#2f6f4e" fill="none" marker-end="url(#gar)"/>
+      <path d="M310,112 L310,82" stroke="#b03a2e" fill="none" marker-end="url(#gar)"/>
+      <path d="M544,112 L544,82" stroke="#b03a2e" fill="none" marker-end="url(#gar)"/>
+      <text x="418" y="140" font-size="10.5" fill="#2f6f4e">통과</text>
+      <text x="652" y="140" font-size="10.5" fill="#2f6f4e">통과</text>
+      <text x="318" y="100" font-size="10.5" fill="#b03a2e">탈락</text>
+      <text x="552" y="100" font-size="10.5" fill="#b03a2e">탈락</text>
+
+      <rect x="14" y="222" width="852" height="82" rx="7" fill="#f7f5f1" stroke="#c9c2b8" stroke-dasharray="4 3"/>
+      <text x="30" y="244" font-size="12" font-weight="700">동특성(L·τ·T_s)은 이 판정에 들어가지 않는다.</text>
+      <text x="30" y="264" font-size="11.5" fill="#6b6660">_verdict() 는 n_clean_events 와 effective_rank 만 본다. 그래서 trainable 인데 지연은 못 재는 경우가</text>
+      <text x="30" y="281" font-size="11.5" fill="#6b6660">정상적으로 생긴다 — 둘은 다른 질문이다. "gain 을 배울 수 있나"와 "언제 반영되는지 말할 수 있나".</text>
+      <text x="30" y="298" font-size="11.5" fill="#6b6660">동특성 섹션은 자기만의 판정(identifiable)을 따로 낸다. 5장에서 본다.</text>
+    </svg>
+  </div>
+  <figcaption>
+    <span style="color:#2b6cb0">1차</span>는 “<strong>재료가 있나</strong>”, <span style="color:#c05621">2차</span>는 “<strong>재료가 다양한가</strong>”를 묻습니다.
+    이벤트가 수백 건이어도 작업자가 늘 3번 볼트만 돌렸다면 2차에서 막힙니다.
+  </figcaption>
+</figure>
+
+<div class="call def">
+  <span class="tag">왜 랭크가 진짜 제약인가</span>
+  <p>
+    이벤트 수는 “몇 번 밀어봤나”이고, 유효 랭크는 “<strong>서로 다른 방향으로</strong> 몇 가지나 밀어봤나”입니다.
+    늘 같은 방향으로만 밀었다면 그 방향의 반응만 알 수 있고, 다른 방향은 데이터에 정보가 없습니다.
+    아무리 좋은 모델도 없는 정보를 만들 수는 없습니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="rh-gate" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">관문·판정 구조에서 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="read">4. 리포트를 위에서 아래로 읽기</h2>
+
+<p>
+아래는 실제 출력입니다(합성 데이터 8 lot · 267,840행). 섹션마다 어떻게 읽는지 붙여 갑니다.
+</p>
+
+<pre class="ok"># 코팅 초기조건 데이터 실사 리포트
+
+- **판정: trainable** — 1·2차 관문을 통과했다.</pre>
+
+<p>
+<strong>맨 윗줄만 읽고 끝낼 수 있어야 합니다.</strong> 세 가지 중 하나입니다.
+</p>
+
+<div class="terms">
+  <div class="term">
+    <span class="w" style="color:var(--ok)">trainable</span>
+    <span class="r">두 관문 통과</span>
+    <p>모델을 만들어도 되는 데이터입니다. 다만 <em>정확할 것</em>이라는 보장은 아닙니다 — “배울 수 있다”까지입니다.</p>
+  </div>
+  <div class="term">
+    <span class="w" style="color:var(--warn)">insufficient</span>
+    <span class="r">1차 관문 탈락</span>
+    <p>깨끗한 이벤트가 0건이거나 20건 미만. <strong>더 많은/다른 기간의 데이터</strong>가 필요합니다.</p>
+  </div>
+  <div class="term">
+    <span class="w" style="color:var(--warn)">rank_deficient</span>
+    <span class="r">2차 관문 탈락</span>
+    <p>이벤트는 있는데 방향이 단조롭습니다. 데이터를 더 받아도 안 풀립니다 — <strong>실험 설계(DOE)</strong>가 필요합니다.</p>
+  </div>
+</div>
+
+<h3>규모 — 먼저 “말이 되는 크기인가”</h3>
+
+<pre class="out">## 규모
+- lot 수: 8
+- 기간: 2026-02-02 06:00:00 ~ 2026-02-05 21:19:00
+- 원본 행 수: 267840</pre>
+
+<p>
+여기서 볼 것은 딱 하나, <strong>내가 요청한 데이터가 맞게 왔는가</strong>입니다.
+기간이 예상보다 짧거나 lot 수가 1이면 그 아래 숫자를 읽을 필요도 없습니다.
+</p>
+
+<h3>조정 이벤트 — 1차 관문의 근거</h3>
+
+<pre class="out">## 조정 이벤트
+- 전체 이벤트: 32
+- 깨끗한 이벤트: 32
+- 오염 비율: 0.0%
+- lot 당 제어값 변경 횟수: {'count': 8.0, 'mean': 4.375, 'std': 0.517, 'min': 4.0, ...}</pre>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th style="width:26%">항목</th><th>읽는 법</th></tr></thead>
+  <tbody>
+    <tr><td><code>전체 이벤트</code></td><td>2분 이내 변경들을 한 번의 조작으로 묶은 개수.</td></tr>
+    <tr class="good"><td><code>깨끗한 이벤트</code></td><td><strong>1차 관문이 보는 숫자.</strong> 20건 미만이면 즉시 <code>insufficient</code>.</td></tr>
+    <tr><td><code>오염 비율</code></td><td>버려진 비율. <strong>이 값 자체가 현장 진단입니다</strong> — 높으면 정착을 기다리지 않고 연속으로 손대고 있다는 뜻입니다.</td></tr>
+    <tr><td><code>lot 당 변경 횟수</code></td><td>분포(<code>describe()</code>). <code>min</code> 이 0 이면 조정이 아예 없는 lot 이 섞여 있습니다.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="call key">
+  <span class="tag">오염 비율이 높을 때</span>
+  <p>
+    오염에는 두 종류가 있고 다음 행동이 다릅니다.
+    <strong>overlapped</strong>(재안정 전에 다음 조정이 옴)는 “다음 조정까지 T_s 만큼 띄워 달라”는 <em>운전 요청</em>이고,
+    <strong>no_settle</strong>(30분 안에 안 잠잠해짐)은 “관측 창이 짧거나 공정이 불안정하다”는 <em>설정·설비 문제</em>입니다.
+    어느 쪽인지는 리포트에 안 나오므로 <code>--dump</code> 의 <code>04_events_settled.csv</code> 의 <code>drop_reason</code> 을 봅니다.
+  </p>
+</div>
+
+<h3>식별성 — 2차 관문의 근거</h3>
+
+<pre class="out">## 식별성
+- Δgap 유효 랭크: 24 / 25
+- 상위 특이값: [20.846, 14.142, 14.142, 14.142, 12.806, 12.806, 11.314, 11.314, 11.314, 10.0]</pre>
+
+<p>
+<strong>유효 랭크</strong>는 3 이상이면 통과입니다. 위 예는 24 로, 작업자가 여러 zone 을 골고루 만졌다는 뜻입니다.
+</p>
+
+<p>
+<strong>특이값</strong>은 방향별 “세기”를 큰 것부터 늘어놓은 것입니다. 읽는 법은 <em>절대 크기가 아니라 감쇠 속도</em>입니다.
+</p>
+
+<pre class="plain">[20.8, 14.1, 14.1, 14.1, 12.8, ...]   완만함 — 여러 방향이 고르게 있다  ✔
+[31.2,  2.1,  0.4,  0.0, ...]        급락 — 사실상 한 방향뿐이다      ✘</pre>
+
+<div class="call warn">
+  <span class="tag">주의</span>
+  <p>
+    <code>effective_rank</code> 는 SVD 의 수치적 임계(<code>sv &gt; sv.max()·max(shape)·eps</code>)로 셉니다.
+    아주 작지만 0 은 아닌 방향도 랭크로 세어집니다. 그래서 <strong>랭크가 통과했더라도 특이값 목록이 급락하면
+    실질적 다양성은 부족합니다.</strong> 두 숫자를 같이 보세요.
+  </p>
+</div>
+
+<h3>유효 폭 — 25칸이 다 살아 있나</h3>
+
+<pre class="out">## 유효 폭
+- 유효 zone: [1, 2, 3, ..., 25]
+- 제외 zone: []</pre>
+
+<p>
+Wet 값이 <code>0</code> 인 칸은 “로딩 0”이 아니라 <strong>미사용/미측정</strong>으로 봅니다(설비 폭보다 좁은 종이).
+그래서 0 을 NaN 으로 바꾸고, 한 번도 값이 없던 zone 은 제외합니다.
+제외 zone 이 많으면 그만큼 좁은 폭으로만 모델을 만들 수 있다는 뜻입니다.
+</p>
+
+<h3>추가 데이터 요청 — 그대로 복사해 보내는 칸</h3>
+
+<p>
+이 섹션은 <strong>사업부에 보낼 문장</strong>으로 쓰라고 만들어졌습니다. 아래는 번들 샘플로 돌렸을 때의 실제 출력입니다.
+</p>
+
+<pre class="bad">- 데이터에 없는 제어 항목: ['10030009', '50030111', '30030838', ...]
+  - `50030111`(Pump RPM) · `10030009`(BP open rate)가 없으면 레벨 모델은 제품 상수와
+    OS/DS Gap 만으로 만들어야 하고, 정확도 기대치를 크게 낮춰야 한다.
+- 고형분(%) · 점도 · 호기: 같은 제어값이라도 이 값들이 다르면 L/L 이 달라지므로,
+  빠지면 모델이 설명 못 하는 분산으로 남는다.
+- 제품별 목표 L/L 표준값과 스펙 상하한.</pre>
+
+<p>
+<code>사전에 없는 항목</code> 이 나오면 그건 데이터 요청이 아니라 <strong>우리 쪽 숙제</strong>입니다 —
+<code>app/coating/meta/item_dictionary.csv</code> 를 갱신해야 합니다.
+</p>
+
+<div class="qmemo" data-qid="rh-read" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">특정 항목을 어떻게 읽어야 할지 모르겠으면 그 항목 이름을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="dyn">5. 동특성 섹션 — L·τ·T_s 는 어떻게 나왔나</h2>
+
+<p>리포트에서 가장 정보량이 많은 부분입니다. 실제 출력 전문입니다.</p>
+
+<pre class="ok">## 동특성 (조정 → 반영까지)
+- 노이즈 바닥: σ = 0.0212 (분당 ΔWet, 조정 없는 1,080분에서)
+- 깨끗한 이벤트 32건 → (이벤트×zone) 표본 35개
+- **순수 지연 L = 9분** — 조정 후 이 시간이 지나야 Wet 이 움직인다
+  - 환산 거리 315 m (라인 속도 35 m/min, 설비 고정·전 제품 공통)
+    — 다이~측정기 실제 거리와 자릿수가 다르면 이 L 은 노이즈를 문 것이다.
+- 시정수 τ = 3분 (최종 변화의 63% 도달)
+- 정착 T_s = 21분 — 다음 조정까지 최소 이만큼 띄워야 두 조정의 효과가 섞이지 않는다
+- 최종 변화량 +2.7439 (부호 정렬, |Δgap| 1회분 기준)</pre>
+
+<h3>줄마다 무엇을 뜻하나</h3>
+
+<div class="terms">
+  <div class="term">
+    <span class="w">σ = 0.0212</span>
+    <span class="r">노이즈 바닥 · 분당 ΔWet 표준편차</span>
+    <p>모든 판정의 자다. <strong>조정 근처 ±60분을 전부 뺀</strong> 구간에서만 잽니다 — 반응이 섞이면 σ 가 부풀고, 그러면 진짜 반응이 노이즈 아래로 숨습니다.</p>
+  </div>
+  <div class="term">
+    <span class="w">표본 35개</span>
+    <span class="r">(이벤트 × 조정한 zone)</span>
+    <p>이벤트 32건인데 35개인 이유는 한 번에 두 zone 을 만진 이벤트가 3건 있어서입니다. 통계의 단위는 이벤트가 아니라 <strong>이 값</strong>입니다.</p>
+  </div>
+  <div class="term">
+    <span class="w">L = 9분</span>
+    <span class="r">순수 지연 (dead time)</span>
+    <p>조정 후 Wet 이 <em>움직이기 시작</em>하기까지의 시간. 도포 지점의 종이가 측정기까지 이송되는 물리 시간입니다.</p>
+  </div>
+  <div class="term">
+    <span class="w">315 m</span>
+    <span class="r">환산 거리 = L × 라인 속도</span>
+    <p><strong>L 이 맞는지 확인할 외부 기준은 이것 하나뿐입니다.</strong> 다이~수분계가 315m 떨어져 있을 리 없다면 그 L 은 노이즈를 문 것입니다.</p>
+  </div>
+  <div class="term">
+    <span class="w">τ = 3분</span>
+    <span class="r">시정수 (63.2% 도달)</span>
+    <p>움직이기 시작한 뒤 얼마나 빨리 가느냐. <strong>L 기준의 상대값</strong>이라 L 이 1분 틀리면 τ 도 반대로 1분 틀립니다.</p>
+  </div>
+  <div class="term">
+    <span class="w">T_s = 21분</span>
+    <span class="r">정착 시간</span>
+    <p>현장에 바로 쓰이는 숫자입니다 — <strong>다음 조정까지 최소 21분은 띄우라</strong>는 운전 규칙이 여기서 나옵니다.</p>
+  </div>
+</div>
+
+<h3>이 숫자들이 나온 원본 — 응답 곡선</h3>
+
+<p>
+위 값들은 전부 <strong>응답 곡선</strong> 하나에서 읽습니다. 아래는 <code>--dump</code> 로 남은
+<code>06_response_curve.csv</code> 의 실제 값입니다(임계 <code>thr = 2×SEM</code> 은 설명을 위해 계산해 붙였습니다).
+</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th class="num">lag(분)</th><th class="num">mean</th><th class="num">sem</th><th class="num">thr = 2×sem</th><th>임계 초과?</th><th class="num">n</th></tr></thead>
+  <tbody>
+    <tr><td class="num">5</td><td class="num">0.0019</td><td class="num">0.0032</td><td class="num">0.0064</td><td>아니오</td><td class="num">35</td></tr>
+    <tr><td class="num">6</td><td class="num">−0.0008</td><td class="num">0.0026</td><td class="num">0.0052</td><td>아니오</td><td class="num">35</td></tr>
+    <tr><td class="num">7</td><td class="num">0.0020</td><td class="num">0.0028</td><td class="num">0.0057</td><td>아니오</td><td class="num">35</td></tr>
+    <tr><td class="num">8</td><td class="num">−0.0006</td><td class="num">0.0030</td><td class="num">0.0060</td><td>아니오</td><td class="num">35</td></tr>
+    <tr class="good"><td class="num"><strong>9</strong></td><td class="num">0.6077</td><td class="num">0.0114</td><td class="num">0.0227</td><td><strong>예 (1회)</strong></td><td class="num">35</td></tr>
+    <tr class="good"><td class="num">10</td><td class="num">1.0801</td><td class="num">0.0197</td><td class="num">0.0394</td><td>예 (2회)</td><td class="num">35</td></tr>
+    <tr class="good"><td class="num">11</td><td class="num">1.4483</td><td class="num">0.0277</td><td class="num">0.0555</td><td>예 (3회) ★ <strong>L = 9 확정</strong></td><td class="num">35</td></tr>
+    <tr class="hl"><td class="num">12</td><td class="num">1.7384</td><td class="num">0.0323</td><td class="num">0.0645</td><td>63.2%(1.7342) 첫 도달 → <strong>τ = 12−9 = 3</strong></td><td class="num">35</td></tr>
+    <tr><td class="num">13</td><td class="num">1.9551</td><td class="num">0.0367</td><td class="num">0.0735</td><td>예</td><td class="num">35</td></tr>
+    <tr><td class="num">…</td><td class="num">…</td><td class="num">…</td><td class="num">…</td><td>…</td><td class="num">…</td></tr>
+  </tbody>
+</table>
+</div>
+
+<figure>
+  <div class="figbox">
+    <svg viewBox="0 0 880 280" role="img" aria-label="응답 곡선에서 L, tau, 정착을 읽는 그림">
+      <!-- 정착 밴드 -->
+      <rect x="415" y="41" width="375" height="16" fill="#2f6f4e" fill-opacity="0.12"/>
+      <!-- 축 -->
+      <line x1="60" y1="200" x2="820" y2="200" stroke="#22201d" stroke-width="1.3"/>
+      <line x1="60" y1="200" x2="60" y2="35" stroke="#22201d" stroke-width="1.3"/>
+      <text x="30" y="54" font-size="10.5" fill="#6b6660">2.74</text>
+      <text x="36" y="204" font-size="10.5" fill="#6b6660">0</text>
+      <text x="820" y="222" text-anchor="end" font-size="10.5" fill="#6b6660">lag(분)</text>
+
+      <!-- 눈금 -->
+      <g font-size="10.5" fill="#6b6660" text-anchor="middle">
+        <line x1="214" y1="200" x2="214" y2="206" stroke="#9a948c"/><text x="214" y="219">0</text>
+        <line x1="300" y1="200" x2="300" y2="206" stroke="#9a948c"/><text x="300" y="219">9</text>
+        <line x1="329" y1="200" x2="329" y2="206" stroke="#9a948c"/><text x="333" y="233">12</text>
+        <line x1="416" y1="200" x2="416" y2="206" stroke="#9a948c"/><text x="416" y="219">21</text>
+        <line x1="502" y1="200" x2="502" y2="206" stroke="#9a948c"/><text x="502" y="219">30</text>
+        <line x1="790" y1="200" x2="790" y2="206" stroke="#9a948c"/><text x="790" y="219">60</text>
+      </g>
+
+      <!-- 곡선 -->
+      <path d="M70,200 L291,200 L300,167 L310,141 L320,120 L329,104 L339,92 L348,83 L358,75 L368,69 L416,56 L502,50 L790,49"
+            fill="none" stroke="#c05621" stroke-width="2.6"/>
+
+      <!-- final 선 -->
+      <line x1="60" y1="49" x2="820" y2="49" stroke="#22201d" stroke-dasharray="5 4" stroke-width="1.2"/>
+      <text x="600" y="43" font-size="11" fill="#22201d">final = 2.7439 (뒤 1/4 구간 평균)</text>
+      <!-- 63.2% 선 -->
+      <line x1="60" y1="105" x2="420" y2="105" stroke="#a67c00" stroke-dasharray="4 3" stroke-width="1.2"/>
+      <text x="428" y="109" font-size="11" fill="#a67c00">63.2% = 1.7342</text>
+
+      <!-- 세로: 조정, L, tau -->
+      <line x1="214" y1="35" x2="214" y2="208" stroke="#2b6cb0" stroke-width="2"/>
+      <text x="218" y="32" font-size="11.5" font-weight="700" fill="#2b6cb0">조정 (lag 0)</text>
+      <line x1="300" y1="60" x2="300" y2="208" stroke="#2f6f4e" stroke-width="2"/>
+      <text x="304" y="76" font-size="11.5" font-weight="700" fill="#2f6f4e">L = 9분</text>
+      <line x1="329" y1="105" x2="329" y2="208" stroke="#a67c00" stroke-width="1.6" stroke-dasharray="3 3"/>
+      <line x1="416" y1="57" x2="416" y2="208" stroke="#2f6f4e" stroke-width="1.6" stroke-dasharray="3 3"/>
+      <text x="424" y="176" font-size="11.5" font-weight="700" fill="#2f6f4e">T_s = 21분</text>
+      <text x="424" y="192" font-size="10.5" fill="#6b6660">±5% 밴드 안으로 들어와 끝까지 유지</text>
+
+      <!-- tau 화살표 -->
+      <line x1="300" y1="150" x2="329" y2="150" stroke="#a67c00" stroke-width="2"/>
+      <text x="238" y="146" font-size="11" fill="#a67c00">τ = 3</text>
+
+      <!-- 노이즈 구간 표시 -->
+      <text x="120" y="192" font-size="10.5" fill="#9a948c">평균이 2×SEM 을 못 넘는 구간</text>
+      <text x="240" y="256" font-size="11" fill="#6b6660">임계를 <tspan font-weight="700">3번 연속</tspan> 넘은 첫 자리가 L 이다 — 단발 초과는 다중비교의 우연이다.</text>
+    </svg>
+  </div>
+  <figcaption>
+    표의 숫자를 그림으로 옮긴 것. <span style="color:#2f6f4e">L</span> 은 임계를 3회 연속 넘은 첫 lag,
+    <span style="color:#a67c00">τ</span> 는 63.2% 도달 lag에서 L 을 뺀 값, <strong>T_s</strong> 는 ±5% 밴드에 들어와 끝까지 유지된 시작점입니다.
+  </figcaption>
+</figure>
+
+<div class="call def">
+  <span class="tag">검산이 실제로 되는지 확인해 보자</span>
+  <p>
+    이 합성 데이터에는 <strong>순수지연 8분·τ 4분</strong>을 심었습니다. 리포트는 L=9, τ=3 을 냈습니다.
+    틀린 게 아닙니다 — lag 8 시점의 반응 크기는 정확히 0 이고(그 순간부터 <em>오르기 시작</em>),
+    실제로 0 과 구별되는 첫 lag 은 9 입니다. τ 는 L 기준 상대값이라 L 이 1 커진 만큼 1 작아졌습니다.
+    <strong>두 값은 항상 짝으로 읽어야 합니다.</strong>
+  </p>
+</div>
+
+<h3>못 낼 때 나오는 문장들</h3>
+
+<p>동특성은 자기만의 판정을 냅니다. 못 낼 때 <em>빈칸을 두지 않고</em> 이유별로 다른 말을 합니다.</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th style="width:24%">리포트 문장</th><th>뜻과 다음 행동</th></tr></thead>
+  <tbody>
+    <tr class="bad">
+      <td><code>노이즈를 잴 조용한 구간이 없다</code></td>
+      <td>σ 를 못 재서 판정 자체가 불가. <strong>조정이 너무 잦다</strong>는 뜻입니다 — 아래 경고 참고.</td>
+    </tr>
+    <tr class="bad">
+      <td><code>지연 추정 불가 — 깨끗한 조정 이벤트가 없다</code></td>
+      <td>제어값이 바뀐 구간의 데이터가 필요합니다(<code>no_events</code>).</td>
+    </tr>
+    <tr class="bad">
+      <td><code>반응이 관측되지 않았다 — 최소 반응 ±0.0xxx</code></td>
+      <td><code>no_response</code>. 반응이 없는 게 아니라 <strong>그 크기 이하는 지금 표본으로 못 본다</strong>는 말입니다. <em>조정 폭</em>을 키워야 합니다.</td>
+    </tr>
+    <tr class="bad">
+      <td><code>1분 단위로 가르려면 약 N건 필요하다 (지금 M건, K건 부족)</code></td>
+      <td><code>underpowered</code>. 반응은 보이는데 표본이 모자랍니다. <em>이벤트 수</em>를 늘려야 합니다.</td>
+    </tr>
+    <tr class="hl">
+      <td><code>⚠ 관측 창이 끝날 때까지 아직 오르고 있다</code></td>
+      <td>τ 와 최종 변화량은 <strong>하한</strong>입니다. <code>COATING_RESPONSE_POST_MINUTES</code> 를 늘려 다시 돌립니다.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="call warn">
+  <span class="tag">실행 중 확인한 함정</span>
+  <p>
+    <strong>조정이 잦으면 동특성 섹션이 통째로 꺼집니다.</strong> σ 는 <em>모든</em> 이벤트의
+    ±<code>COATING_RESPONSE_POST_MINUTES</code>(기본 60분)를 제외한 구간에서만 잽니다.
+    그래서 조정 간격이 <strong>2시간보다 촘촘하면</strong> 조용한 분이 하나도 남지 않고
+    <code>노이즈를 잴 조용한 구간이 없다</code> 로 끝납니다.
+  </p>
+  <p style="margin-top:.6rem">
+    이 글을 쓰며 25분 간격으로 조정하는 데이터를 만들어 돌렸더니 정확히 그렇게 나왔고,
+    간격을 140분으로 넓히자 σ = 0.0212 (조용한 1,080분)로 잡혔습니다.
+    <strong>바쁜 실조업 데이터일수록 이 벽에 부딪히기 쉽다</strong>는 뜻이라, 동특성이 안 나오면
+    먼저 <code>02_events.csv</code> 의 조정 간격부터 보세요.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="rh-dyn" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">L·τ·T_s·σ 중 헷갈리는 것을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="insufficient">6. 막혔을 때 — 무엇을 요구할 것인가</h2>
+
+<p>
+번들 샘플로 돌리면 이렇게 나옵니다. <strong>막힌 리포트가 오히려 정보가 많습니다.</strong>
+</p>
+
+<pre class="bad">- **판정: insufficient** — 조정 이벤트가 0건이다. 제어값이 한 번도 바뀌지 않은
+  구간만 있으면 입력→출력 관계를 배울 수 없다. 튜닝 과정이 포함된 구간의 데이터가 필요하다.
+
+## 규모
+- lot 수: 1
+- 기간: 2026-01-31 18:55:00 ~ 2026-01-31 19:04:00     ← 10분짜리다
+- 원본 행 수: 31
+
+## 식별성
+- Δgap 유효 랭크: 0 / 25
+- 상위 특이값: []</pre>
+
+<p>중요한 것은 <strong>막힌 이유마다 요구할 것이 다르다</strong>는 점입니다.</p>
+
+<figure>
+  <div class="figbox">
+    <svg viewBox="0 0 880 300" role="img" aria-label="막힌 이유별로 무엇을 요구할지 결정하는 분기">
+      <defs>
+        <marker id="iar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="#6b6660"/>
+        </marker>
+      </defs>
+
+      <rect x="300" y="14" width="280" height="46" rx="8" fill="#fff8e6" stroke="#a67c00" stroke-width="2"/>
+      <text x="440" y="42" text-anchor="middle" font-size="13" font-weight="700">판정이 trainable 이 아니다</text>
+
+      <rect x="14" y="106" width="196" height="62" rx="8" fill="#fbe9e7" stroke="#b03a2e"/>
+      <text x="112" y="128" text-anchor="middle" font-size="12" font-weight="700" fill="#b03a2e">이벤트 0건</text>
+      <text x="112" y="148" text-anchor="middle" font-size="10.5" fill="#6b6660">제어값이 안 바뀌었다</text>
+
+      <rect x="228" y="106" width="196" height="62" rx="8" fill="#fbe9e7" stroke="#b03a2e"/>
+      <text x="326" y="128" text-anchor="middle" font-size="12" font-weight="700" fill="#b03a2e">20건 미만</text>
+      <text x="326" y="148" text-anchor="middle" font-size="10.5" fill="#6b6660">있긴 한데 모자라다</text>
+
+      <rect x="442" y="106" width="196" height="62" rx="8" fill="#fbe9e7" stroke="#b03a2e"/>
+      <text x="540" y="128" text-anchor="middle" font-size="12" font-weight="700" fill="#b03a2e">오염 비율이 높다</text>
+      <text x="540" y="148" text-anchor="middle" font-size="10.5" fill="#6b6660">전체는 많은데 깨끗한 게 적다</text>
+
+      <rect x="656" y="106" width="210" height="62" rx="8" fill="#fbe9e7" stroke="#b03a2e"/>
+      <text x="761" y="128" text-anchor="middle" font-size="12" font-weight="700" fill="#b03a2e">랭크 &lt; 3</text>
+      <text x="761" y="148" text-anchor="middle" font-size="10.5" fill="#6b6660">늘 같은 패턴</text>
+
+      <rect x="14" y="200" width="196" height="80" rx="8" fill="#e8f2ec" stroke="#bcd9c9"/>
+      <text x="112" y="222" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2f6f4e">튜닝 구간을 달라</text>
+      <text x="30" y="242" font-size="10.5" fill="#6b6660">정상 운전만 담긴 구간</text>
+      <text x="30" y="258" font-size="10.5" fill="#6b6660">말고, 초기 셋업·기종</text>
+      <text x="30" y="274" font-size="10.5" fill="#6b6660">전환 구간을 요청</text>
+
+      <rect x="228" y="200" width="196" height="80" rx="8" fill="#e8f2ec" stroke="#bcd9c9"/>
+      <text x="326" y="222" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2f6f4e">기간을 늘려 달라</text>
+      <text x="244" y="242" font-size="10.5" fill="#6b6660">lot 당 이벤트 수로</text>
+      <text x="244" y="258" font-size="10.5" fill="#6b6660">필요 lot 수를 역산해</text>
+      <text x="244" y="274" font-size="10.5" fill="#6b6660">숫자로 요청한다</text>
+
+      <rect x="442" y="200" width="196" height="80" rx="8" fill="#e8f2ec" stroke="#bcd9c9"/>
+      <text x="540" y="222" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2f6f4e">간격을 띄워 달라</text>
+      <text x="458" y="242" font-size="10.5" fill="#6b6660">운전 요청이다.</text>
+      <text x="458" y="258" font-size="10.5" fill="#6b6660">"다음 조정까지 T_s 만큼"</text>
+      <text x="458" y="274" font-size="10.5" fill="#6b6660">— 리포트에 그 숫자가 있다</text>
+
+      <rect x="656" y="200" width="210" height="80" rx="8" fill="#e8f2ec" stroke="#bcd9c9"/>
+      <text x="761" y="222" text-anchor="middle" font-size="11.5" font-weight="700" fill="#2f6f4e">DOE 를 하자</text>
+      <text x="672" y="242" font-size="10.5" fill="#6b6660">데이터를 더 받아도</text>
+      <text x="672" y="258" font-size="10.5" fill="#6b6660">안 풀린다. 파일럿에서</text>
+      <text x="672" y="274" font-size="10.5" fill="#6b6660">가진 실험을 제안</text>
+
+      <path d="M380,60 C300,72 200,80 112,106" stroke="#6b6660" fill="none" marker-end="url(#iar)"/>
+      <path d="M420,60 C400,76 350,84 326,106" stroke="#6b6660" fill="none" marker-end="url(#iar)"/>
+      <path d="M460,60 C480,76 520,84 540,106" stroke="#6b6660" fill="none" marker-end="url(#iar)"/>
+      <path d="M500,60 C580,72 680,80 761,106" stroke="#6b6660" fill="none" marker-end="url(#iar)"/>
+      <path d="M112,168 L112,200" stroke="#2f6f4e" fill="none" marker-end="url(#iar)"/>
+      <path d="M326,168 L326,200" stroke="#2f6f4e" fill="none" marker-end="url(#iar)"/>
+      <path d="M540,168 L540,200" stroke="#2f6f4e" fill="none" marker-end="url(#iar)"/>
+      <path d="M761,168 L761,200" stroke="#2f6f4e" fill="none" marker-end="url(#iar)"/>
+    </svg>
+  </div>
+  <figcaption>
+    막힌 이유 → 요구할 것. 네 갈래 중 <strong>맨 오른쪽만 “데이터를 더 달라”로 해결되지 않습니다</strong> —
+    같은 패턴의 조정을 아무리 모아도 새 방향은 생기지 않기 때문입니다.
+  </figcaption>
+</figure>
+
+<div class="call key">
+  <span class="tag">숫자로 요구하는 법</span>
+  <p>
+    “데이터를 더 주세요”는 요구가 아닙니다. 리포트의 <code>lot 당 제어값 변경 횟수</code> 로 역산합니다.
+    예컨대 깨끗한 이벤트가 12건이고 lot 당 평균 4건이면, 하한 20건까지 <strong>8건 부족 → lot 2개 분량</strong>입니다.
+    동특성 쪽이 막혔다면 <code>required_events</code>·<code>shortfall_events</code> 가 이미 그 계산을 해서 문장으로 적어 줍니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="rh-insuf" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">우리 데이터가 어느 갈래인지 헷갈리면 증상을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="dump">7. 숫자를 못 믿을 때 — <code>--dump</code></h2>
+
+<p>
+리포트는 결론만 말합니다. <strong>“왜 그런 결론이 나왔나”를 보려면 중간 산출물을 열어야 합니다.</strong>
+</p>
+
+<pre>python -m app.coating.report --dump</pre>
+
+<p>
+그러면 <code>&lt;out&gt;/dump/YYYYMMDD-HHMMSS/</code> 아래에 표 6개와 매니페스트가 남습니다.
+번호는 파이프라인 순서라, 폴더를 열었을 때 무엇이 무엇 다음인지가 파일 이름만으로 보입니다.
+</p>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th style="width:27%">파일</th><th>담긴 것</th><th>이걸로 답하는 질문</th></tr></thead>
+  <tbody>
+    <tr><td><code>01_changes_control.csv</code></td><td>제어값이 바뀐 시점만</td><td>“작업자가 실제로 뭘 만졌나”</td></tr>
+    <tr><td><code>02_events.csv</code></td><td>묶인 이벤트 (오염 표시 <em>전</em>)</td><td>“조정 간격이 얼마나 되나”</td></tr>
+    <tr><td><code>03_event_deltas.csv</code></td><td>이벤트별 zone·Δ</td><td>“어느 zone 을 얼마나 돌렸나”</td></tr>
+    <tr class="hl"><td><code>04_events_settled.csv</code></td><td>정착 시각 + 오염 사유</td><td><strong>“무엇이 왜 버려졌나”</strong> (02 와 나란히 놓고 비교)</td></tr>
+    <tr><td><code>05_aligned.csv</code></td><td>lag 축으로 포갠 long 표</td><td>“개별 이벤트가 어떻게 움직였나”</td></tr>
+    <tr><td><code>06_response_curve.csv</code></td><td>lag별 mean·sem·n</td><td><strong>“L·τ 가 어디서 나왔나”</strong></td></tr>
+    <tr><td><code>_manifest.txt</code></td><td>행 수 + <strong>이 덤프를 만든 설정</strong></td><td>“두 실행이 왜 다른가”</td></tr>
+  </tbody>
+</table>
+</div>
+
+<pre class="out"># 코팅 파이프라인 중간 산출물
+작성: 2026-09-04 11:46:19
+
+## 표
+- 01_changes_control: 14행 × 5열
+- 02_events: 0행 × 4열
+...
+## 이 덤프를 만든 입력과 설정
+- input: ...\data\coating\raw\sample_long.parquet
+- format: parquet
+- event_merge_minutes: 2
+- settle_window_minutes: 5
+- settle_std_max: 0.02
+- settle_max_wait_minutes: 30
+- panel_ffill_max_minutes: 30
+- response_pre_minutes: 15
+- response_post_minutes: 60</pre>
+
+<div class="call def">
+  <span class="tag">덤프의 성격</span>
+  <p>
+    <strong>검사용이지 캐시가 아닙니다.</strong> 쓰기만 하고 아무도 다시 읽지 않습니다 — 그래서 무효화 로직도 없고,
+    덤프를 켠 실행과 끈 실행의 <em>결론이 달라질 여지가 없습니다</em>.
+    형식이 parquet 이 아니라 CSV(+BOM)인 것도 목적 하나 때문입니다: 사내 PC 의 엑셀에서 바로 열려야 하고,
+    BOM 이 없으면 한글 사유(“오염”·“정착”)가 깨집니다.
+  </p>
+</div>
+
+<h3>덤프로 실제로 무엇을 잡을 수 있나 — 예시</h3>
+
+<p>
+이 글을 쓰며 돌린 <code>trainable</code> 실행의 <code>04_events_settled.csv</code> 를 열어 보면
+이런 게 보입니다.
+</p>
+
+<pre class="bad">settled_at − worked_at 의 분포: {5.0분: 32건}
+→ 32개 이벤트 전부 정확히 5분. (settle_window_minutes = 5)</pre>
+
+<p>
+정착까지 걸린 시간이 <strong>모든 이벤트에서 똑같이 설정값과 같다</strong>면, 그건 정착을 <em>측정한</em> 게 아니라
+탐색이 가능한 가장 이른 자리를 집었다는 신호입니다. 실제로 이 데이터의 순수지연은 9분이라
+5분 시점은 아직 반응이 시작되기도 전입니다.
+</p>
+
+<div class="call warn">
+  <span class="tag">알려진 한계</span>
+  <p>
+    이것은 <a href="2026-09-04-explanation-coating-lag-gain-basics-followup.html#defects">delta_samples 편 8장</a>에 적어 둔
+    문제가 실제 덤프에 나타난 모습입니다. <strong>순수지연이 정착 창(5분)보다 길면 <code>settled_at</code> 이 지연 안쪽에 박힙니다.</strong>
+    L·τ·T_s 는 이 값을 쓰지 않으므로 <em>동특성 섹션은 영향을 받지 않지만</em>,
+    영향행렬 학습에 쓰이는 ΔWet 은 0 쪽으로 무너집니다. 아직 고치지 않았습니다.
+  </p>
+  <p style="margin-top:.6rem">
+    확인 방법: <code>04_events_settled.csv</code> 에서 <code>settled_at − worked_at</code> 이
+    전부 <code>COATING_SETTLE_WINDOW_MINUTES</code> 와 같은지 보면 됩니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="rh-dump" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">어느 표를 열어야 할지 모르겠으면 증상을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="code">8. 코드 지도 — 어느 함수가 어느 줄을 만드나</h2>
+
+<p>
+리포트의 한 줄이 이상할 때 어디를 열어야 하는지의 지도입니다.
+실행의 뼈대는 <code>report.profile_readings()</code> 하나이고, 나머지는 거기서 부르는 순수 함수들입니다.
+</p>
+
+<pre class="plain">report.main()                     CLI 인자 파싱, 입력 없으면 문장으로 실패
+ └ report.run()                   기본값 결정은 여기 한 곳 (.env 를 보는 유일한 층)
+    └ parse.load_readings()       파일을 읽는 유일한 곳
+    └ report.profile_readings()   ★ 판정의 본체. 파일을 만지지 않는다
+       ├ pivot.dedupe_minute()        (lot,분,항목) 중복 정리
+       ├ pivot.compress_runs()        바뀐 시점만 남김        → 01_changes_control
+       ├ features.wet_wide()          Wet 25칸 wide, 0 → NaN
+       ├ features.valid_zones()       → "유효 폭" 섹션
+       ├ events.build_events()        변경을 이벤트로 묶음     → 02_events, 03_event_deltas
+       ├ events.annotate_settling()   정착·오염 표시          → 04_events_settled
+       ├ features.delta_samples()     (Δgap 25, ΔWet 25) 표
+       ├ profile.rank_diagnostics()   → "식별성" 섹션
+       ├ report._dynamics_facts()     → "동특성" 섹션          → 05_aligned, 06_response_curve
+       │  ├ panel.build_panel()          1분 등간격 격자
+       │  ├ response.noise_floor()       σ 와 조용한 분 수
+       │  ├ response.align_events()      lag 축 정렬 + 부호 정렬
+       │  ├ response.response_curve()    lag별 mean·sem·n
+       │  ├ response.dynamics()          L·τ·T_s·final
+       │  ├ response.verdict()           identifiable / 부족분
+       │  └ response.implied_distance_m() 환산 거리
+       └ report._verdict()            → 맨 윗줄 판정
+    └ report.render_markdown() / render_html()
+    └ dump.write_tables()          --dump 일 때만</pre>
+
+<div class="call key">
+  <span class="tag">읽을 때의 요령</span>
+  <p>
+    <strong>“이 숫자가 왜 이렇지”는 대부분 순수 함수 한 개로 좁혀집니다.</strong>
+    파일을 읽는 곳은 <code>parse</code> 하나, 설정을 읽는 곳은 <code>run()</code> 과
+    <code>profile_readings()</code> 의 첫 줄뿐입니다. 나머지는 DataFrame 만 받고 DataFrame 만 돌려주므로,
+    덤프의 표를 그대로 넣어 파이썬에서 재현할 수 있습니다.
+  </p>
+</div>
+
+<div class="qmemo" data-qid="rh-code" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">어느 함수를 더 알고 싶은지 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="quiz">9. 이해했는지 확인하기</h2>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q1. 리포트가 <code>판정: trainable</code> 인데 동특성 섹션은 “지연 추정 불가”라고 합니다. 모순인가요?</p>
+  <button class="opt" data-i="0">모순입니다. 둘 중 하나는 버그입니다.</button>
+  <button class="opt" data-i="1">모순입니다. trainable 이면 동특성도 반드시 나와야 합니다.</button>
+  <button class="opt" data-i="2">모순이 아닙니다. 판정은 이벤트 수와 랭크만 보고, 동특성은 별도 판정을 냅니다.</button>
+  <button class="opt" data-i="3">모순이 아닙니다. 동특성은 trainable 일 때만 계산되기 때문입니다.</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="q">Q2. 유효 랭크가 2 로 나와 <code>rank_deficient</code> 가 떴습니다. 가장 적절한 다음 행동은?</p>
+  <button class="opt" data-i="0">같은 조건으로 데이터를 3개월치 더 요청한다</button>
+  <button class="opt" data-i="1">파일럿에서 여러 zone 을 다양한 조합으로 움직이는 실험(DOE)을 제안한다</button>
+  <button class="opt" data-i="2">COATING_SETTLE_STD_MAX 를 키워 오염 이벤트를 줄인다</button>
+  <button class="opt" data-i="3">merge 로 다른 기종 parquet 을 합친다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q">Q3. <code>순수 지연 L = 40분 · 환산 거리 1,400 m</code> 가 나왔습니다. 현장에 확인해 보니 다이~수분계는 30m 남짓입니다. 어떻게 판단해야 하나요?</p>
+  <button class="opt" data-i="0">라인 속도 설정이 틀렸으므로 COATING_LINE_SPEED_MPM 을 고친다</button>
+  <button class="opt" data-i="1">환산 거리는 참고값이므로 무시하고 L=40분을 그대로 쓴다</button>
+  <button class="opt" data-i="2">리포트가 자동으로 이 이벤트를 배제했을 것이므로 그냥 둔다</button>
+  <button class="opt" data-i="3">L 이 노이즈를 문 것으로 의심하고 응답 곡선을 직접 열어 확인한다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <p class="q">Q4. 동특성이 <code>노이즈를 잴 조용한 구간이 없다</code> 로 끝났습니다. 가장 먼저 볼 것은?</p>
+  <button class="opt" data-i="0"><code>02_events.csv</code> 를 열어 조정 간격이 2시간보다 촘촘한지 본다</button>
+  <button class="opt" data-i="1">유효 zone 이 몇 개인지 본다</button>
+  <button class="opt" data-i="2">Δgap 유효 랭크가 3 이상인지 본다</button>
+  <button class="opt" data-i="3">원본 행 수가 충분한지 본다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q5. <code>--dump</code> 를 켜고 돌린 결과가 안 켰을 때와 다를 수 있나요?</p>
+  <button class="opt" data-i="0">네. 덤프를 켜면 중간 결과가 캐시되어 다음 실행이 달라집니다.</button>
+  <button class="opt" data-i="1">네. 덤프 계산 때문에 표본이 줄어듭니다.</button>
+  <button class="opt" data-i="2">아니오. dump 는 받은 표를 그대로 적을 뿐 계산을 하지 않습니다.</button>
+  <button class="opt" data-i="3">아니오. 덤프는 리포트와 완전히 다른 파이프라인을 돌리기 때문입니다.</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="rh-quiz" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제가 있으면 왜 헷갈렸는지 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="cheat">10. 치트시트</h2>
+
+<div class="cheat">
+<h3>명령</h3>
+<pre>cd backend
+python -m app.coating.report                          # .env 가 가리키는 원본으로
+python -m app.coating.report --input raw/파일.csv      # 다른 원본 한 번만
+python -m app.coating.report --dump                   # 왜 그 결론인지 볼 때
+python -m app.coating.convert --input raw/원본.xlsx --sheet 데이터   # xlsx → parquet
+python -m app.coating.merge --input a.parquet b.parquet --out m.parquet</pre>
+
+<h3>맨 윗줄만 읽고 판단</h3>
+<ul>
+  <li><strong>trainable</strong> → 모델 단계로 간다.</li>
+  <li><strong>insufficient</strong> → 이벤트가 없거나 20건 미만. <em>기간·튜닝 구간</em>을 숫자로 요청한다.</li>
+  <li><strong>rank_deficient</strong> → 데이터를 더 받아도 안 된다. <em>DOE</em> 를 제안한다.</li>
+</ul>
+
+<h3>그다음 세 줄</h3>
+<ul>
+  <li><code>오염 비율</code> — 높으면 조정 간격이 문제. 사유는 <code>04_events_settled.csv</code> 의 <code>drop_reason</code>.</li>
+  <li><code>상위 특이값</code> — 급락하면 랭크가 통과했어도 실질 다양성 부족.</li>
+  <li><code>환산 거리</code> — 설비 실제 거리와 자릿수가 다르면 그 L 은 믿지 않는다.</li>
+</ul>
+
+<h3>증상 → 열어볼 표</h3>
+<ul>
+  <li>L·τ 가 이상하다 → <code>06_response_curve.csv</code></li>
+  <li>이벤트가 왜 버려졌나 → <code>02_events.csv</code> 와 <code>04_events_settled.csv</code> 를 나란히</li>
+  <li>동특성이 통째로 안 나온다 → <code>02_events.csv</code> 의 조정 간격 (2시간 벽)</li>
+  <li>두 실행 결과가 다르다 → 각 덤프의 <code>_manifest.txt</code> 설정 비교</li>
+</ul>
+</div>
+
+<div class="backlink">
+  ← <a href="2026-09-02-explanation-coating-lag-gain-basics.html">지연·gain 기초편</a> ·
+  <a href="2026-09-04-explanation-coating-lag-gain-basics-followup.html">delta_samples 편</a> ·
+  <a href="2026-09-01-explanation-coating-dead-time.html">지연 분석의 속살</a>
+</div>
+
+<div class="qmemo" data-qid="rh-cheat" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">전체를 읽고 남은 질문을 적어두세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+</main>
+</div>
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-09-04-explanation-coating-report-howto.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\TestProject\\docs\\understanding\\2026-09-04-explanation-coating-report-howto.html';
+  });
+})();
+
+(function () {
+  var FB = {
+    0: [
+      '_verdict() 는 n_clean_events 와 effective_rank 만 봅니다. 동특성은 그 판정에 들어가지 않습니다.',
+      'trainable 은 "gain 을 배울 재료가 있다"는 뜻이고, 동특성은 "언제 반영되는지 말할 수 있다"는 다른 질문입니다.',
+      '맞습니다. 두 판정은 독립입니다. report._verdict() 는 이벤트 수와 랭크만 보고, response.verdict() 가 identifiable 여부를 따로 냅니다. 조정이 잦아 σ 를 못 재면 trainable 이면서 동특성만 꺼질 수 있습니다.',
+      '동특성은 판정과 무관하게 항상 계산을 시도합니다. _dynamics_facts 는 _verdict 보다 먼저 돕니다.'
+    ],
+    1: [
+      '같은 패턴의 조정을 아무리 모아도 새로운 방향은 생기지 않습니다. 랭크는 이벤트 수가 아니라 방향의 다양성입니다.',
+      '맞습니다. 랭크 부족은 데이터 양의 문제가 아니라 "밀어본 방향이 단조롭다"는 문제라, 관측만으로는 풀리지 않습니다. 리포트의 verdict_reason 도 "커널을 1~2 파라미터로 고정하고, 파일럿에서 가진(DOE) 실험을 제안한다"고 적습니다.',
+      '오염 기준을 느슨하게 하면 오염 이벤트가 줄어 이벤트 수는 늘지만, 방향의 다양성(랭크)은 그대로입니다. 게다가 인과가 섞인 이벤트를 학습에 넣게 됩니다.',
+      'merge 는 지연(L) 추정 표본을 늘리려는 것입니다. gain 은 기종별로 다르므로 랭크 문제의 해법이 아닙니다.'
+    ],
+    2: [
+      '라인 속도는 설비 고정값입니다. 속도를 데이터에 맞춰 고치면 검산 수단 자체를 없애는 것이 됩니다.',
+      '환산 거리는 L 이 맞는지 확인할 유일한 외부 기준입니다. 무시하면 그 기준을 버리는 셈입니다.',
+      '환산 거리는 판정(verdict)에 쓰이지 않습니다 — 실제 거리를 모르는 상태에서 통과·탈락을 가르면 검산자여야 할 것이 근거 없는 판정자가 되기 때문입니다. 자동 배제는 일어나지 않습니다.',
+      '맞습니다. 자릿수가 다르면 그 L 은 노이즈를 문 것입니다. 실제로 이 프로젝트에서 지연 8분을 심은 데이터에 lag 2 의 단발 초과를 물어 L=2 로 답한 사고가 있었고, 그 기록이 _MIN_RUN 주석에 남아 있습니다. 06_response_curve.csv 를 열어 그 lag 근처가 3연속으로 임계를 넘는지 확인하세요.'
+    ],
+    3: [
+      '맞습니다. σ 는 모든 이벤트의 ±COATING_RESPONSE_POST_MINUTES(기본 60분)를 제외한 구간에서만 잽니다. 조정 간격이 2시간보다 촘촘하면 조용한 분이 하나도 남지 않습니다. 실측으로 25분 간격에서는 "조용한 구간이 없다"가, 140분 간격에서는 σ=0.0212(조용한 1,080분)가 나왔습니다.',
+      '유효 zone 은 Wet 측정 폭의 문제라 σ 측정과 직접 상관이 없습니다.',
+      '랭크는 Δgap 만 보는 별개 관문입니다. σ 를 못 재는 것과 무관합니다.',
+      '행 수가 많아도 조정이 촘촘하면 조용한 구간은 0 입니다. 양이 아니라 간격의 문제입니다.'
+    ],
+    4: [
+      'dump 는 캐시가 아닙니다. 쓰기만 하고 아무도 다시 읽지 않아서 무효화 로직 자체가 없습니다.',
+      'dump 는 표본을 건드리지 않습니다. profile_readings 가 이미 만든 표를 받아 적을 뿐입니다.',
+      '맞습니다. dump.py 는 계산을 하지 않고 받은 DataFrame 을 그대로 CSV 로 적습니다. 그래서 덤프를 켠 실행과 끈 실행의 결론이 달라질 여지가 없습니다. 이것이 "검사용이지 캐시가 아니다"라는 설계의 핵심입니다.',
+      '같은 파이프라인입니다. profile_readings 가 tables 딕셔너리에 담아 주면 run() 이 그것을 파일로 쓸 뿐입니다.'
+    ]
+  };
+  document.querySelectorAll('.quiz').forEach(function (box, qi) {
+    var ans = parseInt(box.dataset.answer, 10);
+    var fb = box.querySelector('.fb');
+    box.querySelectorAll('.opt').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var i = parseInt(btn.dataset.i, 10);
+        box.querySelectorAll('.opt').forEach(function (b) {
+          b.classList.remove('correct', 'wrong');
+        });
+        btn.classList.add(i === ans ? 'correct' : 'wrong');
+        if (i !== ans) box.querySelectorAll('.opt')[ans].classList.add('correct');
+        fb.textContent = (i === ans ? '정답. ' : '아쉽습니다. ') + FB[qi][i];
+        fb.className = 'fb show ' + (i === ans ? 'ok' : 'no');
+      });
+    });
+  });
+})();
+</script>
