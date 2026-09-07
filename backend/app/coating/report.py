@@ -43,6 +43,9 @@ DUMP_TABLES = (
     "04_events_settled",
     "05_aligned",
     "06_response_curve",
+    # 커널이 실제로 무엇을 보고 그 모양이 됐는지. 이것이 없으면 "물리로 보기
+    # 어렵다" 를 받은 사람이 다음에 열 것이 없다 - 판정만 있고 근거가 없다.
+    "07_delta_samples",
 )
 
 
@@ -93,6 +96,7 @@ def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict
         ds = pd.DataFrame(columns=features.GAP_DELTA_COLS)
     if tables is not None:
         tables["04_events_settled"] = ev
+        tables["07_delta_samples"] = ds
 
     dg = (
         ds[features.GAP_DELTA_COLS].to_numpy(dtype=float)
