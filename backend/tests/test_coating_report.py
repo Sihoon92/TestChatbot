@@ -359,3 +359,10 @@ def test_dynamics_uses_isolated_events_not_settling():
     src = inspect.getsource(report._dynamics_facts)
     assert "isolation(" in src
     assert "iso[iso[\"isolated\"]]" in src
+
+
+def test_dump_tables_include_the_event_ledger():
+    """원장이 없으면 리포트를 돌린 사람이 왜 그 판정이 났는지 열어볼 것이 없다."""
+    from app.coating import report
+
+    assert "12_event_ledger" in report.DUMP_TABLES

@@ -22,6 +22,7 @@ from app.coating import events as ev_mod
 from app.coating import features, panel as panel_mod, parse, pivot, response
 from app.coating import schemas as S
 from app.coating import segment
+from app.coating import trace as trace_mod
 from app.coating.model import profile
 from app.config import get_settings
 
@@ -53,6 +54,9 @@ DUMP_TABLES = (
     "09_lot_finals",
     # 어느 이벤트가 왜 홀로 서지 못했는지. 격리 표의 근거다.
     "10_event_isolation",
+    # 묶음 하나당 한 줄. 어느 것이 왜 걸러졌는지의 근거이고, diagnose --preprocess
+    # 가 터미널에 앞 20건만 보여주므로 전체는 여기서만 볼 수 있다.
+    "12_event_ledger",
 )
 
 
@@ -97,6 +101,9 @@ def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict
         ev, s.coating_isolation_pre_minutes, s.coating_isolation_post_minutes, bounds
     ) if not ev.empty else ev
     usable = iso[iso["isolated"]] if len(iso) else iso
+
+    if tables is not None:
+        tables["12_event_ledger"] = trace_mod.event_ledger(iso, dl)
 
     if not ev.empty:
         # 선별에는 안 쓴다. 튜닝 종료 교차검증과 오염 비율 진단용으로만 남긴다.
