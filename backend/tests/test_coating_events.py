@@ -260,8 +260,8 @@ def test_merge_sensitivity_shows_data_lost_to_a_narrow_window():
                                  post_minutes=60).set_index("merge_minutes")
     assert t.loc[2, "n_clusters"] == 6
     assert t.loc[6, "n_clusters"] == 4      # {0,5} {10} {300,303} {600}
-    assert t.loc[6, "n_isolated"] >= t.loc[2, "n_isolated"]
-    assert t.loc[6, "n_items"] >= t.loc[2, "n_items"]
+    assert t.loc[6, "n_isolated"] > t.loc[2, "n_isolated"]
+    assert t.loc[6, "n_items"] > t.loc[2, "n_items"]
 
 
 def test_merge_sensitivity_counts_items_not_just_events():
