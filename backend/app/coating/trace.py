@@ -149,12 +149,38 @@ def rule_comparison(
     (연쇄 병합과 시작 기준은 legacy_events 가 last_at 을 빼는 것으로 한 번에
     되돌리고, 옛 창은 여기서 old_pre/old_post 로 넣는다.)
 
+    `new_pre`/`new_post` 는 **기록만 하고 적용하지 않는다.** `iso` 는 이미 그
+    창으로 격리가 끝난 채로 들어온다 - 이 함수가 다시 격리를 돌리지 않는다.
+    그런데도 인자로 받는 이유는, 호출부(Task 10)의 리포트 제목이 "구 규칙
+    (연쇄·시작 기준·앞30/뒤60) 대비" 처럼 창 값을 문장에 박아 넣기 때문이다.
+    창 값이 반환 dict 에 없으면 그 문장은 실제로 쓰인 창과 다른 숫자를 말할
+    수 있다 - 숫자를 믿는 그 한 줄에서 거짓말이 난다. 여기 기록해 두면
+    렌더러가 실제로 일어난 일을 그대로 찍을 수 있다. `iso` 를 만들 때 쓴
+    창과 여기 넘긴 `new_pre`/`new_post` 가 실제로 같은지는 이 함수가
+    검증하지 않는다 - 그 어긋남은 여전히 가능하지만, 최소한 결과에 찍힌
+    창 값을 보고 사람이 알아챌 수는 있다(이전에는 그 창 값 자체가 어디에도
+    남지 않았다).
+
     겹침은 **run 단위**로 센다. 구는 묶음이 run 이고 신은 그 안의 조각이라
     단위가 다른데, 그대로 빼면 뜻이 없는 숫자가 나온다.
+
+    `both`/`only_new`/`only_old` 는 **old 로 격리되었거나 new 로 격리된 run
+    들의 합집합**만 가른다 - 둘 다에서 탈락한 run 은 셋 중 어디에도 들지
+    않는다. 그래서 `both + only_new + only_old` 는 `n_runs` 와 같지 않다.
+
+    `only_old_examples[i]["n_item_touches"]` 는 **항목 수가 아니라 손질
+    횟수**다. run 을 이룬 fragment 마다 조정된 항목의 nunique 를 구해
+    fragment 간에 그대로 더하므로, 같은 zone 이 두 fragment 에서 손질됐으면
+    두 번 잡힌다. `old["n_items"]`/`new["n_items"]`(event_deltas 행을 세어
+    중복이 없다)와 이름이 비슷해 보여도 다른 값이다 - 사람이 읽는 예시 한
+    줄에만 쓰고, 계산된 비교치로는 쓰지 않는다.
     """
-    empty = {"n_clusters": 0, "n_isolated": 0, "n_items": 0}
     if iso.empty:
-        return {"old": empty, "new": empty, "both": 0,
+        empty_old = {"n_clusters": 0, "n_isolated": 0, "n_items": 0,
+                     "pre": old_pre, "post": old_post}
+        empty_new = {"n_clusters": 0, "n_isolated": 0, "n_items": 0,
+                     "pre": new_pre, "post": new_post}
+        return {"old": empty_old, "new": empty_new, "both": 0,
                 "only_new": 0, "only_old": 0, "only_old_examples": [],
                 "n_runs": 0}
 
@@ -182,16 +208,18 @@ def rule_comparison(
             "first": g[S.AT].min(),
             "last": g[S.LAST_AT].max(),
             "n_fragments": int(len(g)),
-            "n_items": int(g["n_items"].sum()),
+            "n_item_touches": int(g["n_items"].sum()),
         })
 
     return {
         "old": {"n_clusters": int(len(old)),
                 "n_isolated": int(len(old_ok_runs)),
-                "n_items": n_items_old},
+                "n_items": n_items_old,
+                "pre": old_pre, "post": old_post},
         "new": {"n_clusters": int(len(iso)),
                 "n_isolated": int(new_ok.sum()),
-                "n_items": n_items_new},
+                "n_items": n_items_new,
+                "pre": new_pre, "post": new_post},
         "both": len(both),
         "only_new": len(only_new),
         "only_old": len(only_old),

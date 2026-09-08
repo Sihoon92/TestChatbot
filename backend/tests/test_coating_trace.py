@@ -178,6 +178,43 @@ def test_rule_comparison_finds_events_only_the_old_rule_kept():
     assert ex["n_fragments"] >= 2
 
 
+def test_rule_comparison_records_windows_and_item_touch_counts():
+    """pre/post 는 기록만 하고(호출부가 iso 를 이미 그 창으로 만들어 왔다),
+    old/new 의 n_items 와 예시의 n_item_touches 는 서로 다른 것을 센다.
+
+    old_pre=30/old_post=60, new_pre=10/new_post=10 을 손으로 되짚는다:
+      run1={0,1.5,3,4.5}, run2={200} (연쇄 기준). legacy_events 로 접으면
+      run1.worked_at=0, run2.worked_at=200 뿐이라, old_pre=30/old_post=60
+      기준 간격은 run1: 앞 0-(-30)=30, 뒤 200-0=200 -> 격리.
+      run2: 앞 200-0=200, 뒤 300-200=100 -> 격리. 즉 old 는 둘 다 산다
+      (n_isolated=2) -> old 의 zoned delta 전부(5개 zone 각 1항목)가
+      old["n_items"] 에 잡힌다 = 5.
+
+      앵커 이벤트는 e1={0,1.5}, e2={3,4.5}, e3={200}. pre=10/post=10 로
+      보면 e1↔e2 간격(gap_before(e2)=3-1.5=1.5)이 모자라 둘 다 탈락하고
+      e3 만 격리를 통과한다 -> new["n_isolated"]=1, e3 의 zone(1개)만
+      new["n_items"] 에 잡힌다 = 1.
+
+      only_old_examples 의 run1 은 e1(2항목)+e2(2항목) 의 fragment 별
+      nunique 를 그대로 더해 n_item_touches=4 다(실제 고유 zone 은 4개라
+      우연히 항목 수와 같지만, 이름이 다른 것을 잰다는 사실은 바뀌지
+      않는다 - 같은 zone 이 두 fragment 에 걸쳐 손질됐다면 여기서만
+      더 커진다).
+    """
+    ch = _changes([(0, 0, 40.0, 41.0), (1.5, 1, 40.0, 41.0), (3, 2, 40.0, 41.0),
+                   (4.5, 3, 40.0, 41.0), (200, 4, 40.0, 41.0)])
+    _, dl, iso = _pipeline(ch)
+    cmp = trace.rule_comparison(iso, dl, _bounds(), 30, 60, 10, 10)
+
+    assert cmp["old"] == {"n_clusters": 2, "n_isolated": 2, "n_items": 5,
+                           "pre": 30, "post": 60}
+    assert cmp["new"] == {"n_clusters": 3, "n_isolated": 1, "n_items": 1,
+                           "pre": 10, "post": 10}
+    ex = cmp["only_old_examples"][0]
+    assert ex["n_item_touches"] == 4
+    assert "n_items" not in ex
+
+
 def test_rule_comparison_counts_overlap_at_the_run_level():
     """구는 run, 신은 이벤트라 단위가 다르다. 겹침은 run 으로 센다."""
     ch = _changes([(0, 0, 40.0, 41.0), (200, 1, 40.0, 41.0)])
