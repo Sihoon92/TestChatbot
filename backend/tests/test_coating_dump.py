@@ -152,12 +152,17 @@ def test_events_table_agrees_with_the_reported_count():
 
 def test_aligned_table_carries_the_sign_aligned_response():
     """05_aligned 는 부호 정렬 뒤의 값이어야 한다. 내린 조정(d_gap<0)까지
-    포함해 늦은 lag 의 평균이 양수로 서는지로 확인한다."""
+    포함해 늦은 lag 의 평균이 양수로 서는지로 확인한다.
+
+    '늦은 lag' 의 경계를 창 끝(lag_min 최댓값) 바로 앞으로 잡는다 - 고정값
+    (예전엔 30)을 쓰면 coating_response_post_minutes 가 창을 좁힐 때마다
+    깨진다. 이 픽스처의 지연(L=8분)은 post=10분보다 짧으므로 창 끝 쪽에는
+    항상 반응이 실린다."""
     tables = {}
     report.profile_readings(_readings_with_two_events(), tables=tables)
     aligned = tables["05_aligned"]
     assert (aligned["d_gap"] < 0).any(), "내린 조정이 표에 있어야 검증이 성립한다"
-    late = aligned[aligned["lag_min"] >= 30]["response"]
+    late = aligned[aligned["lag_min"] >= aligned["lag_min"].max() - 1]["response"]
     assert late.mean() > 0
 
 

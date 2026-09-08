@@ -121,3 +121,21 @@ def test_coating_line_speed_default_is_35():
     """라인 속도는 설비 고정값(전 제품 공통)이다. 기본값이 코드에 있어야
     .env 에 그 줄이 없는 환경에서도 같은 값을 본다 — 설정의 단일 출처 규칙."""
     assert Settings(_env_file=None).coating_line_speed_mpm == 35.0
+
+
+def test_coating_isolation_window_matches_the_response_window():
+    """뒤 격리가 응답창보다 짧으면, 응답으로 읽는 구간 일부가 다른 조정에
+    오염돼 있어도 통과한다. 그건 이 이벤트의 응답이 아니다."""
+    from app.config import Settings
+
+    s = Settings()
+    assert s.coating_isolation_post_minutes == s.coating_response_post_minutes
+
+
+def test_coating_delta_window_fits_inside_the_response_window():
+    """ΔWet 은 앞뒤 delta_window 분 평균으로 잰다. 둘이 겹치면 같은 구간을
+    빼는 셈이라 Δ 가 0 으로 눌린다."""
+    from app.config import Settings
+
+    s = Settings()
+    assert s.coating_delta_window_minutes * 2 < s.coating_response_post_minutes

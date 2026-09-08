@@ -74,7 +74,8 @@ class Settings(BaseSettings):
     coating_settle_window_minutes: int = 5
     coating_settle_std_max: float = 0.02
     # 이 시간 안에 정착을 못 찾으면 오염 이벤트로 버린다.
-    coating_settle_max_wait_minutes: int = 30
+    # 응답창(10분)을 넘겨 정착을 기다리면 다음 이벤트의 영역을 보게 된다.
+    coating_settle_max_wait_minutes: int = 10
     # 튜닝 종료의 교차검증 기준. 스펙(±0.4)은 합격 판정용이라 튜닝 종료 판정에는
     # 너무 헐겁다 — 실제 변동이 ±0.03 이면 즉시 스펙에 들어와 구간이 사라진다.
     coating_tuning_band: float = 0.1
@@ -106,20 +107,29 @@ class Settings(BaseSettings):
     # 기준선이라 거기가 낙관적으로 기울면 없는 반응을 있다고 말하게 된다.
     coating_panel_ffill_max_minutes: int = 30
     # 이벤트 정렬 창. pre 는 기준선 이전 구간을 눈으로 보기 위한 것이고,
-    # post 는 반응이 정착하기까지 관측할 길이다.
-    coating_response_pre_minutes: int = 15
-    # post 가 시정수 τ 보다 충분히 길지 않으면 최종값이 과소평가되고 τ 도 같이
-    # 작게 나온다(실측: τ=20 을 post=60 으로 보면 15). 리포트가 '안정 도달' 을
-    # 함께 내므로, False 가 뜨면 이 값을 늘린다.
-    coating_response_post_minutes: int = 60
+    # post 는 반응을 관측할 길이다.
+    #
+    # post 는 **뒤 격리와 같은 값이어야 한다**. 뒤 10분만 조용함을 보장하면서
+    # 60분을 응답으로 읽으면, 그 50분에 다른 조정이 섞여 있어도 통과한다.
+    # 그건 이 이벤트의 응답이 아니다.
+    coating_response_pre_minutes: int = 10
+    coating_response_post_minutes: int = 10
+    # ΔWet 을 재는 앞뒤 평균창. 한 시점끼리 빼면 측정 노이즈가 그대로 신호에 섞인다.
+    # after = mean[t1+post-w, t1+post], before = mean[t0-w, t0).
+    # coating_settle_window_minutes 를 재사용하지 않는 이유: 그건 annotate_settling
+    # 의 이동창 폭이고 계속 그 용도로 남는다. 뜻이 다른 두 창이 한 설정을 공유하면
+    # 한쪽을 조정할 때 다른 쪽이 조용히 따라 움직인다.
+    coating_delta_window_minutes: int = 3
     # 제어 구간 격리 — "이 이벤트가 홀로 섰는가" 를 이벤트 시각만으로 가른다.
     # 정착(annotate_settling)으로 가르면 순환에 빠진다: 정착을 제대로 잡으려면
     # 순수 지연 L 을 알아야 하는데 L 을 재려면 깨끗한 이벤트가 먼저 필요하다.
     # 앞뒤로 다른 조정이 없었다는 것은 Wet 을 한 번도 안 보고 정해지므로 그
-    # 고리를 끊는다. 뒤는 반응 전체(L + T_s)를, 앞은 기준선만 지키면 되므로
-    # 같은 값을 쓸 이유가 없다.
-    coating_isolation_pre_minutes: int = 30
-    coating_isolation_post_minutes: int = 60
+    # 고리를 끊는다.
+    #
+    # 앞뒤를 같은 값으로 둔다. "한 번의 조작이 홀로 섰는가" 는 대칭인 질문이고,
+    # 뒤쪽은 위 불변식에 따라 응답창과 묶여 있다.
+    coating_isolation_pre_minutes: int = 10
+    coating_isolation_post_minutes: int = 10
     # 라인 속도(m/min). 설비 고정값이고 전 제품에 동일하게 적용된다.
     # 쓰임은 판정이 아니라 검산이다: L x 이 값 = 다이~측정기 환산 거리이고, 그
     # 거리가 설비에서 말이 되는 크기인지는 현장이 즉시 안다. 추정된 L 이 맞는지

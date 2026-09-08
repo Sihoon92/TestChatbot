@@ -333,8 +333,8 @@ def isolation(
 
 def isolation_table(
     events_df: pd.DataFrame,
-    windows=(10, 20, 30, 45, 60),
-    pre_ratio: float = 0.5,
+    windows=(5, 10, 15, 20, 30),
+    pre_ratio: float = 1.0,
     bounds: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """격리 창을 넓혀가며 몇 건이 살아남는지. ★순수
@@ -343,8 +343,9 @@ def isolation_table(
     좁히면 반대다. 그 곡선을 보여줘야 사람이 고를 수 있고, 사업부에 무엇을
     요구할지도 여기서 나온다 - "60분 격리가 3건뿐" 은 그 자체로 요구서다.
 
-    앞쪽 창은 뒤쪽의 pre_ratio 배로 둔다. 앞은 기준선만 지키면 되고 뒤는 반응
-    전체를 담아야 해서, 같은 값을 쓸 이유가 없다(noise_floor 의 가드와 같은 논리).
+    앞뒤 창을 같게 둔다(pre_ratio=1.0). "이 조작이 홀로 섰는가" 는 대칭인 질문이고,
+    뒤쪽은 응답창과 묶여 있으므로 앞만 따로 줄일 근거가 없다. 비대칭이 필요하면
+    isolation() 을 직접 부른다.
     """
     rows = []
     n_total = int(len(events_df))
