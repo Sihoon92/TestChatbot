@@ -1,0 +1,1012 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>제어 구간 추출 전처리 — 코드가 실제로 무엇을 하고 있나</title>
+<style>
+  :root{
+    --ink:#1b1d21; --muted:#5f6672; --line:#e2e5ea; --bg:#fbfbfc; --card:#fff;
+    --accent:#2f6fb0; --accent-soft:#eaf2fa;
+    --ok:#1f8a53; --ok-soft:#e8f5ee;
+    --no:#c0392b; --no-soft:#fdeeec;
+    --warn:#b06f00; --warn-soft:#fdf4e3;
+    --mono:"Cascadia Mono","D2Coding",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;
+    line-height:1.75; font-size:16.5px;
+  }
+  .wrap{max-width:860px; margin:0 auto; padding:0 20px 140px}
+  header.top{padding:56px 0 28px; border-bottom:1px solid var(--line); margin-bottom:32px}
+  header.top h1{font-size:1.95rem; line-height:1.35; margin:0 0 12px; letter-spacing:-.02em}
+  header.top .sub{color:var(--muted); margin:0; font-size:1.02rem}
+  header.top .meta{color:var(--muted); font-size:.87rem; margin-top:18px}
+  h2{
+    font-size:1.42rem; margin:56px 0 6px; padding-top:18px;
+    border-top:2px solid var(--ink); letter-spacing:-.01em;
+  }
+  h3{font-size:1.1rem; margin:34px 0 6px; color:#2a2d33}
+  h4{font-size:.98rem; margin:22px 0 4px; color:#2a2d33}
+  p{margin:12px 0}
+  ul,ol{margin:12px 0; padding-left:1.35em}
+  li{margin:6px 0}
+  code{
+    font-family:var(--mono); font-size:.9em; background:#f0f2f5;
+    padding:1px 5px; border-radius:4px; word-break:break-word;
+  }
+  pre{
+    font-family:var(--mono); font-size:.845rem; line-height:1.6;
+    background:#1e2228; color:#e8eaed; padding:16px 18px; border-radius:8px;
+    overflow-x:auto; white-space:pre; margin:16px 0;
+  }
+  pre .c{color:#8d97a5}
+  pre .k{color:#7fb2e5}
+  pre .s{color:#a9d99b}
+  pre .hl{background:#3a4250; display:inline-block; width:100%}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin:20px 0}
+  .callout{border-left:4px solid var(--accent); background:var(--accent-soft); padding:14px 18px; border-radius:0 8px 8px 0; margin:20px 0}
+  .callout.ok{border-color:var(--ok); background:var(--ok-soft)}
+  .callout.no{border-color:var(--no); background:var(--no-soft)}
+  .callout.warn{border-color:var(--warn); background:var(--warn-soft)}
+  .callout .lbl{font-weight:700; font-size:.8rem; letter-spacing:.06em; display:block; margin-bottom:6px; text-transform:uppercase}
+  .callout p:first-of-type{margin-top:0}
+  .callout p:last-child{margin-bottom:0}
+  table{border-collapse:collapse; width:100%; margin:18px 0; font-size:.9rem}
+  th,td{border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top}
+  th{background:#f2f4f7; font-weight:600}
+  td.num{font-family:var(--mono); text-align:right}
+  .mono{font-family:var(--mono)}
+  figure{margin:26px 0}
+  figure svg{display:block; width:100%; height:auto; background:var(--card); border:1px solid var(--line); border-radius:10px}
+  figcaption{color:var(--muted); font-size:.85rem; margin-top:9px; text-align:center}
+  .tag{display:inline-block; font-size:.72rem; font-weight:700; padding:2px 7px; border-radius:4px; vertical-align:2px}
+  .tag.ok{background:var(--ok-soft); color:var(--ok)}
+  .tag.no{background:var(--no-soft); color:var(--no)}
+  nav.toc{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 22px; margin:26px 0}
+  nav.toc h2{border:none; margin:0 0 10px; font-size:1rem; padding:0}
+  nav.toc ol{margin:0; padding-left:1.3em}
+  nav.toc a{color:var(--accent); text-decoration:none}
+  nav.toc a:hover{text-decoration:underline}
+  .qmemo{border:1.5px dashed #b9c1cc; background:#f6f7f9; border-radius:9px; padding:13px 16px; margin:22px 0}
+  .qmemo[data-status="answered"]{border:1.5px solid var(--accent); background:#f4f9fe}
+  .qmemo-head{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-bottom:7px}
+  .qmemo-label{font-weight:700; font-size:.79rem; color:var(--accent); letter-spacing:.04em}
+  .qmemo-hint{font-size:.78rem; color:var(--muted)}
+  .qmemo-question{min-height:2.1em; background:#fff; border:1px solid var(--line); border-radius:6px; padding:8px 11px; font-size:.93rem}
+  .qmemo-question:empty:before{content:attr(data-placeholder); color:#a8afb9}
+  .qmemo-question:focus{outline:2px solid var(--accent); outline-offset:1px}
+  .qmemo-answer{margin-top:11px; padding:11px 13px; background:#fff; border-left:3px solid var(--accent); border-radius:0 6px 6px 0; font-size:.93rem}
+  .quiz{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin:20px 0}
+  .quiz .q{font-weight:600; margin-bottom:12px}
+  .quiz button{
+    display:block; width:100%; text-align:left; margin:7px 0; padding:10px 13px;
+    border:1px solid var(--line); border-radius:7px; background:#fff; cursor:pointer;
+    font:inherit; font-size:.93rem; transition:background .12s,border-color .12s;
+  }
+  .quiz button:hover:not(:disabled){background:#f2f6fa; border-color:var(--accent)}
+  .quiz button:disabled{cursor:default}
+  .quiz button.correct{background:var(--ok-soft); border-color:var(--ok); font-weight:600}
+  .quiz button.wrong{background:var(--no-soft); border-color:var(--no)}
+  .quiz .fb{margin-top:11px; padding:11px 13px; border-radius:7px; font-size:.9rem; display:none}
+  .quiz .fb.show{display:block}
+  .quiz .fb.good{background:var(--ok-soft); border-left:3px solid var(--ok)}
+  .quiz .fb.bad{background:var(--no-soft); border-left:3px solid var(--no)}
+  #qmemo-bar{
+    position:fixed; left:0; right:0; bottom:0; background:rgba(255,255,255,.97);
+    border-top:1px solid var(--line); padding:10px 20px; display:flex; gap:14px;
+    align-items:center; flex-wrap:wrap; z-index:50; backdrop-filter:blur(6px);
+  }
+  #qmemo-save-btn{
+    background:var(--accent); color:#fff; border:none; padding:9px 17px;
+    border-radius:7px; cursor:pointer; font:inherit; font-size:.9rem; font-weight:600;
+  }
+  #qmemo-save-btn:hover{background:#25588c}
+  #qmemo-saymsg{font-size:.79rem; color:var(--muted); word-break:break-all}
+  @media (max-width:620px){
+    body{font-size:16px}
+    .wrap{padding:0 15px 150px}
+    header.top h1{font-size:1.5rem}
+    table{font-size:.83rem}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>제어 구간 추출 전처리 —<br>코드가 실제로 무엇을 하고 있나</h1>
+  <p class="sub">작업자가 설비를 만진 순간을 데이터에서 골라내는 과정. 비전공자를 위해 처음부터.</p>
+  <p class="meta">
+    2026-09-08 · 대상 코드: <code>backend/app/coating/</code> 의
+    <code>pivot.py</code> · <code>events.py</code> · <code>trace.py</code><br>
+    관련 PR: <a href="https://github.com/Sihoon92/TestChatbot/pull/10">#10</a> ·
+    선행 문서: <a href="2026-09-04-explanation-coating-report-howto.html">리포트 읽는 법</a>,
+    <a href="2026-09-07-01-explanation-coating-noise-floor.html">노이즈 플로어</a>
+  </p>
+</header>
+
+<div class="callout">
+  <span class="lbl">읽는 법</span>
+  <p>이 문서 곳곳에 <strong>질문 메모</strong> 상자가 있습니다. 읽다가 막히는 곳에 바로 적어두세요.
+  브라우저에 자동 저장되고, 맨 아래 <strong>질문 저장</strong> 버튼을 누르면 질문이 그대로 박힌 채로
+  이 파일이 다시 다운로드됩니다. 원래 자리에 덮어쓴 뒤 Claude 에게 "질문 답해줘" 라고 하면 답이 채워집니다.</p>
+</div>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#bg">배경 — 우리가 다루는 데이터가 무엇인가</a></li>
+    <li><a href="#intuition">직관 — 단어 네 개면 끝난다</a></li>
+    <li><a href="#answers">질문에 직접 답하기</a></li>
+    <li><a href="#code">코드 따라가기</a></li>
+    <li><a href="#verify">제대로 구현됐는지 직접 확인하는 법</a></li>
+    <li><a href="#quiz">퀴즈</a></li>
+  </ol>
+</nav>
+
+
+<h2 id="bg">1. 배경 — 우리가 다루는 데이터가 무엇인가</h2>
+
+<h3>1-1. 아주 깊은 배경 <span style="color:var(--muted);font-weight:400;font-size:.85rem">(이미 아시면 건너뛰세요)</span></h3>
+
+<p>코팅 라인은 넓은 필름을 옆으로 길게 펼쳐 놓고, 그 위에 액체를 얇게 발라 지나가게 하는 설비입니다.
+필름의 <strong>폭 방향을 25칸으로 나눠</strong> 각 칸을 <strong>zone</strong> 이라고 부릅니다. 왼쪽 끝이 1번,
+오른쪽 끝이 25번입니다.</p>
+
+<p>칸마다 액이 얼마나 두껍게 발렸는지를 재는데, 그 두께 측정값이 <strong>Wet</strong> 입니다.
+Wet 이 목표보다 두꺼우면 재료가 낭비되고, 얇으면 불량입니다. 25칸이 <em>고르게</em> 나와야 좋은 제품입니다.</p>
+
+<p>두께를 조절하는 방법은 액이 나오는 틈새의 간격을 조이거나 여는 것입니다. 이 틈새를
+<strong>Gap</strong> 이라고 하고, zone 마다 따로 조절할 수 있습니다. 그래서 <strong>Gap 25개(입력)</strong> 와
+<strong>Wet 25개(출력)</strong> 가 짝을 이룹니다.</p>
+
+<figure>
+<svg viewBox="0 0 760 210" role="img" aria-label="코팅 라인 개념도">
+  <rect x="0" y="0" width="760" height="210" fill="#fff"/>
+  <text x="24" y="26" font-size="13" font-weight="700" fill="#1b1d21">설비를 위에서 내려다본 그림</text>
+
+  <text x="24" y="58" font-size="11.5" fill="#5f6672">작업자가 만지는 것 → Gap (틈새 간격), zone 25칸</text>
+  <g>
+    <rect x="24" y="66" width="700" height="26" fill="#eaf2fa" stroke="#c4d8ec"/>
+    <g font-size="9" fill="#2f6fb0" text-anchor="middle">
+      <rect x="24" y="66" width="28" height="26" fill="#2f6fb0" opacity=".16"/>
+      <text x="38" y="83">1</text>
+      <rect x="52" y="66" width="28" height="26" fill="#2f6fb0" opacity=".16"/>
+      <text x="66" y="83">2</text>
+      <text x="110" y="83" fill="#5f6672">· · ·</text>
+      <rect x="332" y="66" width="28" height="26" fill="#2f6fb0" opacity=".38"/>
+      <text x="346" y="83" fill="#1b4972" font-weight="700">12</text>
+      <text x="400" y="83" fill="#5f6672">· · ·</text>
+      <rect x="696" y="66" width="28" height="26" fill="#2f6fb0" opacity=".16"/>
+      <text x="710" y="83">25</text>
+    </g>
+  </g>
+
+  <g stroke="#8d97a5" stroke-width="1.2" fill="none" marker-end="url(#ar)">
+    <path d="M 346 96 L 346 122"/>
+  </g>
+  <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 z" fill="#8d97a5"/></marker></defs>
+  <text x="356" y="114" font-size="10.5" fill="#5f6672">12번 zone 을 조이면…</text>
+
+  <text x="24" y="146" font-size="11.5" fill="#5f6672">설비가 재서 알려주는 것 → Wet (실제 두께), 같은 25칸</text>
+  <rect x="24" y="154" width="700" height="26" fill="#e8f5ee" stroke="#bfe0cd"/>
+  <g font-size="9" fill="#1f8a53" text-anchor="middle">
+    <rect x="24" y="154" width="28" height="26" fill="#1f8a53" opacity=".14"/>
+    <text x="38" y="171">1</text>
+    <rect x="52" y="154" width="28" height="26" fill="#1f8a53" opacity=".14"/>
+    <text x="66" y="171">2</text>
+    <text x="110" y="171" fill="#5f6672">· · ·</text>
+    <rect x="332" y="154" width="28" height="26" fill="#1f8a53" opacity=".45"/>
+    <text x="346" y="171" fill="#11552f" font-weight="700">12</text>
+    <text x="400" y="171" fill="#5f6672">· · ·</text>
+    <rect x="696" y="154" width="28" height="26" fill="#1f8a53" opacity=".14"/>
+    <text x="710" y="171">25</text>
+  </g>
+  <text x="376" y="200" font-size="10.5" fill="#5f6672">…잠시 뒤 그 근처 Wet 이 얇아진다 (얼마나 뒤인지가 이 프로젝트의 숙제)</text>
+</svg>
+<figcaption>Gap 은 <strong>원인</strong>, Wet 은 <strong>결과</strong>. 이 문서는 전부 원인 쪽 이야기입니다.</figcaption>
+</figure>
+
+<p>우리가 궁극적으로 알고 싶은 것은 <strong>"Gap 을 이만큼 바꾸면 Wet 이 얼마나 변하나"</strong> 입니다.
+그걸 알면 새 제품을 시작할 때 작업자가 손으로 더듬지 않고 처음부터 맞는 값을 넣을 수 있습니다.</p>
+
+<p>그런데 우리는 설비를 마음대로 실험해 볼 수 없습니다. 양산 라인이니까요. 대신
+<strong>작업자가 평소에 하는 조작 하나하나가 이미 실험입니다.</strong> "Gap 을 바꿨다 → Wet 이 변했다" 가
+데이터 안에 이미 수천 번 들어 있습니다. 그걸 골라내는 것이 이 문서의 주제입니다.</p>
+
+<div class="qmemo" data-qid="bg-deep-intro" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>1-2. 좁은 배경 — 원본 로그가 어떻게 생겼나</h3>
+
+<p>설비가 남기는 기록은 아주 단순한 모양입니다. 한 줄이 <strong>(로트, 시각, 항목번호, 값)</strong> 네 개로 끝납니다.</p>
+
+<table>
+  <tr><th>Lot ID</th><th>작업일시</th><th>항목 ID</th><th>값</th></tr>
+  <tr><td class="mono">GRQC48XP29</td><td class="mono">01-31 19:00</td><td class="mono">30030838</td><td class="num">300</td></tr>
+  <tr><td class="mono">GRQC48XP29</td><td class="mono">01-31 19:00</td><td class="mono">30030839</td><td class="num">400</td></tr>
+  <tr><td class="mono">GRQC48XP29</td><td class="mono">01-31 19:00</td><td class="mono">90030611</td><td class="num">18.2</td></tr>
+  <tr><td colspan="4" style="color:var(--muted)">… 29개 제어 항목 + 25개 Wet 항목이 <strong>매 분 전부 다시</strong> …</td></tr>
+  <tr><td class="mono">GRQC48XP29</td><td class="mono">01-31 19:01</td><td class="mono">30030838</td><td class="num">300</td></tr>
+  <tr><td class="mono">GRQC48XP29</td><td class="mono">01-31 19:01</td><td class="mono">30030839</td><td class="num">400</td></tr>
+</table>
+
+<p>여기서 중요한 성질이 두 개 있고, 이 둘이 전처리 전체를 결정합니다.</p>
+
+<div class="callout">
+  <span class="lbl">핵심 성질 1 — 스냅샷 로그</span>
+  <p>설비는 <strong>모든 항목을 매 시점 다시 기록합니다.</strong> 값이 안 바뀌어도 계속 찍습니다.
+  그래서 원본은 수십만~수백만 줄입니다.</p>
+</div>
+
+<div class="callout">
+  <span class="lbl">핵심 성질 2 — 값은 계단형</span>
+  <p>Gap 값은 저절로 변하지 않습니다. <strong>사람이 손으로 바꾼 순간부터</strong> 새 값이 계속 반복 기록됩니다.
+  300, 300, 300, …, 305, 305, 305, … 이런 모양입니다.</p>
+</div>
+
+<p>이 두 성질을 합치면 아주 유용한 결론이 나옵니다. <strong>값이 직전 기록과 달라진 시점만 남기면,
+정보를 하나도 잃지 않으면서 데이터가 수십 분의 일로 줄어듭니다.</strong> 300이 500번 반복된 것은
+"300이었다" 한 줄로 충분하니까요. 그리고 남은 그 몇 줄이 곧 <strong>사람이 설비를 만진 순간</strong> 입니다.</p>
+
+<div class="qmemo" data-qid="bg-log-shape" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">스냅샷 로그·계단형 성질에 대해 궁금한 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="intuition">2. 직관 — 단어 네 개면 끝난다</h2>
+
+<p>이 전처리는 네 단계입니다. 단어 네 개만 구별하면 전부 이해한 것입니다.</p>
+
+<figure>
+<svg viewBox="0 0 760 150" role="img" aria-label="4단계 흐름">
+  <rect x="0" y="0" width="760" height="150" fill="#fff"/>
+  <g font-size="12.5" text-anchor="middle">
+    <rect x="16" y="40" width="150" height="52" rx="8" fill="#f2f4f7" stroke="#d5dae1"/>
+    <text x="91" y="63" font-weight="700" fill="#1b1d21">변경</text>
+    <text x="91" y="81" font-size="10.5" fill="#5f6672">값이 하나 바뀐 순간</text>
+
+    <rect x="204" y="40" width="150" height="52" rx="8" fill="#eaf2fa" stroke="#a8c8e6"/>
+    <text x="279" y="63" font-weight="700" fill="#1b4972">묶음 (event)</text>
+    <text x="279" y="81" font-size="10.5" fill="#2f6fb0">한 번의 조작</text>
+
+    <rect x="392" y="40" width="150" height="52" rx="8" fill="#fdf4e3" stroke="#e6cf9c"/>
+    <text x="467" y="63" font-weight="700" fill="#8a5600">연쇄 (run)</text>
+    <text x="467" y="81" font-size="10.5" fill="#b06f00">쉬지 않은 한 세션</text>
+
+    <rect x="580" y="40" width="164" height="52" rx="8" fill="#e8f5ee" stroke="#a9d3bd"/>
+    <text x="662" y="63" font-weight="700" fill="#11552f">격리 (isolated)</text>
+    <text x="662" y="81" font-size="10.5" fill="#1f8a53">쓸 수 있는가?</text>
+  </g>
+  <g stroke="#8d97a5" stroke-width="1.4" fill="none" marker-end="url(#ar2)">
+    <path d="M 168 66 L 200 66"/><path d="M 356 66 L 388 66"/><path d="M 544 66 L 576 66"/>
+  </g>
+  <defs><marker id="ar2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 z" fill="#8d97a5"/></marker></defs>
+  <text x="380" y="122" font-size="11" text-anchor="middle" fill="#5f6672">
+    원자 단위 → 2분 안에 묶기 → (같은 것을 옛 방식으로 묶어 비교용) → 앞뒤 10분 조용한가
+  </text>
+</svg>
+<figcaption>전처리의 전부. 오른쪽으로 갈수록 개수가 줄어듭니다.</figcaption>
+</figure>
+
+<h3>2-1. 하나의 예시로 끝까지 갑니다</h3>
+
+<p>로트 하나에서 이런 일이 있었다고 합시다. 작업자가 <strong>처음 8분 동안 여섯 번</strong> 손을 대고,
+그 뒤 두 시간 조용하다가 <strong>한 번 더</strong> 손을 댔습니다.</p>
+
+<figure>
+<svg viewBox="0 0 760 250" role="img" aria-label="변경 시각 타임라인과 묶음">
+  <rect x="0" y="0" width="760" height="250" fill="#fff"/>
+
+  <text x="20" y="26" font-size="12.5" font-weight="700">① 변경 — 값이 바뀐 순간들 (분)</text>
+  <line x1="40" y1="58" x2="720" y2="58" stroke="#c9ced6" stroke-width="1.5"/>
+  <g fill="#1b1d21" font-size="10" text-anchor="middle">
+    <circle cx="60" cy="58" r="5" fill="#2f6fb0"/><text x="60" y="80">0</text>
+    <circle cx="93" cy="58" r="5" fill="#2f6fb0"/><text x="93" y="80">1.5</text>
+    <circle cx="126" cy="58" r="5" fill="#2f6fb0"/><text x="126" y="80">3</text>
+    <circle cx="159" cy="58" r="5" fill="#2f6fb0"/><text x="159" y="80">4.5</text>
+    <circle cx="192" cy="58" r="5" fill="#2f6fb0"/><text x="192" y="80">6</text>
+    <circle cx="225" cy="58" r="5" fill="#2f6fb0"/><text x="225" y="80">8</text>
+    <circle cx="690" cy="58" r="5" fill="#2f6fb0"/><text x="690" y="80">120</text>
+  </g>
+  <text x="450" y="52" font-size="10.5" fill="#8d97a5">— 두 시간 조용 —</text>
+
+  <text x="20" y="118" font-size="12.5" font-weight="700">② 묶음(event) — 앵커에서 2분, 그 이상은 새 묶음</text>
+  <g>
+    <rect x="50" y="132" width="53" height="26" rx="5" fill="#eaf2fa" stroke="#2f6fb0"/>
+    <text x="76" y="150" font-size="10" text-anchor="middle" fill="#1b4972">L1#1</text>
+    <rect x="116" y="132" width="53" height="26" rx="5" fill="#eaf2fa" stroke="#2f6fb0"/>
+    <text x="142" y="150" font-size="10" text-anchor="middle" fill="#1b4972">L1#2</text>
+    <rect x="182" y="132" width="53" height="26" rx="5" fill="#eaf2fa" stroke="#2f6fb0"/>
+    <text x="208" y="150" font-size="10" text-anchor="middle" fill="#1b4972">L1#3</text>
+    <rect x="672" y="132" width="36" height="26" rx="5" fill="#eaf2fa" stroke="#2f6fb0"/>
+    <text x="690" y="150" font-size="10" text-anchor="middle" fill="#1b4972">L1#4</text>
+  </g>
+  <text x="255" y="150" font-size="10.5" fill="#5f6672">← 폭이 2분을 절대 못 넘는다</text>
+
+  <text x="20" y="192" font-size="12.5" font-weight="700">③ 연쇄(run) — 쉬지 않고 이어진 덩어리</text>
+  <g>
+    <rect x="50" y="206" width="185" height="26" rx="5" fill="#fdf4e3" stroke="#b06f00"/>
+    <text x="142" y="224" font-size="10" text-anchor="middle" fill="#8a5600">L1@1  (묶음 3개가 여기 들어 있다)</text>
+    <rect x="672" y="206" width="36" height="26" rx="5" fill="#fdf4e3" stroke="#b06f00"/>
+    <text x="690" y="224" font-size="10" text-anchor="middle" fill="#8a5600">L1@2</text>
+  </g>
+</svg>
+<figcaption>같은 데이터를 두 가지로 묶은 것. 파란 상자(event)가 <strong>주황 상자(run) 안에</strong> 들어갑니다.</figcaption>
+</figure>
+
+<div class="callout">
+  <span class="lbl">묶음(event)의 규칙 — 앵커 방식</span>
+  <p>첫 변경이 생기면 그 시각을 <strong>앵커(닻)</strong> 로 삼습니다. 앵커에서 <strong>2분 안</strong>에 일어난 변경은
+  같은 묶음. 2분을 넘는 첫 변경이 <strong>새 앵커</strong> 가 됩니다.</p>
+  <p>중요한 점: 기준이 항상 <strong>앵커</strong> 지 "직전 변경" 이 아닙니다. 그래서 어떤 묶음도 폭이 2분을 넘지 못합니다.</p>
+</div>
+
+<h3>2-2. 왜 "앵커" 인가 — 이게 이번 변경의 핵심입니다</h3>
+
+<p>예전 코드는 <strong>직전 변경</strong> 과 비교했습니다. 그러면 2분씩 계속 이어지는 한 묶음이
+<strong>끝없이 커집니다.</strong> 위 예시에서 0분부터 8분까지 전부 <em>하나의</em> 묶음이 됩니다.</p>
+
+<figure>
+<svg viewBox="0 0 760 235" role="img" aria-label="옛 방식과 새 방식 비교">
+  <rect x="0" y="0" width="760" height="235" fill="#fff"/>
+
+  <text x="20" y="24" font-size="12.5" font-weight="700" fill="#c0392b">옛 방식 — 직전 변경과 비교 (연쇄)</text>
+  <line x1="40" y1="56" x2="300" y2="56" stroke="#c9ced6" stroke-width="1.5"/>
+  <g fill="#2f6fb0"><circle cx="60" cy="56" r="4.5"/><circle cx="93" cy="56" r="4.5"/><circle cx="126" cy="56" r="4.5"/>
+   <circle cx="159" cy="56" r="4.5"/><circle cx="192" cy="56" r="4.5"/><circle cx="225" cy="56" r="4.5"/></g>
+  <g stroke="#c0392b" stroke-width="1" fill="none" stroke-dasharray="3 2">
+    <path d="M60 44 L93 44"/><path d="M93 44 L126 44"/><path d="M126 44 L159 44"/>
+    <path d="M159 44 L192 44"/><path d="M192 44 L225 44"/>
+  </g>
+  <text x="240" y="48" font-size="9.5" fill="#c0392b">전부 2분 이내라 계속 이어붙는다</text>
+  <rect x="50" y="68" width="185" height="24" rx="5" fill="#fdeeec" stroke="#c0392b"/>
+  <text x="142" y="85" font-size="10" text-anchor="middle" fill="#8f2b20">묶음 1개 — 폭 8분</text>
+  <text x="250" y="85" font-size="10.5" fill="#c0392b">시각은 0분으로 기록 →
+    <tspan font-weight="700">8분에 걸친 조작을 "0분의 한 번" 으로 읽는다</tspan></text>
+
+  <text x="20" y="134" font-size="12.5" font-weight="700" fill="#1f8a53">새 방식 — 앵커와 비교</text>
+  <line x1="40" y1="166" x2="300" y2="166" stroke="#c9ced6" stroke-width="1.5"/>
+  <g fill="#2f6fb0"><circle cx="60" cy="166" r="4.5"/><circle cx="93" cy="166" r="4.5"/><circle cx="126" cy="166" r="4.5"/>
+   <circle cx="159" cy="166" r="4.5"/><circle cx="192" cy="166" r="4.5"/><circle cx="225" cy="166" r="4.5"/></g>
+  <g stroke="#1f8a53" stroke-width="1" fill="none">
+    <path d="M60 154 L93 154"/><path d="M126 154 L159 154"/><path d="M192 154 L225 154"/>
+  </g>
+  <g>
+    <rect x="50" y="178" width="53" height="24" rx="5" fill="#e8f5ee" stroke="#1f8a53"/>
+    <rect x="116" y="178" width="53" height="24" rx="5" fill="#e8f5ee" stroke="#1f8a53"/>
+    <rect x="182" y="178" width="53" height="24" rx="5" fill="#e8f5ee" stroke="#1f8a53"/>
+  </g>
+  <text x="250" y="195" font-size="10.5" fill="#1f8a53">묶음 3개 — 각각 폭 1.5~2분.
+    <tspan font-weight="700">각자의 시각이 정확하다</tspan></text>
+  <text x="40" y="224" font-size="10.5" fill="#5f6672">
+    왜 중요한가: Gap 을 바꾼 뒤 Wet 이 반응할 때까지 걸리는 시간을 재는 것이 이 프로젝트의 목표인데,
+    시작 시각이 8분 틀리면 그 시간도 8분 틀린다.</text>
+</svg>
+<figcaption>같은 6개의 변경, 두 가지 해석. 아래쪽이 현재 코드입니다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="intuition-anchor-vs-chain" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">앵커 방식 vs 연쇄 방식이 헷갈리면 여기에</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>2-3. 격리 — 쓸 수 있는 묶음 고르기</h3>
+
+<p>묶음을 만들었다고 다 쓸 수 있는 건 아닙니다. Gap 을 바꾼 <em>효과</em> 를 보려면
+<strong>그 앞뒤로 아무 일도 없어야</strong> 합니다. 조정 직후에 또 조정하면 Wet 이 움직였을 때
+둘 중 어느 것 때문인지 알 수가 없으니까요.</p>
+
+<p>그래서 묶음마다 <strong>앞 10분, 뒤 10분</strong> 이 조용한지 봅니다. 재는 방법이 조금 까다롭습니다.</p>
+
+<div class="callout">
+  <span class="lbl">간격을 재는 방법 — "끝" 에서 잰다</span>
+  <p><strong>앞간격</strong> = 이 묶음의 <em>첫</em> 변경 − 직전 묶음의 <strong>마지막</strong> 변경<br>
+  <strong>뒤간격</strong> = 다음 묶음의 <em>첫</em> 변경 − 이 묶음의 <strong>마지막</strong> 변경</p>
+  <p>묶음이 폭을 가지므로, 시작점끼리 재면 실제 조용한 시간을 그 폭만큼 <strong>길게</strong> 잡습니다.
+  그래서 끝에서 잽니다.</p>
+</div>
+
+<p>위 예시에 적용하면 이렇게 됩니다.</p>
+
+<table>
+  <tr><th>묶음</th><th>첫 변경</th><th>마지막</th><th>앞간격</th><th>뒤간격</th><th>판정</th></tr>
+  <tr><td class="mono">L1#1</td><td class="num">0</td><td class="num">1.5</td><td class="num">없음</td><td class="num">3 − 1.5 = 1.5</td>
+      <td><span class="tag no">✗</span> 뒤 1.5&lt;10</td></tr>
+  <tr><td class="mono">L1#2</td><td class="num">3</td><td class="num">4.5</td><td class="num">3 − 1.5 = 1.5</td><td class="num">6 − 4.5 = 1.5</td>
+      <td><span class="tag no">✗</span> 앞뒤 1.5/1.5</td></tr>
+  <tr><td class="mono">L1#3</td><td class="num">6</td><td class="num">8</td><td class="num">6 − 4.5 = 1.5</td><td class="num">120 − 8 = 112</td>
+      <td><span class="tag no">✗</span> 앞 1.5&lt;10</td></tr>
+  <tr style="background:var(--ok-soft)"><td class="mono">L1#4</td><td class="num">120</td><td class="num">120</td><td class="num">120 − 8 = 112</td><td class="num">없음</td>
+      <td><span class="tag ok">✓</span> 사용 가능</td></tr>
+</table>
+
+<div class="callout ok">
+  <span class="lbl">여기서 저절로 생기는 좋은 성질</span>
+  <p>쪼개진 조각들은 <strong>서로가 서로를 탈락시킵니다.</strong> 1.5분 간격으로 붙어 있으니 앞뒤 10분이 나올 리가 없죠.</p>
+  <p>그래서 "쉼 없이 이어서 만진 구간은 실험으로 못 쓴다" 는 판단을 위한 <strong>별도의 규칙이 필요 없습니다.</strong>
+  격리 규칙 하나가 알아서 걸러냅니다. 규칙이 하나뿐이면 나중에 "왜 이게 빠졌지?" 를 한 군데서만 찾으면 됩니다.</p>
+</div>
+
+<div class="qmemo" data-qid="intuition-isolation" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">격리 판정 표에서 궁금한 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="answers">3. 질문에 직접 답하기</h2>
+
+<h3>Q1. 제어 인자가 무엇인가?</h3>
+
+<p><strong>정확히 29개</strong> 입니다. <code>backend/app/coating/schemas.py</code> 에 항목번호로 못박혀 있습니다.</p>
+
+<pre><span class="c"># T_Block UNIT Gap Offset 1~25Zone</span>
+GAP_ITEM_IDS = [str(30030837 + z) <span class="k">for</span> z <span class="k">in</span> range(1, 26)]
+<span class="c"># → "30030838"(1번 zone) … "30030862"(25번 zone)</span>
+
+<span class="c"># zone 이 없는 스칼라 제어값. 레벨 모델의 피처가 된다.</span>
+CONTROL_SCALARS = {
+    <span class="s">"10030009"</span>: <span class="s">"bp_open_rate"</span>,   <span class="c"># BP 개도율</span>
+    <span class="s">"50030111"</span>: <span class="s">"pump_rpm"</span>,       <span class="c"># 펌프 회전수</span>
+    <span class="s">"10030271"</span>: <span class="s">"os_gap"</span>,         <span class="c"># OS 쪽 gap</span>
+    <span class="s">"10030272"</span>: <span class="s">"ds_gap"</span>,         <span class="c"># DS 쪽 gap</span>
+}
+
+<span class="c"># 제어 항목 전체 = 스칼라 4 + zone 25</span>
+<span class="hl">CONTROL_ITEM_IDS = list(CONTROL_SCALARS) + GAP_ITEM_IDS</span>
+</pre>
+
+<table>
+  <tr><th>구분</th><th>개수</th><th>zone 번호</th><th>쓰이는 곳</th></tr>
+  <tr><td>zone별 Gap Offset</td><td class="num">25</td><td>1~25 있음</td><td>영향행렬(어느 zone 을 만지면 어느 zone 이 변하나)</td></tr>
+  <tr><td>스칼라 4종</td><td class="num">4</td><td>없음 (NaN)</td><td>레벨 모델(전체적으로 얼마나 두꺼운가)</td></tr>
+  <tr style="background:#f2f4f7"><td><strong>제어 인자 합계</strong></td><td class="num"><strong>29</strong></td><td></td><td></td></tr>
+  <tr style="color:var(--muted)"><td>Wet 25개</td><td class="num">25</td><td>1~25</td><td><strong>제어 인자가 아님 — 결과다</strong></td></tr>
+</table>
+
+<h3>Q2. 특정 시점에 하나라도 바뀌면 "제어됐다" 고 인지하는가?</h3>
+
+<p><strong>네, 맞습니다.</strong> 29개 중 <strong>무엇이든 하나라도</strong> 값이 달라지면 그 시점을 "변경" 으로 봅니다.
+다만 <strong>두 가지는 뺍니다.</strong></p>
+
+<pre><span class="c"># events.py — build_events() 의 첫 줄</span>
+ctrl = changes[
+    changes[S.ITEM].isin(<span class="hl">S.CONTROL_ITEM_IDS</span>)     <span class="c"># ← ① 제어 29개만 (Wet 제외)</span>
+    & changes[<span class="hl">S.PREV_VALUE</span>].notna()             <span class="c"># ← ② 시작값 제외</span>
+]
+</pre>
+
+<div class="callout warn">
+  <span class="lbl">제외 ① — Wet 이 변한 것은 조작이 아니다</span>
+  <p>Wet 은 <strong>결과</strong> 입니다. Wet 변화를 "조작" 으로 세면 원인과 결과가 뒤집힙니다.</p>
+</div>
+
+<div class="callout warn">
+  <span class="lbl">제외 ② — 로트의 첫 값(시작값)은 조작이 아니다</span>
+  <p>로트가 시작되면 모든 항목의 값이 처음 한 번 기록됩니다. 이건 <strong>원래 그랬던 것</strong> 이지
+  누가 방금 바꾼 게 아닙니다. 코드는 이걸 <code>prev_value</code>(직전 값)가 비어 있는지로 구별합니다.</p>
+  <p>이걸 안 빼면 <strong>모든 로트가 29개짜리 가짜 조작을 하나씩 갖게 됩니다.</strong> 로트가 29개면 가짜가 29개죠.</p>
+</div>
+
+<h4>"바뀌었다" 는 어떻게 판단하나</h4>
+
+<p><code>pivot.py</code> 의 <code>compress_runs</code> 가 항목별로 <strong>직전 기록과 값이 다른 시점만</strong> 남깁니다.
+숫자가 완전히 같으면 변경이 아닙니다 (오차 허용 범위 같은 건 없습니다 — Gap 은 설정값이라
+소수점이 흔들리지 않습니다).</p>
+
+<pre><span class="c"># pivot.py — compress_runs()</span>
+d = deduped.sort_values([S.LOT, S.ITEM, S.AT])
+prev = d.groupby([S.LOT, S.ITEM])[S.VALUE].shift()   <span class="c"># 같은 로트·같은 항목의 직전 값</span>
+<span class="hl">changed = prev.isna() | (d[S.VALUE] != prev)</span>       <span class="c"># 처음이거나, 달라졌거나</span>
+out = d.loc[changed, ...]
+out[S.PREV_VALUE] = prev.loc[changed]                <span class="c"># 직전 값도 같이 남긴다</span>
+</pre>
+
+<div class="callout">
+  <span class="lbl">한 시점에 여러 항목이 동시에 바뀌면?</span>
+  <p>당연히 <strong>한 번의 조작</strong> 입니다. 작업자는 zone 여러 개를 한 번에 만집니다.
+  같은 시각의 변경들은 같은 묶음에 들어가고, 그 묶음의 <code>n_items</code> 가 "몇 개 항목을 만졌나" 가 됩니다.</p>
+</div>
+
+<div class="qmemo" data-qid="answers-what-counts-as-change" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"무엇이 변경으로 세어지나" 에 대해 더 궁금한 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3>Q3. event 와 run_id 는 각각 뭘 뜻하나?</h3>
+
+<p>둘 다 <strong>변경들을 묶은 것</strong> 인데, <strong>묶는 방법이 다릅니다.</strong> 같은 데이터를 두 가지 방식으로 묶어
+나란히 두는 것이 핵심입니다.</p>
+
+<table>
+  <tr><th></th><th>event (묶음)</th><th>run (연쇄)</th></tr>
+  <tr><th>id 모양</th><td class="mono">L1#3</td><td class="mono">L1@1</td></tr>
+  <tr><th>묶는 기준</th><td><strong>앵커</strong> 에서 2분 이내</td><td><strong>직전 변경</strong> 에서 2분 이내</td></tr>
+  <tr><th>폭 제한</th><td>최대 2분 (보장됨)</td><td>없음 — 무한히 커질 수 있음</td></tr>
+  <tr><th>뜻</th><td>“한 번의 제어 조작”</td><td>“작업자가 쉬지 않고 만진 한 세션”</td></tr>
+  <tr><th>쓰임</th><td><strong>실제 분석 단위.</strong> 격리 판정도 이 단위</td><td>배제에 <strong>안 씀.</strong> 설명과 비교에만 씀</td></tr>
+  <tr><th>정체</th><td>현재 규칙</td><td><strong>옛 규칙 그 자체</strong></td></tr>
+</table>
+
+<div class="callout">
+  <span class="lbl">중요한 관계 — event 는 항상 run 안에 들어간다</span>
+  <p>한 묶음(event) 안의 변경들은 전부 앵커에서 2분 이내에 있으므로, <strong>서로 이웃한 것끼리도 2분 이내</strong> 입니다.
+  그러면 연쇄 규칙(직전과 2분 이내)이 그 묶음 <em>안쪽</em> 을 쪼갤 방법이 없습니다.</p>
+  <p>그래서 <strong>event 하나가 두 run 에 걸치는 일은 수학적으로 불가능합니다.</strong>
+  코드가 <code>run_id</code> 를 <code>"first"</code>(첫 값)로 집계하는 것이 안전한 이유입니다.</p>
+</div>
+
+<h4>run_id 는 왜 남겨두나 — 두 가지 용도</h4>
+
+<ol>
+  <li><strong>로그에서 "이 조각들이 원래 한 덩어리였다" 를 보여주려고.</strong>
+  원장에 <code>L1#1 · L1#2 · L1#3</code> 이 나란히 있고 셋 다 <code>run</code> 칸이 <code>L1@1</code> 이면,
+  "아, 작업자가 8분 동안 이어서 만진 걸 셋으로 쪼갠 거구나" 가 한눈에 보입니다.</li>
+  <li><strong>옛 규칙과 비교하려고 (§3 대조표).</strong> <code>run</code> 이 곧 옛 규칙의 묶음이라,
+  <code>run</code> 으로 접기만 하면 옛 규칙 결과가 <strong>추가 계산 없이</strong> 나옵니다.</li>
+</ol>
+
+<pre><span class="c"># trace.py — legacy_events(): 옛 규칙 결과를 공짜로 만드는 곳</span>
+out = (
+    iso.groupby([S.LOT, <span class="hl">S.RUN</span>], as_index=<span class="k">False</span>)   <span class="c"># run 으로 접으면 = 옛 묶음</span>
+       .agg(...)
+)
+out[S.EVENT] = out[S.RUN]
+<span class="c"># last_at 열을 **넣지 않는다** — isolation() 이 그 열이 없으면</span>
+<span class="c"># 자동으로 "시작 기준" 으로 돌아간다. 옛 규칙의 나머지 절반이 공짜로 재현된다.</span>
+</pre>
+
+<div class="callout ok">
+  <span class="lbl">여기가 설계상 예쁜 부분입니다</span>
+  <p>옛 규칙은 <strong>세 가지</strong>가 합쳐진 것입니다 — ① 연쇄 병합 ② 시작 기준으로 간격 재기 ③ 옛 창(앞30/뒤60).</p>
+  <p><code>run</code> 으로 접으면 ①이 재현되고, <code>last_at</code> 열을 빼면 ②가 저절로 재현되고, 옛 창 숫자를
+  넘기면 ③입니다. <strong>원본 데이터를 다시 훑지 않고</strong> 옛 결과가 나옵니다.</p>
+</div>
+
+<div class="qmemo" data-qid="answers-event-vs-run" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">event / run 구별에서 막히는 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="code">4. 코드 따라가기</h2>
+
+<p>파일 세 개면 전부입니다. 순서대로 봅니다.</p>
+
+<figure>
+<svg viewBox="0 0 760 240" role="img" aria-label="파일별 역할과 데이터 흐름">
+  <rect x="0" y="0" width="760" height="240" fill="#fff"/>
+  <g font-size="11">
+    <rect x="20" y="24" width="150" height="46" rx="7" fill="#f2f4f7" stroke="#d5dae1"/>
+    <text x="95" y="43" text-anchor="middle" font-weight="700" font-size="11.5">원본 parquet</text>
+    <text x="95" y="59" text-anchor="middle" font-size="9.5" fill="#5f6672">약 100만 행</text>
+
+    <rect x="20" y="94" width="150" height="46" rx="7" fill="#eaf2fa" stroke="#a8c8e6"/>
+    <text x="95" y="112" text-anchor="middle" font-weight="700" font-size="11.5">pivot.py</text>
+    <text x="95" y="128" text-anchor="middle" font-size="9.5" fill="#2f6fb0">중복 접기 → 변경만</text>
+
+    <rect x="20" y="164" width="150" height="46" rx="7" fill="#eaf2fa" stroke="#a8c8e6"/>
+    <text x="95" y="182" text-anchor="middle" font-weight="700" font-size="11.5">events.py</text>
+    <text x="95" y="198" text-anchor="middle" font-size="9.5" fill="#2f6fb0">묶고 · 격리 판정</text>
+
+    <rect x="250" y="164" width="150" height="46" rx="7" fill="#fdf4e3" stroke="#e6cf9c"/>
+    <text x="325" y="182" text-anchor="middle" font-weight="700" font-size="11.5">trace.py</text>
+    <text x="325" y="198" text-anchor="middle" font-size="9.5" fill="#b06f00">사람이 볼 표 만들기</text>
+
+    <rect x="480" y="164" width="160" height="46" rx="7" fill="#e8f5ee" stroke="#a9d3bd"/>
+    <text x="560" y="182" text-anchor="middle" font-weight="700" font-size="11.5">diagnose.py</text>
+    <text x="560" y="198" text-anchor="middle" font-size="9.5" fill="#1f8a53">글자로 찍기</text>
+  </g>
+  <g stroke="#8d97a5" stroke-width="1.3" fill="none" marker-end="url(#ar3)">
+    <path d="M 95 72 L 95 90"/><path d="M 95 142 L 95 160"/>
+    <path d="M 172 187 L 246 187"/><path d="M 402 187 L 476 187"/>
+  </g>
+  <defs><marker id="ar3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 z" fill="#8d97a5"/></marker></defs>
+  <g font-size="9.5" fill="#5f6672">
+    <text x="182" y="82">changes (변경 몇천 줄)</text>
+    <text x="182" y="150">ev + dl (묶음 + zone별 Δ)</text>
+    <text x="250" y="228">규칙은 events.py 에, 사람이 읽을 표는 trace.py 에 — 섞지 않는다</text>
+  </g>
+</svg>
+<figcaption>각 파일이 하나씩만 담당합니다. 규칙과 보고를 나눈 이유는 아래에서 설명합니다.</figcaption>
+</figure>
+
+<h3>4-1. <code>_anchor_groups</code> — 묶음 번호를 매기는 12줄</h3>
+
+<p>전체 전처리에서 가장 중요한 함수인데, 놀랍게도 12줄입니다.</p>
+
+<pre><span class="k">def</span> _anchor_groups(times, merge_minutes):
+    w = pd.Timedelta(minutes=merge_minutes)      <span class="c"># 2분</span>
+    out = np.empty(len(times), dtype=int)
+    g, anchor = 0, <span class="k">None</span>
+    <span class="k">for</span> i, t <span class="k">in</span> enumerate(times):           <span class="c"># 시각들은 이미 정렬돼 있다</span>
+        <span class="k">if</span> anchor <span class="k">is</span> <span class="k">None</span> <span class="k">or</span> <span class="hl">t - anchor &gt; w</span>:  <span class="c"># ★ 앵커와 비교 (직전 값이 아니다)</span>
+            g += 1
+            anchor = t                           <span class="c"># 이 시각이 새 앵커가 된다</span>
+        out[i] = g
+    <span class="k">return</span> out
+</pre>
+
+<p>바로 아래에 옛 규칙도 나란히 있습니다. <strong>차이가 한 줄</strong> 인 것을 눈으로 확인할 수 있습니다.</p>
+
+<pre><span class="k">def</span> _run_groups(times, merge_minutes):
+    gap = <span class="hl">times.diff()</span>                          <span class="c"># ★ 직전 값과의 차이</span>
+    <span class="k">return</span> (gap.isna() | (gap &gt; pd.Timedelta(minutes=merge_minutes))).cumsum().to_numpy()
+</pre>
+
+<div class="callout">
+  <span class="lbl">여기서 확인할 것</span>
+  <p><code>t - anchor</code> 인가 <code>times.diff()</code> 인가. <strong>이 한 군데가 이번 변경의 전부입니다.</strong>
+  앵커 쪽은 <code>anchor</code> 변수가 묶음이 바뀔 때만 갱신되고, 연쇄 쪽은 매 행마다 갱신되는 셈입니다.</p>
+</div>
+
+<h3>4-2. <code>build_events</code> — 두 방식을 동시에 계산한다</h3>
+
+<pre><span class="k">for</span> _, g <span class="k">in</span> ctrl.groupby(S.LOT, sort=<span class="k">False</span>):   <span class="c"># 로트마다 따로 (로트를 넘나들지 않는다)</span>
+    g = g.sort_values(S.AT)
+    g[<span class="s">"_g"</span>] = _anchor_groups(g[S.AT], merge_minutes)   <span class="c"># 새 규칙</span>
+    g[<span class="s">"_r"</span>] = _run_groups(g[S.AT], merge_minutes)      <span class="c"># 옛 규칙 (비교용)</span>
+
+ctrl[S.EVENT] = ctrl[S.LOT] + <span class="s">"#"</span> + ctrl[<span class="s">"_g"</span>]...   <span class="c"># "L1#3"</span>
+ctrl[S.RUN]   = ctrl[S.LOT] + <span class="s">"@"</span> + ctrl[<span class="s">"_r"</span>]...   <span class="c"># "L1@1"</span>
+ctrl[S.DELTA] = ctrl[S.VALUE] - ctrl[S.PREV_VALUE]     <span class="c"># 얼마나 바꿨나</span>
+ctrl[S.ZONE]  = ctrl[S.ITEM].map(_zone_of)             <span class="c"># 몇 번 zone 인가 (스칼라는 NaN)</span>
+</pre>
+
+<p>그 다음 묶음 단위로 접습니다. 여기서 나오는 열들이 뒤에서 계속 쓰입니다.</p>
+
+<table>
+  <tr><th>열 이름</th><th>뜻</th><th>어떻게 나오나</th></tr>
+  <tr><td class="mono">event_id</td><td>묶음 번호</td><td><code>L1#3</code></td></tr>
+  <tr><td class="mono">worked_at</td><td>첫 변경 시각</td><td>묶음 안 시각의 <strong>최소</strong></td></tr>
+  <tr><td class="mono">last_at</td><td>마지막 변경 시각</td><td>묶음 안 시각의 <strong>최대</strong></td></tr>
+  <tr><td class="mono">span_min</td><td>묶음의 폭(분)</td><td><code>last_at − worked_at</code> — <strong>항상 2 이하</strong></td></tr>
+  <tr><td class="mono">run_id</td><td>연쇄 번호</td><td><code>L1@1</code></td></tr>
+  <tr><td class="mono">n_items</td><td>만진 항목 수</td><td>서로 다른 항목의 개수</td></tr>
+</table>
+
+<h3>4-3. <code>isolation</code> — 쓸 수 있는지 판정</h3>
+
+<pre>end = out[S.LAST_AT] <span class="k">if</span> S.LAST_AT <span class="k">in</span> out.columns <span class="k">else</span> out[S.AT]   <span class="c"># ★ 아래 설명</span>
+prev_end = end.groupby(out[S.LOT]).shift(1)      <span class="c"># 직전 묶음의 '끝'</span>
+next_at  = out.groupby(S.LOT)[S.AT].shift(-1)    <span class="c"># 다음 묶음의 '시작'</span>
+
+<span class="k">if</span> bounds <span class="k">is</span> <span class="k">not</span> <span class="k">None</span>:                        <span class="c"># 이웃이 없으면 로트 경계가 벽</span>
+    prev_end = prev_end.fillna(로트 시작시각)
+    next_at  = next_at.fillna(로트 종료시각)
+
+out[<span class="s">"gap_before"</span>] = (out[S.AT] - prev_end) / 1분
+out[<span class="s">"gap_after"</span>]  = (next_at - end) / 1분
+<span class="hl">out["isolated"] = (gap_before &gt;= pre) & (gap_after &gt;= post)</span>
+</pre>
+
+<div class="callout">
+  <span class="lbl">첫 줄의 <code>if</code> 가 우연이 아닙니다</span>
+  <p><code>last_at</code> 열이 <strong>있으면</strong> 끝 기준, <strong>없으면</strong> 시작 기준으로 잽니다.
+  얼핏 "옛 데이터 호환" 처럼 보이지만 아닙니다.</p>
+  <p>§3 대조표가 옛 규칙을 재현할 때 <strong>일부러 <code>last_at</code> 을 뺀 표</strong> 를 넘깁니다.
+  그러면 이 함수가 알아서 옛날처럼 계산합니다. <strong>이 줄이 옛 규칙 재현의 통로입니다.</strong></p>
+</div>
+
+<h4>로트 경계도 벽으로 친다</h4>
+
+<p>이웃한 조정이 없어도 <strong>로트가 시작된 직후</strong> 나 <strong>끝나기 직전</strong> 이면 못 씁니다.</p>
+<ul>
+  <li>로트 시작 3분 뒤 조정 → 그 앞에 <strong>기준선을 잴 구간이 없습니다.</strong> 뭐와 비교하죠?</li>
+  <li>로트 끝 3분 전 조정 → <strong>반응이 끝나기 전에 로트가 끝납니다.</strong> 최종값을 못 읽습니다.</li>
+</ul>
+<p>반대로 <strong>이웃도 없고 경계 정보도 없으면</strong> 제약이 없는 것으로 봅니다 —
+없는 이웃을 이유로 버리지는 않습니다.</p>
+
+<h3>4-4. 탈락 사유를 문장으로 남긴다</h3>
+
+<pre><span class="k">def</span> _iso_reason(gb, ga, pre, post):
+    short_before = pd.notna(gb) <span class="k">and</span> gb &lt; pre
+    short_after  = pd.notna(ga) <span class="k">and</span> ga &lt; post
+    <span class="k">if</span> short_before <span class="k">and</span> short_after: <span class="k">return</span> <span class="s">f"앞뒤 {gb:.1f}/{ga:.1f}&lt;{pre}/{post}"</span>
+    <span class="k">if</span> short_before: <span class="k">return</span> <span class="s">f"앞 {gb:.1f}&lt;{pre}"</span>
+    <span class="k">if</span> short_after:  <span class="k">return</span> <span class="s">f"뒤 {ga:.1f}&lt;{post}"</span>
+    <span class="k">return</span> <span class="k">None</span>          <span class="c"># 통과한 것은 사유가 없다</span>
+</pre>
+
+<div class="callout ok">
+  <span class="lbl">왜 "탈락" 만 적지 않았나</span>
+  <p><code>✗ 뒤 1.5&lt;10</code> 이라고 적으면 <strong>얼마나 모자랐는지</strong> 가 그 줄에서 바로 읽힙니다.
+  1.5분이 모자란 것과 9.8분이 모자란 것은 완전히 다른 상황이죠 — 후자는 창을 조금만 줄여도 살아납니다.</p>
+  <p>"탈락" 만 적으면 창을 몇으로 바꿔야 할지 알 수 없어서, 결국 사람이 다시 물어보러 와야 합니다.</p>
+</div>
+
+<h3>4-5. 왜 <code>trace.py</code> 를 따로 만들었나</h3>
+
+<p><code>events.py</code> 는 <strong>규칙</strong> 입니다 — 파이프라인이 돌 때마다 실행됩니다.<br>
+<code>trace.py</code> 는 <strong>사람이 볼 표</strong> 입니다 — 사람이 확인할 때만 필요합니다.</p>
+
+<p>섞어 두면 규칙을 읽으러 온 사람이 표 만드는 코드까지 같이 읽어야 합니다.
+규칙은 이 시스템에서 가장 자주 의심받는 부분이라, 짧고 깨끗하게 유지할 값어치가 있습니다.</p>
+
+<div class="qmemo" data-qid="code-walkthrough" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">코드에서 이해 안 되는 부분</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="verify">5. 제대로 구현됐는지 직접 확인하는 법</h2>
+
+<p>믿지 마시고 직접 확인하세요. 세 가지 방법이 있습니다.</p>
+
+<h3>방법 1 — 테스트가 무엇을 보장하는지 읽는다</h3>
+
+<p><code>backend/tests/test_coating_events.py</code> 에 이 규칙들을 못박은 테스트가 있습니다.
+테스트 이름이 곧 보장 내용입니다.</p>
+
+<table>
+  <tr><th>테스트 이름</th><th>보장하는 것</th></tr>
+  <tr><td class="mono">test_anchor_bounds_the_span_of_one_event</td><td>묶음 폭이 2분을 절대 안 넘는다</td></tr>
+  <tr><td class="mono">test_chaining_no_longer_swallows_a_long_run</td><td>8분짜리가 한 묶음이 되지 않는다 (3개로 갈린다)</td></tr>
+  <tr><td class="mono">test_run_id_marks_fragments_of_one_continuous_run</td><td>쪼개진 조각이 같은 <code>run_id</code> 를 갖는다</td></tr>
+  <tr><td class="mono">test_initial_values_are_not_events</td><td>로트 시작값은 조작으로 세지 않는다</td></tr>
+  <tr><td class="mono">test_output_items_are_not_events</td><td>Wet 변화는 조작으로 세지 않는다</td></tr>
+  <tr><td class="mono">test_events_do_not_span_lots</td><td>로트를 넘나드는 묶음이 없다</td></tr>
+  <tr><td class="mono">test_isolation_measures_gaps_from_the_end_of_the_event</td><td>간격을 끝에서 잰다 (시작 아님)</td></tr>
+  <tr><td class="mono">test_isolation_reason_says_what_was_short</td><td>탈락 사유에 부족분 숫자가 들어간다</td></tr>
+</table>
+
+<pre><span class="c"># 실행 — 이 규칙들만 골라서</span>
+cd backend
+python -m pytest tests/test_coating_events.py -v
+</pre>
+
+<h3>방법 2 — 실데이터로 돌려서 눈으로 본다</h3>
+
+<pre>cd backend
+python -m app.coating.diagnose --preprocess data/coating/raw/&lt;실데이터&gt;.parquet --out preprocess.txt
+</pre>
+
+<p><strong>§1 원장</strong> 에서 이 문서가 설명한 모든 개념을 한 줄씩 볼 수 있습니다.</p>
+
+<pre>   event         run   첫 변경           마지막   span  n  중복   앞간격   뒤간격  판정
+   L1#1          L1@1  01-31 19:04:00   19:05:00   1.0  3   -      30.0     1.5  ✗ 뒤 1.5&lt;10
+   L1#2          L1@1  01-31 19:06:30   19:08:00   1.5  2   -       1.5     2.0  ✗ 앞뒤 1.5/2.0&lt;10/10
+   L1#3          L1@1  01-31 19:10:00   19:10:00   0.0  1   -       2.0    84.0  ✗ 앞 2.0&lt;10
+   L1#4          -     01-31 20:34:00   20:35:00   1.0  4   -      84.0    12.0  ✓
+</pre>
+
+<p style="font-size:.9rem;color:var(--muted)">
+실제 출력에서는 로트 이름이 길어서 <code>GRQC48XP29#1</code> · <code>GRQC48XP29@1</code> 처럼 나옵니다.
+여기서는 읽기 쉽게 <code>L1</code> 로 줄였습니다.</p>
+
+<div class="callout">
+  <span class="lbl">여기서 확인할 것 세 가지</span>
+  <ul style="margin:6px 0">
+    <li><strong><code>span</code> 이 전부 2.0 이하인가?</strong> 하나라도 넘으면 앵커 병합이 안 되고 있는 것입니다.</li>
+    <li><strong><code>run</code> 칸이 같은 줄들이 붙어 있나?</strong> 위 예에서 <code>r01</code> 셋은 원래 한 덩어리였던 조각들입니다.
+    (혼자짜리 run 은 <code>-</code> 로 비워 둡니다 — 눈에 띄어야 할 것은 쪼개진 것뿐이니까요.)</li>
+    <li><strong>앞간격이 직전 줄의 <code>마지막</code> 에서 계산되나?</strong>
+    <code>L1#002</code> 의 앞간격 1.5 = <code>19:06:30 − 19:05:00</code> 입니다. 직전 줄의 <em>첫 변경</em>(19:04)이 아니라
+    <em>마지막</em>(19:05)에서 잰 것이 맞는지 손으로 검산해 보세요.</li>
+  </ul>
+</div>
+
+<h3>방법 3 — 손으로 한 줄 검산한다</h3>
+
+<p>이게 가장 확실합니다. 원장에서 아무 줄이나 하나 골라, <code>report --dump</code> 가 남기는
+<code>01_changes_control.csv</code> 를 엑셀로 열어 그 시각 근처를 직접 보세요.
+원장에 <strong>원시 타임스탬프를 그대로 실어 둔 이유가 이것</strong> 입니다 — 파생된 분 수만 있으면 대조할 방법이 없습니다.</p>
+
+<div class="callout warn">
+  <span class="lbl">한 가지 주의 — 중복 열</span>
+  <p><code>중복</code> 칸에 <code>⚠2</code> 같은 표시가 있으면, <strong>한 묶음 안에서 같은 zone 을 두 번 이상 만졌다</strong> 는 뜻입니다.
+  예전에는 이 경우 마지막 변경만 남아 Δ가 실제보다 작게 계산되는 버그가 있었습니다(지금은 합산으로 고쳤습니다).
+  §0 깔때기에도 전체 건수가 한 줄로 나옵니다.</p>
+</div>
+
+<div class="qmemo" data-qid="verify-checklist" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">확인 방법에 대해 궁금한 점 / 실제로 돌려보고 이상한 점</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="quiz">6. 퀴즈</h2>
+
+<p>다섯 문제입니다. 답을 클릭하면 바로 채점됩니다.</p>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q1. 어떤 로트에서 제어값 변경이 0분, 1.8분, 3.5분, 5.0분에 있었습니다.
+  병합창이 2분일 때 <strong>묶음(event)</strong> 은 몇 개가 될까요?</div>
+  <button data-i="0">1개 — 전부 2분 이내로 이어져 있으므로</button>
+  <button data-i="1">2개 — {0, 1.8} 과 {3.5, 5.0}</button>
+  <button data-i="2">3개 — {0, 1.8}, {3.5}, {5.0}</button>
+  <button data-i="3">4개 — 앵커 방식은 항상 하나씩 쪼갠다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <div class="q">Q2. 로트가 시작될 때 29개 제어 항목의 값이 처음 기록됩니다.
+  코드는 이것을 조작으로 세지 <strong>않는데</strong>, 무엇을 보고 구별하나요?</div>
+  <button data-i="0">시각이 로트의 시작 시각과 같은지 본다</button>
+  <button data-i="1">값이 0인지 본다</button>
+  <button data-i="2"><code>prev_value</code>(직전 값)가 비어 있는지 본다</button>
+  <button data-i="3">29개가 한꺼번에 바뀌었는지 본다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <div class="q">Q3. 어떤 묶음의 첫 변경이 10:00, 마지막 변경이 10:02 입니다.
+  다음 묶음의 첫 변경은 10:15 입니다. 이 묶음의 <strong>뒤간격</strong> 은?</div>
+  <button data-i="0">15분 — 시작(10:00)에서 다음 시작(10:15)까지</button>
+  <button data-i="1">2분 — 이 묶음의 폭</button>
+  <button data-i="2">17분 — 폭까지 더해서</button>
+  <button data-i="3">13분 — 끝(10:02)에서 다음 시작(10:15)까지</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <div class="q">Q4. <code>run_id</code> 는 배제(어떤 이벤트를 버릴지)에 쓰이지 <strong>않습니다.</strong>
+  그런데도 계산해서 남겨두는 이유로 <strong>틀린</strong> 것은?</div>
+  <button data-i="0">쪼개진 조각들이 원래 한 덩어리였음을 로그에서 보여주려고</button>
+  <button data-i="1">한 run 안에서 조정 폭이 가장 큰 이벤트만 골라 쓰려고</button>
+  <button data-i="2">옛 규칙 결과를 원본 재계산 없이 만들어 비교하려고</button>
+  <button data-i="3">"전체 변경의 몇 %가 연속 조작 구간 안이었나" 통계를 내려고</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <div class="q">Q5. 작업자가 8분 동안 쉬지 않고 여섯 번 조정했습니다. 앵커 병합은 이걸 세 조각으로 나눕니다.
+  이 세 조각은 결국 전부 격리 판정에서 탈락하는데, <strong>왜</strong> 그런가요?</div>
+  <button data-i="0">조각들이 1~2분 간격으로 붙어 있어 서로가 서로의 이웃이 되기 때문</button>
+  <button data-i="1">쪼개진 조각은 코드가 따로 표시해서 자동으로 버리기 때문</button>
+  <button data-i="2">한 묶음의 항목 수가 부족하면 버리는 규칙이 있기 때문</button>
+  <button data-i="3">Wet 이 그 구간에서 정착하지 못했기 때문</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제나, 답을 봐도 납득이 안 되는 부분</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="wrap">마치며 — 한 문단 요약</h2>
+
+<p>설비 로그는 모든 항목을 매 분 다시 적습니다. 값이 <strong>달라진 시점만</strong> 남기면 그것이 곧
+사람이 설비를 만진 순간입니다. 제어 항목 29개(zone별 Gap 25 + 스칼라 4) 중 무엇이든 바뀌면
+변경으로 세되, <strong>로트의 시작값</strong> 과 <strong>Wet(결과)</strong> 은 뺍니다. 변경들을 첫 변경으로부터
+<strong>2분 안</strong>으로만 묶어 <strong>event</strong> 를 만들고 — 그래서 어떤 묶음도 폭이 2분을 넘지 않고 —
+같은 변경들을 옛 방식(직전 변경 기준)으로 묶은 것이 <strong>run</strong> 입니다. run 은 아무것도 버리지 않고,
+"이 조각들이 원래 한 덩어리였다" 를 보여주고 옛 결과와 비교하는 데만 씁니다. 마지막으로 묶음의
+<strong>끝에서</strong> 앞뒤 10분이 조용한지 보고, 조용하면 그 조작을 실험 데이터로 씁니다.</p>
+
+<div class="callout warn">
+  <span class="lbl">아직 정해지지 않은 것</span>
+  <p><strong>10분</strong> 이라는 창의 폭은 측정된 값이 아니라 <strong>가정</strong> 입니다. "Gap 을 바꾸면 Wet 이 10분 안에
+  반응을 마친다" 는 주장인데, 실데이터에서 그 시간을 아직 재지 못했습니다.
+  <code>--preprocess</code> 의 §4 가 매 실행 그 가정을 스스로 검사하지만 완전하지는 않습니다
+  (자세한 것은 <a href="https://github.com/Sihoon92/TestChatbot/pull/10">PR #10</a> 의 "열린 채 남은 세 건").</p>
+  <p>그래서 이 네 값은 <strong>근거가 아니라 되돌릴 준비가 된 선택</strong> 입니다. 실측 지연이 나오면 그때 근거가 생깁니다.</p>
+</div>
+
+</div>
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg">질문을 적은 뒤 눌러주세요. 같은 파일명으로 다운로드됩니다.</span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-09-08-01-explanation-coating-control-event-extraction.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\TestProject\\docs\\understanding\\2026-09-08-01-explanation-coating-control-event-extraction.html';
+  });
+})();
+
+(function () {
+  var FB = {
+    0: {
+      good: '정확합니다. 앵커는 0분입니다. 1.8분은 0에서 1.8분 떨어져 있어 같은 묶음, 3.5분은 3.5분 떨어져 2분을 넘으므로 새 앵커가 됩니다. 그러면 5.0분은 새 앵커 3.5에서 1.5분이라 같은 묶음이 되어 {0, 1.8} · {3.5, 5.0} 두 개입니다.',
+      bad: '핵심은 "무엇과 비교하는가" 입니다. 직전 변경과 비교하면(옛 방식) 간격이 1.8 · 1.7 · 1.5 로 전부 2분 이내라 하나로 이어집니다. 하지만 앵커(묶음의 첫 변경)와 비교하므로 3.5분에서 끊기고, 그 시각이 새 앵커가 되어 5.0분을 다시 받습니다.'
+    },
+    1: {
+      good: '맞습니다. compress_runs 가 항목별로 직전 값을 prev_value 에 담아두는데, 로트 안에서 그 항목의 첫 관측이면 직전 값이 없어 비어 있습니다. build_events 가 그것을 걸러냅니다.',
+      bad: '코드는 prev_value(직전 값)가 비어 있는지를 봅니다. 로트 안에서 그 항목이 처음 관측된 것이라면 비교할 직전 값이 없다는 뜻이고, 그건 사람이 방금 바꾼 값이 아니라 원래 그랬던 값입니다. 이걸 안 거르면 모든 로트가 29개짜리 가짜 조작을 하나씩 갖게 됩니다.'
+    },
+    2: {
+      good: '맞습니다. 뒤간격은 이 묶음의 끝(10:02)에서 다음 묶음의 시작(10:15)까지 13분입니다. 시작 기준으로 재면 15분이 되는데, 그건 실제 조용한 시간보다 묶음의 폭(2분)만큼 길게 잡은 것입니다.',
+      bad: '뒤간격은 "이 묶음이 끝난 뒤 얼마나 조용했나" 입니다. 조작은 10:02 에 끝났으므로 거기서부터 재야 합니다. 10:15 − 10:02 = 13분. 시작(10:00)에서 재면 15분이 나오는데, 그 2분 동안은 사실 조용하지 않았습니다 — 조작 중이었으니까요.'
+    },
+    3: {
+      good: '맞습니다. 그런 규칙은 없습니다. run 은 순수하게 "설명"과 "비교" 용도이고, 무엇을 쓸지 고르는 일은 오직 격리 판정이 합니다. 선별 규칙을 하나로 유지하는 것이 이 설계의 핵심 중 하나입니다.',
+      bad: 'run 안에서 "가장 큰 이벤트만 고른다" 같은 규칙은 없습니다. 그런 규칙을 두면 배제 기준이 둘이 되어, 나중에 어떤 이벤트가 왜 빠졌는지 두 군데를 뒤져야 합니다. 나머지 셋(로그 표시 · 옛 규칙 비교 · 통계)은 실제 용도가 맞습니다.'
+    },
+    4: {
+      good: '정확합니다. 조각들이 1~2분 간격으로 붙어 있으니 어느 조각을 봐도 앞이나 뒤에 다른 조각이 10분 안에 있습니다. 별도의 배제 규칙 없이 격리 판정 하나가 알아서 걸러냅니다.',
+      bad: '"쪼개진 조각을 버리는 규칙" 은 코드에 없습니다. 필요가 없기 때문입니다 — 조각들이 1~2분 간격으로 붙어 있으니 서로가 서로의 이웃이 되어, 앞뒤 10분 조건을 어느 조각도 만족하지 못합니다. 격리 규칙 하나가 저절로 처리합니다.'
+    }
+  };
+  document.querySelectorAll('.quiz').forEach(function (quiz, qi) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var fb = quiz.querySelector('.fb');
+    quiz.querySelectorAll('button').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var picked = parseInt(b.dataset.i, 10);
+        var ok = picked === answer;
+        quiz.querySelectorAll('button').forEach(function (x) {
+          x.disabled = true;
+          if (parseInt(x.dataset.i, 10) === answer) x.classList.add('correct');
+        });
+        if (!ok) b.classList.add('wrong');
+        fb.textContent = (ok ? '정답. ' : '아쉽습니다. ') + (ok ? FB[qi].good : FB[qi].bad);
+        fb.className = 'fb show ' + (ok ? 'good' : 'bad');
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
