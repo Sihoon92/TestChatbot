@@ -251,6 +251,23 @@ def merge_sensitivity(
     return pd.DataFrame(rows)
 
 
+def _iso_reason(gb, ga, pre, post) -> str | None:
+    """무엇이 얼마나 모자랐나. ★순수
+
+    "탈락" 만 적으면 창을 몇으로 바꿔야 살아나는지 알 수 없다. 부족분을 숫자로
+    남겨야 그 줄 하나로 다음 설정이 정해진다.
+    """
+    short_before = pd.notna(gb) and gb < pre
+    short_after = pd.notna(ga) and ga < post
+    if short_before and short_after:
+        return f"앞뒤 {gb:.1f}/{ga:.1f}<{pre}/{post}"
+    if short_before:
+        return f"앞 {gb:.1f}<{pre}"
+    if short_after:
+        return f"뒤 {ga:.1f}<{post}"
+    return None
+
+
 def isolation(
     events_df: pd.DataFrame,
     pre_minutes: int,
@@ -273,32 +290,45 @@ def isolation(
     lot 경계도 벽으로 친다(bounds 를 주면). lot 시작 3분 뒤 이벤트는 이웃이
     없어도 기준선을 잴 앞 구간이 없고, 끝 무렵 이벤트는 반응이 끝나기 전에
     lot 이 끝나 최종값을 못 읽는다.
+
+    간격은 **끝**에서 잰다. 시작에서 재면 묶음이 span 을 가질 때 조용한 시간을
+    그만큼 길게 잡는다. `last_at` 이 없는 표는 시작 기준으로 돌아가는데, 그것이
+    구 규칙을 그대로 재현하는 방법이다(trace.rule_comparison).
     """
-    cols = ["gap_before", "gap_after", "isolated"]
+    cols = ["gap_before", "gap_after", "isolated", S.ISO_REASON]
     if events_df.empty:
         out = events_df.copy()
         for c in cols:
-            out[c] = pd.Series(dtype="float64" if c != "isolated" else "bool")
+            out[c] = pd.Series(dtype="bool" if c == "isolated" else (
+                "object" if c == S.ISO_REASON else "float64"
+            ))
         return out
 
-    out = events_df.sort_values([S.LOT, S.AT]).copy()
-    prev_at = out.groupby(S.LOT)[S.AT].shift(1)
+    out = events_df.sort_values([S.LOT, S.AT]).reset_index(drop=True).copy()
+    end = out[S.LAST_AT] if S.LAST_AT in out.columns else out[S.AT]
+    prev_end = end.groupby(out[S.LOT]).shift(1)
     next_at = out.groupby(S.LOT)[S.AT].shift(-1)
 
     if bounds is not None and not bounds.empty:
         b = bounds.set_index(S.LOT)
         # 이웃이 없는 쪽은 lot 경계가 대신 벽이 된다.
-        prev_at = prev_at.fillna(out[S.LOT].map(b["start"]))
+        prev_end = prev_end.fillna(out[S.LOT].map(b["start"]))
         next_at = next_at.fillna(out[S.LOT].map(b["end"]))
 
     minute = pd.Timedelta(minutes=1)
-    out["gap_before"] = (out[S.AT] - prev_at) / minute
-    out["gap_after"] = (next_at - out[S.AT]) / minute
+    out["gap_before"] = (out[S.AT] - prev_end) / minute
+    out["gap_after"] = (next_at - end) / minute
     # 이웃도 경계도 없으면 제약이 없는 것이다. 없는 이웃을 이유로 버리지 않는다.
     out["isolated"] = (
         out["gap_before"].fillna(np.inf) >= pre_minutes
     ) & (out["gap_after"].fillna(np.inf) >= post_minutes)
-    return out.reset_index(drop=True)
+    # dtype=object 를 명시한다 - pandas 의 문자열 dtype 추론에 맡기면 None 이
+    # NaN 으로 바뀐다. "격리됐다" 를 NaN 으로 표현하면 "값이 없다" 와 구분이 안 된다.
+    out[S.ISO_REASON] = pd.Series([
+        _iso_reason(gb, ga, pre_minutes, post_minutes)
+        for gb, ga in zip(out["gap_before"], out["gap_after"])
+    ], index=out.index, dtype=object)
+    return out
 
 
 def isolation_table(

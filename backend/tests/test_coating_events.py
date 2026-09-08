@@ -155,6 +155,50 @@ def test_isolation_measures_gaps_to_the_neighbours():
     assert list(out["gap_after"].fillna(-1)) == [40, 60, -1]
 
 
+def _ev_span(offsets_spans, lot="L1"):
+    """(시작분, span분) 목록으로 last_at 이 있는 이벤트 표를 만든다."""
+    base = pd.Timestamp("2026-02-02 06:00")
+    return pd.DataFrame([
+        {SS.LOT: lot, SS.EVENT: f"{lot}#{i+1}",
+         SS.AT: base + pd.Timedelta(minutes=m),
+         SS.LAST_AT: base + pd.Timedelta(minutes=m + sp),
+         SS.RUN: f"{lot}@{i+1}", SS.SPAN: float(sp), "n_items": 1}
+        for i, (m, sp) in enumerate(offsets_spans)
+    ])
+
+
+def test_isolation_measures_gaps_from_the_end_of_the_event():
+    """뒤 간격은 이 묶음의 **마지막** 변경에서 다음 묶음의 첫 변경까지다.
+
+    시작에서 재면 span 만큼 조용한 시간을 실제보다 길게 잡는다.
+    """
+    out = ev_mod.isolation(_ev_span([(0, 2), (30, 0)]), pre_minutes=10, post_minutes=10)
+    assert out.loc[0, "gap_after"] == 28.0     # 시작 기준이면 30
+    assert out.loc[1, "gap_before"] == 28.0
+
+
+def test_isolation_falls_back_to_start_when_last_at_is_absent():
+    """last_at 이 없는 표는 시작 기준으로 잰다 - 구 규칙 재현에 쓴다."""
+    out = ev_mod.isolation(_ev([0, 30]), pre_minutes=10, post_minutes=10)
+    assert out.loc[0, "gap_after"] == 30.0
+
+
+def test_isolation_reason_says_what_was_short():
+    """창을 몇으로 바꾸면 살아나는지가 그 줄에서 읽혀야 한다.
+
+    3개 사슬 (0, 5, 100) 으로는 가운데가 "앞뒤" 둘 다 모자라면서 마지막이
+    격리(None) 인 상태를 만들 수 없다 - 가운데의 뒤 간격과 마지막의 앞 간격은
+    같은 수(둘 사이 거리)이고, pre==post==10 이면 그 수는 둘 다 모자라거나
+    둘 다 안 모자라거나 둘 중 하나다. 그래서 이벤트를 하나 더 두고, "모자람"
+    을 보여줄 이벤트와 "격리됨" 을 보여줄 이벤트를 분리한다.
+    """
+    out = ev_mod.isolation(_ev_span([(0, 0), (5, 0), (10, 0), (200, 0)]),
+                           pre_minutes=10, post_minutes=10)
+    assert out.loc[0, SS.ISO_REASON] == "뒤 5.0<10"
+    assert out.loc[1, SS.ISO_REASON].startswith("앞뒤")
+    assert out.loc[3, SS.ISO_REASON] is None
+
+
 def test_isolation_rejects_events_that_are_too_close():
     """조정 2분 뒤에 또 조정이 오면 앞 것의 반응을 못 본다."""
     out = ev_mod.isolation(_ev([0, 2, 90]), pre_minutes=30, post_minutes=60)
