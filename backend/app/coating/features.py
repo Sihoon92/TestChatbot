@@ -83,7 +83,16 @@ def delta_samples(
         )
 
     # Δgap 채우기 — zone 이 있는 항목만. 스칼라 제어값은 레벨 모델이 쓴다.
-    zoned = event_deltas[event_deltas[S.ZONE].notna()]
+    #
+    # (event, zone) 으로 먼저 **합친다**. 한 이벤트 안에서 같은 zone 을 두 번
+    # 만지면 행이 두 개 오는데, 아래 루프는 같은 칸에 쓰므로 합치지 않으면
+    # 마지막 것만 남는다. ΔWet 은 그 두 번의 결과를 다 담고 있으므로 Δgap 만
+    # 작아지고, 그 비율만큼 게인이 부풀려진다.
+    zoned = (
+        event_deltas[event_deltas[S.ZONE].notna()]
+        .groupby([S.EVENT, S.ZONE], as_index=False)[S.DELTA]
+        .sum()
+    )
     out = out.set_index(S.EVENT)
     for _, d in zoned.iterrows():
         if d[S.EVENT] in out.index:

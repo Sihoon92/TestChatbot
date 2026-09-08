@@ -76,6 +76,35 @@ def test_delta_samples_only_use_clean_events():
     assert out.iloc[0]["dg1"] == 5.0
 
 
+def test_delta_samples_sums_repeated_adjustments_of_one_zone():
+    """한 이벤트 안에서 같은 zone 을 두 번 만졌으면 Δgap 은 합이다.
+
+    덮어쓰면 마지막 것만 남아 Δgap 이 작아지는데, ΔWet 은 전체 변화를 담으므로
+    게인이 그 비율만큼 부풀려진다.
+    """
+    ev = pd.DataFrame({
+        S.LOT: ["L1"],
+        S.EVENT: ["L1#1"],
+        S.AT: pd.to_datetime(["2026-01-31 19:00"]),
+        S.SETTLED_AT: pd.to_datetime(["2026-01-31 19:05"]),
+        S.CONTAMINATED: [False],
+        S.DROP_REASON: [None],
+    })
+    # 같은 zone1 을 +1 씩 세 번 = 총 +3
+    dl = pd.DataFrame({
+        S.EVENT: ["L1#1", "L1#1", "L1#1"],
+        S.ITEM: ["30030838"] * 3,
+        S.ZONE: [1.0, 1.0, 1.0],
+        S.DELTA: [1.0, 1.0, 1.0],
+    })
+    times = pd.to_datetime([f"2026-01-31 19:{m:02d}" for m in range(0, 30)])
+    w = pd.DataFrame({S.LOT: ["L1"] * 30, S.AT: times})
+    for z in range(1, 26):
+        w[f"z{z}"] = [18.2] * 15 + [18.5] * 15
+    out = features.delta_samples(ev, dl, w, valid=list(range(1, 26)), window_minutes=3)
+    assert out.iloc[0]["dg1"] == 3.0
+
+
 def test_delta_columns_are_25_each():
     assert len(features.GAP_DELTA_COLS) == 25
     assert len(features.WET_DELTA_COLS) == 25
