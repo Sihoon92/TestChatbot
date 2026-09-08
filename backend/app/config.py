@@ -76,6 +76,16 @@ class Settings(BaseSettings):
     # 이 시간 안에 정착을 못 찾으면 오염 이벤트로 버린다.
     # 응답창(10분)을 넘겨 정착을 기다리면 다음 이벤트의 영역을 보게 된다.
     coating_settle_max_wait_minutes: int = 10
+    # 레벨 모델(features.absolute_samples) 전용 대기 시간. 제어값이 바뀐 시점부터
+    # 이만큼 지난 뒤부터를 "그 조건에서의 Wet" 으로 평균 낸다.
+    #
+    # coating_settle_max_wait_minutes 와 일부러 분리했다. 그 설정은 annotate_settling
+    # 의 오염 판정 기준("10분 넘겨 정착을 기다리면 다음 이벤트 영역을 보게 된다")이고
+    # 응답창 10분과 짝지어 정해진 값이다 - 레벨 표본이 몇 분을 기다려야 안정 상태로
+    # 볼 수 있는지는 전혀 다른 질문이다. 하나로 묶으면 응답창을 조정할 때마다 레벨
+    # 모델의 학습 데이터가 아무도 의도하지 않은 채로 같이 재튜닝된다(실제로 그렇게
+    # 30 → 10 으로 조용히 바뀐 적이 있다).
+    coating_absolute_wait_minutes: int = 30
     # 튜닝 종료의 교차검증 기준. 스펙(±0.4)은 합격 판정용이라 튜닝 종료 판정에는
     # 너무 헐겁다 — 실제 변동이 ±0.03 이면 즉시 스펙에 들어와 구간이 사라진다.
     coating_tuning_band: float = 0.1
@@ -116,9 +126,11 @@ class Settings(BaseSettings):
     coating_response_post_minutes: int = 10
     # ΔWet 을 재는 앞뒤 평균창. 한 시점끼리 빼면 측정 노이즈가 그대로 신호에 섞인다.
     # after = mean[t1+post-w, t1+post], before = mean[t0-w, t0).
-    # coating_settle_window_minutes 를 재사용하지 않는 이유: 그건 annotate_settling
-    # 의 이동창 폭이고 계속 그 용도로 남는다. 뜻이 다른 두 창이 한 설정을 공유하면
-    # 한쪽을 조정할 때 다른 쪽이 조용히 따라 움직인다.
+    # coating_settle_window_minutes 를 재사용하지 않는 이유: 그 설정은 이미 세 곳에서
+    # 쓰인다 - annotate_settling 의 이동창 폭, response.align_events 의 baseline_minutes
+    # (report._dynamics_facts 와 diagnose._window_check_lines 모두), features.absolute_samples
+    # 의 min_window_minutes. 이 넷과도 뜻이 다른 다섯 번째 창이라 새로 둔다. 뜻이 다른
+    # 창들이 한 설정을 공유하면 한쪽을 조정할 때 나머지가 조용히 따라 움직인다.
     coating_delta_window_minutes: int = 3
     # 제어 구간 격리 — "이 이벤트가 홀로 섰는가" 를 이벤트 시각만으로 가른다.
     # 정착(annotate_settling)으로 가르면 순환에 빠진다: 정착을 제대로 잡으려면

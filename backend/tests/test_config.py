@@ -139,3 +139,21 @@ def test_coating_delta_window_fits_inside_the_response_window():
 
     s = Settings()
     assert s.coating_delta_window_minutes * 2 < s.coating_response_post_minutes
+
+
+def test_coating_absolute_wait_is_independent_of_settle_max_wait():
+    """레벨 모델(absolute_samples)의 대기 시간은 annotate_settling 의 오염
+    판정 기준(settle_max_wait)과 다른 설정이어야 한다. 하나로 묶이면
+    응답창을 조정할 때마다 레벨 모델의 학습 데이터가 조용히 재튜닝된다
+    (실제로 그렇게 30 → 10 으로 따라간 적이 있다) - 기본값 자체가 서로
+    달라야(30 vs 10) 이 분리가 우연이 아니라 의도임을 확인할 수 있다."""
+    from app.config import Settings
+
+    s = Settings(_env_file=None)
+    assert s.coating_absolute_wait_minutes == 30
+    assert s.coating_settle_max_wait_minutes == 10
+    assert s.coating_absolute_wait_minutes != s.coating_settle_max_wait_minutes
+
+    # 하나만 바꿔도 다른 하나는 그대로여야 한다 - 진짜 독립이라는 증거.
+    s2 = Settings(_env_file=None, coating_settle_max_wait_minutes=999)
+    assert s2.coating_absolute_wait_minutes == 30

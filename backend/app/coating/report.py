@@ -156,9 +156,14 @@ def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict
         "missing_control_items": missing,
         "tuning_end": segment.tuning_end_last_change(changes).to_dict("records"),
     }
+    # wait_minutes 는 coating_settle_max_wait_minutes 가 아니라 이 목적 전용
+    # 설정을 쓴다 - 그건 annotate_settling 의 오염 판정 기준(응답창과 짝지어
+    # 10으로 정해졌다)이라, 같이 쓰면 응답창을 조정할 때마다 레벨 모델의 학습
+    # 데이터가 의도치 않게 재튜닝된다(config.py 의 coating_absolute_wait_minutes
+    # 주석 참고).
     abs_samples = features.absolute_samples(
         changes, wm, bounds,
-        s.coating_settle_max_wait_minutes, s.coating_settle_window_minutes,
+        s.coating_absolute_wait_minutes, s.coating_settle_window_minutes,
     )
     if tables is not None:
         tables["08_absolute_samples"] = abs_samples
@@ -302,6 +307,11 @@ def _dynamics_facts(readings, ev, dl, s, bounds, tables=None) -> dict:
         "implied_distance_m": response.implied_distance_m(
             dyn["dead_time"], s.coating_line_speed_mpm
         ),
+        # §4/diagnose._window_invariant_lines 의 불변식 경고와 같은 값 - 리포트의
+        # 판정 경로에서도 보여야 사람이 .env 를 손으로 고치다 하나만 올리는 실수를
+        # 바로 알아챈다.
+        "isolation_post_minutes": s.coating_isolation_post_minutes,
+        "response_post_minutes": s.coating_response_post_minutes,
         **dyn,
         **response.verdict(sigma, n_clean, n_pairs, dyn, tau_guess),
     }
@@ -350,6 +360,14 @@ def _dynamics_lines(d: dict) -> list[str]:
     lines.append(
         f"- 깨끗한 이벤트 {d['n_events']}건 → (이벤트×zone) 표본 {d['n_pairs']}개"
     )
+    iso_post, resp_post = d.get("isolation_post_minutes"), d.get("response_post_minutes")
+    if iso_post is not None and resp_post is not None and iso_post != resp_post:
+        lines.append(
+            f"  - ⚠ 뒤 격리 {iso_post}분 ≠ 응답창 {resp_post}분. 격리가 보장하는"
+            " 조용한 구간보다 더 긴 구간을 응답으로 읽고 있다 - 그 초과분에는"
+            " 다른 조정이 섞여 있어도 걸러지지 않는다. COATING_ISOLATION_POST_MINUTES"
+            " 와 COATING_RESPONSE_POST_MINUTES 를 같은 값으로 맞춘다."
+        )
     if not d.get("identifiable"):
         return lines + _not_identifiable_lines(d) + [""]
 
@@ -642,6 +660,13 @@ def _dump_meta(csv_path, source, sheet, s) -> dict:
         "panel_ffill_max_minutes": s.coating_panel_ffill_max_minutes,
         "response_pre_minutes": s.coating_response_pre_minutes,
         "response_post_minutes": s.coating_response_post_minutes,
+        # 이 셋이 지금은 "어느 이벤트가 존재하는가" 자체를 정한다(격리 =
+        # 선별). 빠져 있으면 덤프 폴더 둘을 비교할 때 행 수가 왜 다른지
+        # 추측이 된다(dump.py 모듈 docstring 이 이 매니페스트의 존재 이유로
+        # 드는 바로 그 비교다).
+        "isolation_pre_minutes": s.coating_isolation_pre_minutes,
+        "isolation_post_minutes": s.coating_isolation_post_minutes,
+        "delta_window_minutes": s.coating_delta_window_minutes,
     }
 
 

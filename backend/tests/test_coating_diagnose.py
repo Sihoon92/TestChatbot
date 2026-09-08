@@ -636,3 +636,54 @@ def test_window_check_survives_all_nan_curve_without_crashing(monkeypatch):
     curve = _window_curve([(lag, float("nan"), float("nan"), 0) for lag in range(0, 11)])
     text = _window_check(monkeypatch, curve)
     assert "정렬된 응답이 없다" in text
+
+
+# ── 뒤 격리 = 응답창 불변식 (fix F) ─────────────────────────────────────
+
+
+def test_window_invariant_is_silent_when_windows_match():
+    from app.coating import diagnose
+    from app.config import get_settings
+
+    s = get_settings()
+    assert s.coating_isolation_post_minutes == s.coating_response_post_minutes
+    assert diagnose._window_invariant_lines(s) == []
+
+
+def test_window_invariant_warns_when_windows_diverge():
+    """§4 는 손으로 하나만 올리면 살아나는 경고를 줬는데, 그 위험한 상태
+    자체를 매 실행마다 스스로 검사하는 곳은 없었다."""
+    from app.coating import diagnose
+    from app.config import get_settings
+
+    s = get_settings().model_copy(update={"coating_response_post_minutes": 20})
+    lines = diagnose._window_invariant_lines(s)
+    text = "\n".join(lines)
+    assert "COATING_ISOLATION_POST_MINUTES=10" in text
+    assert "COATING_RESPONSE_POST_MINUTES=20" in text
+
+
+def test_render_preprocess_header_shows_the_window_mismatch(tmp_path, monkeypatch):
+    """헤더에서부터 보여야 한다 - §4 까지 안 가도 알 수 있게."""
+    import pandas as pd
+
+    from app.coating import diagnose, parse
+    from app.coating import schemas as S
+    from app.config import get_settings
+
+    base = pd.Timestamp("2026-02-02 06:00")
+    rows = [{S.LOT: "L1", S.AT: base, S.PRODUCT: "P",
+             S.ITEM: S.GAP_ITEM_IDS[0], S.VALUE: 40.0, S.ROW_NO: 0}]
+    src = tmp_path / "tiny.parquet"
+    pd.DataFrame(rows).to_parquet(src)
+    monkeypatch.setattr(
+        parse, "load_readings",
+        lambda *a, **k: pd.read_parquet(src).assign(**{
+            S.IO: lambda d: [
+                S.IO_OUTPUT if i.startswith("9") else S.IO_INPUT for i in d[S.ITEM]
+            ]
+        }),
+    )
+    s = get_settings().model_copy(update={"coating_response_post_minutes": 20})
+    text = diagnose.render_preprocess(str(src), s)
+    assert "≠ 응답창" in text

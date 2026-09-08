@@ -366,3 +366,35 @@ def test_dump_tables_include_the_event_ledger():
     from app.coating import report
 
     assert "12_event_ledger" in report.DUMP_TABLES
+
+
+# ── 뒤 격리 = 응답창 불변식 · 덤프 매니페스트 (fix F, G) ────────────────
+
+
+def test_dump_manifest_records_the_isolation_and_delta_window_settings(tmp_path):
+    """이 셋이 지금은 어떤 이벤트가 존재하는지를 정한다. 매니페스트에 없으면
+    덤프 폴더 둘의 행 수가 왜 다른지 추측이 된다(dump.py 의 존재 이유)."""
+    from app.coating import report
+    from app.config import get_settings
+
+    s = get_settings()
+    meta = report._dump_meta("x.csv", "csv", None, s)
+    assert meta["isolation_pre_minutes"] == s.coating_isolation_pre_minutes
+    assert meta["isolation_post_minutes"] == s.coating_isolation_post_minutes
+    assert meta["delta_window_minutes"] == s.coating_delta_window_minutes
+
+
+def test_dynamics_lines_are_silent_when_windows_match():
+    md = "\n".join(report._dynamics_lines(_identifiable_facts(
+        isolation_post_minutes=10, response_post_minutes=10,
+    )))
+    assert "≠ 응답창" not in md
+
+
+def test_dynamics_lines_warn_when_isolation_and_response_windows_diverge():
+    """하나만 손으로 올리면 이 문서가 없애려던 버그가 재발한다 - 뒤 격리가
+    보장하는 조용한 구간보다 더 긴 구간을 응답으로 읽게 된다."""
+    md = "\n".join(report._dynamics_lines(_identifiable_facts(
+        isolation_post_minutes=10, response_post_minutes=20,
+    )))
+    assert "뒤 격리 10분 ≠ 응답창 20분" in md

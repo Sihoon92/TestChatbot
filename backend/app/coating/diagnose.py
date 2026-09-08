@@ -399,6 +399,7 @@ def render_preprocess(path, s) -> str:
         "쓸 수 있고, 그래서 L 을 재는 데 쓸 수 있다.",
         "",
     ]
+    lines += _window_invariant_lines(s)
     lines += _section(
         "0. 어디서 얼마나 줄었나",
         lambda: _funnel_lines(trace.funnel(readings, deduped, changes, iso)),
@@ -457,6 +458,27 @@ def _section(name: str, builder) -> list[str]:
             "   (다른 절은 이 실패와 무관하게 계산된다 - 위아래 절을 계속 본다.)",
             "",
         ]
+
+
+def _window_invariant_lines(s) -> list[str]:
+    """뒤 격리 = 응답창 불변식이 깨졌는지 매 실행마다 스스로 검사한다.
+
+    이 불변식은 test_config.py 에서만 검증돼 있었다 - .env 를 손으로 고치는
+    사람에게는 아무 도움이 안 된다. 하나만 올리면 정확히 이 문서가 없애려던
+    버그가 재발한다: 뒤 10분만 조용함을 보장하는데 20분을 응답으로 읽으면,
+    그 10분 중 절반은 다른 조정이 섞여 있어도 통과한다. 예외로 죽이지 않는다
+    - 실행을 막을 이유는 없고, 사람이 보고 판단하면 된다.
+    """
+    if s.coating_isolation_post_minutes == s.coating_response_post_minutes:
+        return []
+    return [
+        f"⚠ 뒤 격리(COATING_ISOLATION_POST_MINUTES={s.coating_isolation_post_minutes}분)"
+        f" ≠ 응답창(COATING_RESPONSE_POST_MINUTES={s.coating_response_post_minutes}분)."
+        " 격리가 보장하는 조용한 구간보다 더 긴 구간을 응답으로 읽고 있다는 뜻이다"
+        " - 그 초과분에는 다른 조정이 섞여 있어도 걸러지지 않는다. 둘을 같은 값으로"
+        " 맞춘다.",
+        "",
+    ]
 
 
 # --isolation 은 별칭으로 남긴다. 기존 문서와 손버릇이 깨지지 않게.
@@ -587,9 +609,13 @@ def _window_check_lines(deduped, iso, dl, s, panel_mod, resp_mod) -> list[str]:
     if not len(usable):
         return out + ["   격리를 통과한 이벤트가 0건이라 판정할 수 없다.", ""]
     p = panel_mod.build_panel(deduped, s.coating_panel_ffill_max_minutes)
+    # baseline_minutes 는 report._dynamics_facts 와 같은 coating_settle_window_minutes
+    # 를 써야 한다. 다른 창(예전에는 coating_delta_window_minutes)을 쓰면 이 절이
+    # 검증하는 곡선이 리포트가 실제로 쓰는 곡선과 달라져서, §4 가 ✓ 를 찍어도
+    # 리포트의 L·τ 는 다른 기준선에서 나온 값이 된다.
     aligned = resp_mod.align_events(
         p, usable, dl, s.coating_response_pre_minutes, post,
-        s.coating_delta_window_minutes,
+        s.coating_settle_window_minutes,
     )
     curve = resp_mod.response_curve(aligned)
     fwd = curve[curve[resp_mod.LAG] >= 0] if len(curve) else curve
