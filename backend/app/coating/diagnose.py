@@ -539,18 +539,26 @@ def _window_check_lines(deduped, iso, dl, s, panel_mod, resp_mod) -> list[str]:
 
 
 def _legacy_tables(ev, iso, changes, bounds, s, ev_mod) -> list[str]:
-    """창을 고르는 근거 세 표. 새 다섯 절 뒤에 그대로 유지한다."""
+    """창을 고르는 근거 세 표. 새 다섯 절 뒤에 그대로 유지한다.
+
+    §6·§7 은 `ev` 가 아니라 `changes` 를 입력으로 쓴다 - 그래서 이벤트가
+    0건(`ev.empty`)이어도 낼 수 있다. §5 만 조기에 "0건" 을 적고 §6·§7 은
+    끝까지 그린다 - 절이 통째로 사라지면 "재서 0 이다" 와 "이 표는 원래
+    없다" 를 구별할 수 없다.
+    """
     lines = ["## 5. 격리 창을 바꿔가며", "", "   창(앞=뒤)   홀로 선 이벤트"]
     if ev.empty:
-        return lines + ["   (조정 이벤트가 0건이다)", ""]
-    table = ev_mod.isolation_table(ev, bounds=bounds)
-    for r in table.itertuples(index=False):
-        lines.append(
-            f"   {r.post_minutes:>6}분   {r.n_isolated:>4} / {r.n_events}"
-            f" ({r.ratio:.0%})"
-        )
-    n_now = int(iso["isolated"].sum()) if len(iso) else 0
-    lines += ["", f"- 현재 설정 → **{n_now}건**", "", _isolation_verdict(table, n_now)]
+        lines += ["   (조정 이벤트가 0건이다)", ""]
+    else:
+        table = ev_mod.isolation_table(ev, bounds=bounds)
+        for r in table.itertuples(index=False):
+            lines.append(
+                f"   {r.post_minutes:>6}분   {r.n_isolated:>4} / {r.n_events}"
+                f" ({r.ratio:.0%})"
+            )
+        n_now = int(iso["isolated"].sum()) if len(iso) else 0
+        lines += ["", f"- 현재 설정 → **{n_now}건**", "",
+                   _isolation_verdict(table, n_now)]
 
     lines += ["", "## 6. 변경 사이의 간격 분포 — 병합창은 몇 분이어야 하나", ""]
     hist = ev_mod.gap_histogram(changes)
@@ -605,7 +613,7 @@ def _gap_verdict(hist: pd.DataFrame) -> str:
     if best is None:
         return (
             "- 뚜렷한 골이 없다. 조정 간격이 연속적으로 퍼져 있어 '한 번의 튜닝' 을"
-            " 간격만으로 가르기 어렵다는 뜻이다 — 아래 3번 표에서 쓸 수 있는 항목이"
+            " 간격만으로 가르기 어렵다는 뜻이다 — 아래 7번 표에서 쓸 수 있는 항목이"
             " 가장 많아지는 창을 고른다."
         )
     lo, hi = _lower(labels[best[0]]), _lower(labels[best[1]])
@@ -613,7 +621,7 @@ def _gap_verdict(hist: pd.DataFrame) -> str:
         f"- **{lo}~{hi}분 구간이 비어 있다.** 그 아래는 한 번의 튜닝 안에서 볼트를"
         " 옮겨 잡은 간격이고, 그 위는 튜닝과 튜닝 사이의 간격이라는 뜻이다."
         f" 병합창을 이 사이 아무 값으로 둬도 결과가 같다 - 실제로 무엇이 최선인지는"
-        " 아래 3번 표가 정한다."
+        " 아래 7번 표가 정한다."
     )
 
 

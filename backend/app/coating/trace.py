@@ -77,6 +77,14 @@ def funnel(
     **이름 없는 감소가 없어야 한다.** 원본 100만 행이 이벤트 31건이 되는 것은
     정상인데, 어느 줄에서 얼마가 빠졌는지 이름이 붙지 않으면 사람은 그 정상을
     이상으로 읽고 파이프라인을 의심하는 데 시간을 쓴다.
+
+    `delta` 열은 **nullable 정수(`Int64`)** 다 — 단위가 바뀌어 뺄셈이 뜻을
+    잃는 줄은 파이썬 `int` 와 `None` 을 그냥 리스트로 섞어 담으면 pandas 가
+    조용히 `float64` 로 승격시켜 `None` 을 `NaN` 으로 바꾼다(정확히 이 코드가
+    한 번 그렇게 당했었다 - Task 10 diagnose._funnel_lines 가 `is None` 으로
+    걸렀다가 매 실행 `(+nan)` 을 냈다). `Int64` 로 명시하면 "델타 없음" 이
+    `pd.NA` 로 정직하게 남고, `pd.isna()` 로 float 승격 없이도 잡힌다 -
+    events.isolation 이 `iso_reason` 에 `dtype=object` 를 쓰는 것과 같은 이유다.
     """
     ctrl = changes[changes[S.ITEM].isin(S.CONTROL_ITEM_IDS)]
     real = ctrl[ctrl[S.PREV_VALUE].notna()] if S.PREV_VALUE in ctrl.columns else ctrl
@@ -119,9 +127,12 @@ def funnel(
     out = pd.DataFrame(rows, columns=["stage", "n", "note", "_chains_from_prev"])
     ns = out["n"].tolist()
     chains = out["_chains_from_prev"].tolist()
-    out["delta"] = [
-        int(ns[i] - ns[i - 1]) if chains[i] else None for i in range(len(out))
+    deltas = [
+        (ns[i] - ns[i - 1]) if chains[i] else None for i in range(len(out))
     ]
+    # dtype 을 명시한다 - 리스트 그대로 대입하면 int·None 혼합을 pandas 가
+    # float64 로 승격시켜 None 을 NaN 으로 바꾼다(위 docstring 참고).
+    out["delta"] = pd.array(deltas, dtype="Int64")
     return out[FUNNEL_COLS]
 
 

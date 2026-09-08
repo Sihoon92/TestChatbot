@@ -362,10 +362,13 @@ def test_gap_verdict_ignores_empty_cells_at_the_edges():
 
 
 def test_gap_verdict_says_so_when_gaps_are_continuous():
-    """간격이 연속적으로 퍼져 있으면 간격만으로는 못 가른다."""
+    """간격이 연속적으로 퍼져 있으면 간격만으로는 못 가른다.
+
+    가리키는 표 번호는 --preprocess 렌더러의 실제 절 번호(병합 민감도 = §7)와
+    맞아야 한다 - 안 맞으면 사용자를 없는 절로 보내는 안내문이 된다."""
     text = diagnose._gap_verdict(_hist([1, 2, 3, 4, 3, 2, 1, 1]))
     assert "골이 없다" in text
-    assert "3번 표" in text
+    assert "7번 표" in text
 
 
 def test_merge_verdict_quantifies_what_a_narrow_window_costs():

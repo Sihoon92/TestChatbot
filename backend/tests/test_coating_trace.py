@@ -143,6 +143,36 @@ def test_funnel_rejection_buckets_partition_the_rejected_events():
     assert note == "탈락 앞 1 · 뒤 1 · 양쪽 1"
 
 
+def test_funnel_delta_is_nullable_int_not_float_nan():
+    """delta 없음은 pd.NA 여야 한다 — float NaN 이 아니다.
+
+    int 와 None 을 그냥 리스트로 섞어 DataFrame 열에 담으면 pandas 가 조용히
+    float64 로 승격시켜 None 을 NaN 으로 바꾼다. 그 상태에서 소비자가 관례대로
+    `is None` 으로 걸러내면 절대 걸리지 않는다 - diagnose._funnel_lines 가
+    실제로 이렇게 당해 매 실행 '(+nan)' 을 냈다(Task 10). dtype 을 Int64 로
+    명시해 두면 '델타 없음' 이 pd.NA 로 정직하게 남고, pd.isna() 로 float
+    승격 없이도 잡힌다 - 이 계약이 깨지면 다음 소비자도 같은 함정을 밟는다.
+    """
+    ch = _changes([(0, 0, 40.0, 41.0), (5, 1, 40.0, 41.0), (100, 2, 40.0, 41.0)])
+    _, _, iso = _pipeline(ch)
+    f = trace.funnel(pd.DataFrame({S.LOT: []}), pd.DataFrame({S.LOT: []}), ch, iso)
+    assert f["delta"].dtype == "Int64"
+
+    # "앵커 묶음" 은 단위가 행에서 묶음으로 바뀌는 줄이라 뺄셈이 뜻을 잃는다.
+    unit_change = f[f["stage"] == "앵커 묶음"].iloc[0]["delta"]
+    assert pd.isna(unit_change)
+
+    # "분 중복 접기" 는 앞 줄과 같은 단위(행)라 실제 정수 델타가 나와야 한다.
+    real_delta = f[f["stage"] == "분 중복 접기"].iloc[0]["delta"]
+    assert not pd.isna(real_delta)
+    assert real_delta == 0
+
+    # 실제 증감이 있는 줄에서도 부동소수점 오염(예: 3.0) 없이 정수로 나온다.
+    changed = f[f["stage"] == "값이 바뀐 시점만"].iloc[0]["delta"]
+    assert changed == len(ch)  # deduped 가 빈 프레임이라 0 에서 len(ch) 만큼 는다
+    assert int(changed) == changed
+
+
 def test_funnel_counts_fragments_of_continuous_runs():
     # 0→1.5→3 은 한 연쇄인데 앵커가 둘로 쪼갠다. 그 둘이 "조각" 이다.
     ch = _changes([(0, 0, 40.0, 41.0), (1.5, 1, 40.0, 41.0), (3, 2, 40.0, 41.0),
