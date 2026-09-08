@@ -564,9 +564,22 @@ def _comparison_lines(c) -> list[str]:
 def _window_check_lines(deduped, iso, dl, s, panel_mod, resp_mod) -> list[str]:
     """응답창이 반응을 담고 있나. 10분은 실측이 아니라 가정이다.
 
-    곡선의 최댓값이 마지막 lag 에서 나오면 창이 짧다는 뜻이다. 이 두 줄이 매
-    실행마다 그 가정을 스스로 검사한다 - 없으면 틀린 창으로 낸 L·τ 가 숫자처럼
-    보여서 더 위험하다.
+    이 절이 검사하는 것은 "곡선의 최댓값이 마지막 lag 에 섰는가" 하나가
+    아니다. 그것만 보면 놓치는 실패 양식이 하나 더 있다 - 순수지연이 창보다
+    길면 관측한 0~10분 구간 전부가 순수 노이즈이고, 그때 argmax 는 11칸에
+    균등분포한다. Monte Carlo 로 재보면 이 경우에도 "마지막 칸이 아니다" 가
+    표본 수와 무관하게 약 90.9% 의 확률로 나온다 - 표본을 늘려도 사라지지
+    않는 거짓 ✓ 다. 그래서 판정을 셋으로 가른다.
+
+      가장자리에서 상승   최댓값이 마지막 lag 에 섰다 → 창이 짧아 τ 를 못 담는다.
+      노이즈 아래         최댓값이 자기 표준오차(SE)의 _SIGMA_K(=2)배를 못 넘는다
+                          → 이 창 안에서는 반응이 검출되지 않았다(순수지연이
+                          창보다 길거나 반응이 검출 한계 아래이고, 곡선만으로는
+                          둘을 못 가른다).
+      안쪽 · 노이즈 위    ✓.
+
+    peak_lag 가 0·1 이면 셋째 판정을 통과했어도 별도로 경고한다 - 순수지연이
+    있는 계단 응답이 lag 0~1 에서 이미 봉우리에 서는 것은 물리적으로 불가능하다.
     """
     post = s.coating_response_post_minutes
     out = [f"## 4. {post}분 창이 반응을 담고 있나", ""]
@@ -592,23 +605,58 @@ def _window_check_lines(deduped, iso, dl, s, panel_mod, resp_mod) -> list[str]:
             "   이 lot 에서 통째로 미측정(0)이었을 수 있다.",
             "",
         ]
-    peak_lag = int(fwd.loc[fwd["mean"].idxmax(), resp_mod.LAG])
+    peak_row = fwd.loc[fwd["mean"].idxmax()]
+    peak_lag = int(peak_row[resp_mod.LAG])
+    peak_mean = float(peak_row["mean"])
+    peak_sem = float(peak_row["sem"])
     last_lag = int(fwd[resp_mod.LAG].max())
-    mark = "  ⚠  마지막 칸이다 — 창이 짧다." if peak_lag >= last_lag else "  ✓"
-    # 마지막 lag 에서 최댓값이 서면 창이 짧다는 것만 알고 얼마나 짧은지는
-    # 모른다 - 다음 표준 시도는 두 배로 넓혀 보는 것이다. 설정 이름과 함께
-    # 지금 값 → 두 배 값을 그대로 적어야 읽는 사람이 더 고민하지 않고 바로
-    # .env 를 고칠 수 있다("올린다" 만으로는 얼마나 올릴지 다시 판단해야 한다).
+    sigma_k = resp_mod._SIGMA_K
+    if not np.isfinite(peak_sem):
+        sem_txt = "정의 안 됨(그 lag 의 표본이 1건뿐)"
+        significant = False
+    else:
+        sem_txt = f"{peak_sem:.4f}"
+        significant = (
+            (peak_mean != 0) if peak_sem == 0 else (abs(peak_mean) >= sigma_k * peak_sem)
+        )
+
+    lines = [
+        f"   정렬 응답 곡선 최댓값 lag = +{peak_lag}분 (관측 끝 +{last_lag}분)"
+        f" — 평균 {peak_mean:+.4f} · SE {sem_txt} (기준 {sigma_k:g}×SE)",
+    ]
     post_iso = s.coating_isolation_post_minutes
     post_resp = s.coating_response_post_minutes
-    return out + [
-        f"   정렬 응답 곡선 최댓값 lag = +{peak_lag}분 (관측 끝 +{last_lag}분){mark}",
-        f"   (최댓값이 창 한가운데면 정상. 마지막 lag 이면 창이 짧다는 뜻이다 -"
-        f" 다음 시도는 두 배: COATING_ISOLATION_POST_MINUTES 를"
-        f" {post_iso} → {post_iso * 2}, COATING_RESPONSE_POST_MINUTES 를"
-        f" {post_resp} → {post_resp * 2} 로 두고 다시 돌린다.)",
-        "",
-    ]
+    if peak_lag >= last_lag:
+        # 마지막 lag 에서 최댓값이 서면 창이 짧다는 것만 알고 얼마나 짧은지는
+        # 모른다 - 다음 표준 시도는 두 배로 넓혀 보는 것이다. 설정 이름과 함께
+        # 지금 값 → 두 배 값을 그대로 적어야 읽는 사람이 더 고민하지 않고 바로
+        # .env 를 고칠 수 있다("올린다" 만으로는 얼마나 올릴지 다시 판단해야 한다).
+        lines += [
+            "     ⚠ 가장자리에서 상승 — 창이 짧아 τ 를 못 담고 있을 가능성이 크다.",
+            f"     다음 시도는 두 배: COATING_ISOLATION_POST_MINUTES 를"
+            f" {post_iso} → {post_iso * 2}, COATING_RESPONSE_POST_MINUTES 를"
+            f" {post_resp} → {post_resp * 2} 로 두고 다시 돌린다.",
+        ]
+    elif not significant:
+        lines += [
+            f"     ⚠ 노이즈 아래 — 최댓값이 자기 SE 의 {sigma_k:g}배를 못 넘는다."
+            " 이 창 안에서는 반응이 검출되지 않았다.",
+            "     뜻: 순수지연이 이 창보다 길거나, 반응 크기가 지금 표본의 검출"
+            " 한계 아래다 - 곡선만으로는 이 둘이 갈리지 않는다.",
+            "     먼저 해볼 것: 창을 늘려 다시 본다. 그래도 안 보이면 §0 의 격리"
+            " 통과 건수를 늘리는 쪽(표본 부족)을 의심한다.",
+        ]
+    else:
+        lines.append("     ✓ 창 안쪽에서, 노이즈 위로 반응이 잡혔다.")
+        if peak_lag <= 1:
+            lines.append(
+                f"     ⚠ 다만 최댓값이 lag {peak_lag}에 섰다 — 순수지연이 있는"
+                " 계단 응답에서는 물리적으로 있을 수 없는 자리다. 위 검정을"
+                " 통과했어도 zone 대응이 밀렸거나 우연한 초과일 수 있다 -"
+                " `python -m app.coating.diagnose --dump <덤프폴더>` 로"
+                " 커널 진단(밀림 탐지)을 본다."
+            )
+    return out + lines + [""]
 
 
 def _isolation_window_lines(ev, iso, bounds, ev_mod) -> list[str]:

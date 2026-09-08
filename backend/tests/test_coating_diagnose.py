@@ -466,9 +466,12 @@ def test_preprocess_renders_all_five_sections(tmp_path, monkeypatch):
     #   §4 응답창: t0=m30, baseline=[27,30) 은 Wet 이 아직 18.0 이라 기준선
     #   18.0. Wet 은 m=38 에 18.4 로 계단(step) → lag=38-30=8 부터 반응이
     #   보이고(lag 8·9·10 모두 0.4, 그 앞은 0), 창은 post=10 분까지라
-    #   last_lag=10. tie 는 앞선 lag(8)를 고른다 → 최댓값 lag=+8, 관측
-    #   끝=+10, 마지막 칸이 아니므로 경고 없음(✓).
+    #   last_lag=10. tie 는 앞선 lag(8)를 고른다 → 최댓값 lag=+8, 관측 끝=+10,
+    #   마지막 칸이 아니다. 다만 이 이벤트는 zone1 하나·표본 1건뿐이라 그
+    #   lag 의 SE 는 정의되지 않는다(n=1) → 유의성 검정을 통과 못 해 "노이즈
+    #   아래" 로 판정된다.
     assert "lag = +8분 (관측 끝 +10분)" in text
+    assert "⚠ 노이즈 아래" in text
 
 
 def test_preprocess_survives_a_response_that_is_all_nan(tmp_path, monkeypatch):
@@ -532,3 +535,104 @@ def test_isolation_flag_is_an_alias_for_preprocess():
     p = diagnose.build_parser()
     args = p.parse_args(["--isolation", "x.parquet"])
     assert args.preprocess_input == "x.parquet"
+
+
+# ── §4 창 검사 — 세 갈래 판정 (fix B) ──────────────────────────────────
+# 옛 코드는 "최댓값이 마지막 lag 에 섰는가" 하나만 봤다. Monte Carlo 로 보면
+# 순수지연이 창보다 긴 경우 argmax 가 11칸에 균등분포해 그 검사가 표본 수와
+# 무관하게 약 90.9% 확률로 "✓" 를 찍는다 - 거짓 통과다. 세 갈래로 가른다:
+# 가장자리에서 상승 / 노이즈 아래 / 안쪽·노이즈 위. panel·align_events 는
+# 가짜로 바꿔 갈래 로직만 잰다.
+
+
+def _window_curve(rows):
+    import pandas as pd
+
+    from app.coating import response as resp
+
+    return pd.DataFrame(rows, columns=[resp.LAG, "mean", "sem", "n"])
+
+
+def _window_check(monkeypatch, curve):
+    import pandas as pd
+
+    from app.coating import diagnose
+    from app.coating import panel as panel_mod
+    from app.coating import response as resp_mod
+    from app.config import get_settings
+
+    monkeypatch.setattr(panel_mod, "build_panel", lambda *a, **k: pd.DataFrame())
+    monkeypatch.setattr(resp_mod, "align_events", lambda *a, **k: pd.DataFrame({"x": [1]}))
+    monkeypatch.setattr(resp_mod, "response_curve", lambda aligned: curve)
+
+    iso = pd.DataFrame({"isolated": [True]})
+    s = get_settings()
+    return "\n".join(diagnose._window_check_lines(
+        pd.DataFrame(), iso, pd.DataFrame(), s, panel_mod, resp_mod
+    ))
+
+
+def test_window_check_flags_rising_at_the_edge(monkeypatch):
+    """최댓값이 마지막 lag 에 서면 창이 짧다 - 첫째 갈래."""
+    curve = _window_curve([(lag, lag * 0.05, 0.01, 20) for lag in range(0, 11)])
+    text = _window_check(monkeypatch, curve)
+    assert "가장자리에서 상승" in text
+    assert "lag = +10분 (관측 끝 +10분)" in text
+    assert "COATING_RESPONSE_POST_MINUTES" in text
+
+
+def test_window_check_flags_below_noise(monkeypatch):
+    """최댓값이 자기 SE 의 2배를 못 넘으면 - 둘째 갈래. 이게 없으면 순수지연이
+    창보다 긴 경우가 "가장자리가 아니다" 라는 이유만으로 ✓ 를 받는다."""
+    means = [0.01, -0.02, 0.015, 0.03, -0.01, 0.02, 0.025, -0.015, 0.01, 0.02, 0.005]
+    curve = _window_curve([(lag, m, 0.05, 200) for lag, m in enumerate(means)])
+    text = _window_check(monkeypatch, curve)
+    assert "노이즈 아래" in text
+    assert "lag = +3분 (관측 끝 +10분)" in text
+
+
+def test_window_check_passes_when_interior_and_above_noise(monkeypatch):
+    """안쪽에서 노이즈 위로 잡히면 - 셋째 갈래, ✓."""
+    means = [0, 0, 0, 0.1, 0.3, 0.45, 0.5, 0.5, 0.5, 0.5, 0.5]
+    curve = _window_curve([(lag, m, 0.01, 50) for lag, m in enumerate(means)])
+    text = _window_check(monkeypatch, curve)
+    assert "✓ 창 안쪽에서, 노이즈 위로 반응이 잡혔다" in text
+    assert "lag = +6분 (관측 끝 +10분)" in text
+    assert "물리적으로 있을 수 없는 자리" not in text
+
+
+def test_window_check_warns_on_physically_impossible_early_peak(monkeypatch):
+    """유의성 검정을 통과했어도 lag 0·1 의 봉우리는 순수지연이 있는 계단
+    응답에서 물리적으로 불가능하다 - SNR 검정이 못 잡는 경우를 따로 경고한다."""
+    means = [0.5, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0.02, 0.01, 0.0, 0.0]
+    curve = _window_curve([(lag, m, 0.01, 50) for lag, m in enumerate(means)])
+    text = _window_check(monkeypatch, curve)
+    assert "✓ 창 안쪽에서, 노이즈 위로 반응이 잡혔다" in text
+    assert "물리적으로 있을 수 없는 자리" in text
+
+
+def test_window_check_prints_the_numbers_the_verdict_rests_on(monkeypatch):
+    """판정만 있고 근거가 없으면 사람이 확인할 수 없다 - peak lag·mean·SE·
+    last lag 이 전부 찍혀야 한다."""
+    curve = _window_curve([(lag, 0.5 if lag == 6 else 0.0, 0.01, 50) for lag in range(0, 11)])
+    text = _window_check(monkeypatch, curve)
+    assert "+6분" in text and "+10분" in text
+    assert "+0.5000" in text
+    assert "0.0100" in text
+
+
+def test_window_check_treats_undefined_se_as_not_significant(monkeypatch):
+    """표본이 1건뿐이면 SE 가 NaN 이다 - 유의성을 확인할 수 없으므로 함부로
+    ✓ 를 찍지 않고 노이즈 아래로 취급한다."""
+    curve = _window_curve([(lag, 0.4 if lag == 8 else 0.0, float("nan"), 1) for lag in range(0, 11)])
+    text = _window_check(monkeypatch, curve)
+    assert "노이즈 아래" in text
+    assert "정의 안 됨" in text
+
+
+def test_window_check_survives_all_nan_curve_without_crashing(monkeypatch):
+    """fix A 를 §4 갈래 판정 단위에서도 고정한다(전체 경로는
+    test_preprocess_survives_a_response_that_is_all_nan)."""
+    curve = _window_curve([(lag, float("nan"), float("nan"), 0) for lag in range(0, 11)])
+    text = _window_check(monkeypatch, curve)
+    assert "정렬된 응답이 없다" in text
