@@ -431,7 +431,44 @@ def test_preprocess_renders_all_five_sections(tmp_path, monkeypatch):
     text = diagnose.render_preprocess(str(src), get_settings())
     for head in ("## 0.", "## 1.", "## 2.", "## 3.", "## 4."):
         assert head in text
-    assert "격리 통과" in text
+
+    # 제목만 있고 본문이 깨져도(또는 비어도) 위 for 문은 통과한다 - 절마다
+    # 손으로 미리 계산한 값을 하나씩 박는다. fixture 는 zone1 gap 이 m=30 에
+    # 40→41 로, Wet zone 1~3 이 m=38 에 18.0→18.4 로 한 번씩만 계단을 밟는
+    # 단일 이벤트다. 손 계산:
+    #   원본 행 = 240분 × (gap 3종 + wet 3종) = 1,440. dedupe 는 중복이 없어
+    #   그대로 1,440. compress_runs 는 항목당 시작값 1행 + 실제 변경(zone1 gap
+    #   1회, wet 3종 각 1회) = 6 + 4 = 10행. 그중 제어 항목(gap)만 4행(시작값
+    #   3 + 변경 1), prev_value 가 있는 것(진짜 변경)은 1행뿐이다. 이벤트는
+    #   1건, 격리도 1건(이웃도 없고 lot 경계까지 앞30분/뒤209분 여유) → §0 의
+    #   "격리 통과" 줄은 n=1, 탈락 사유는 전부 0.
+    assert "원본 행                      1,440" in text
+    assert "값이 바뀐 시점만                    10  (-1,430)" in text
+    assert "격리 통과                         1   탈락 앞 0 · 뒤 0 · 양쪽 0" in text
+
+    #   §1 원장: 이벤트 id 는 "{lot}#{앵커 그룹 번호}" 이므로 "L1#1". 이벤트
+    #   시작 m=30, lot 시작 m=0 → gap_before=30.0. lot 끝 m=239, 이벤트
+    #   끝(span 0이라 시작과 동일) m=30 → gap_after=209.0. 둘 다 pre/post=10
+    #   을 넉넉히 넘어 격리 통과(✓).
+    assert "L1#1" in text
+    assert "30.0  209.0  ✓" in text
+
+    #   §2 타임라인: lot span = 239분, width 기본 80 → mpc = 239/80 = 2.9875
+    #   → 반올림 표시 "3분". lot 끝 시각 = 06:00 + 239분 = 09:59.
+    assert "1칸 = 3분" in text
+    assert "09:59" in text
+
+    #   §3 구/신 대조: 이벤트가 하나뿐이고 구 규칙(앞30/뒤60)도 여유가
+    #   충분해(30≥30, 209≥60) 신·구 모두 그 하나를 살린다 → 양쪽 통과 1건,
+    #   신에만/구에만 0건.
+    assert "양쪽 통과 1건 · 신에만 0건 · 구에만 0건" in text
+
+    #   §4 응답창: t0=m30, baseline=[27,30) 은 Wet 이 아직 18.0 이라 기준선
+    #   18.0. Wet 은 m=38 에 18.4 로 계단(step) → lag=38-30=8 부터 반응이
+    #   보이고(lag 8·9·10 모두 0.4, 그 앞은 0), 창은 post=10 분까지라
+    #   last_lag=10. tie 는 앞선 lag(8)를 고른다 → 최댓값 lag=+8, 관측
+    #   끝=+10, 마지막 칸이 아니므로 경고 없음(✓).
+    assert "lag = +8분 (관측 끝 +10분)" in text
 
 
 def test_isolation_flag_is_an_alias_for_preprocess():

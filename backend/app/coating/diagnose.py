@@ -424,7 +424,7 @@ def _funnel_lines(f) -> list[str]:
     trace.funnel 은 그 자리에 파이썬 None 을 넣지만, int 와 섞인 열을 DataFrame
     에 실으면 pandas 가 조용히 float64 로 승격시키며 None 을 NaN 으로 바꾼다
     (`r.delta is None` 은 그래서 절대 참이 안 된다 - events.isolation 이 같은
-    함정을 dtype=object 로 피하는 이유와 같다). `pd.isna` 로 checks 하면 두 표현
+    함정을 dtype=object 로 피하는 이유와 같다). `pd.isna` 로 검사하면 두 표현
     모두 잡는다.
     """
     out = ["## 0. 어디서 얼마나 줄었나", ""]
@@ -467,6 +467,10 @@ def _timeline_lines(mpc, rows) -> list[str]:
         f"## 2. 타임라인  (─ 조용  ✓ 격리통과  ✗ 탈락  1칸 = {mpc:.0f}분)",
         "",
     ]
+    if not rows:
+        # bounds 가 비면(lot 이 0개) 그릴 lot 자체가 없다 - 헤더만 찍고 끝내면
+        # "재서 0 이다" 와 "이 절은 원래 비어 있다" 가 안 갈린다.
+        return out + ["   (lot 이 0개라 그릴 것이 없다)", ""]
     for r in rows:
         out.append(
             f"   {r[S.LOT]:<12} {r['start']:%m-%d %H:%M} ├{r['cells']}┤"
@@ -530,10 +534,18 @@ def _window_check_lines(deduped, iso, dl, s, panel_mod, resp_mod) -> list[str]:
     peak_lag = int(fwd.loc[fwd["mean"].idxmax(), resp_mod.LAG])
     last_lag = int(fwd[resp_mod.LAG].max())
     mark = "  ⚠  마지막 칸이다 — 창이 짧다." if peak_lag >= last_lag else "  ✓"
+    # 마지막 lag 에서 최댓값이 서면 창이 짧다는 것만 알고 얼마나 짧은지는
+    # 모른다 - 다음 표준 시도는 두 배로 넓혀 보는 것이다. 설정 이름과 함께
+    # 지금 값 → 두 배 값을 그대로 적어야 읽는 사람이 더 고민하지 않고 바로
+    # .env 를 고칠 수 있다("올린다" 만으로는 얼마나 올릴지 다시 판단해야 한다).
+    post_iso = s.coating_isolation_post_minutes
+    post_resp = s.coating_response_post_minutes
     return out + [
         f"   정렬 응답 곡선 최댓값 lag = +{peak_lag}분 (관측 끝 +{last_lag}분){mark}",
-        f"   (최댓값이 창 한가운데면 정상. 마지막 lag 이면 "
-        f"COATING_ISOLATION_POST_MINUTES 와 COATING_RESPONSE_POST_MINUTES 를 올린다.)",
+        f"   (최댓값이 창 한가운데면 정상. 마지막 lag 이면 창이 짧다는 뜻이다 -"
+        f" 다음 시도는 두 배: COATING_ISOLATION_POST_MINUTES 를"
+        f" {post_iso} → {post_iso * 2}, COATING_RESPONSE_POST_MINUTES 를"
+        f" {post_resp} → {post_resp * 2} 로 두고 다시 돌린다.)",
         "",
     ]
 
