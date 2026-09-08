@@ -101,12 +101,46 @@ def test_funnel_accounts_for_every_drop():
 
 
 def test_funnel_names_the_rejection_breakdown():
-    """탈락을 앞/뒤/양쪽으로 갈라야 창을 어느 쪽으로 움직일지 정해진다."""
+    """탈락을 앞/뒤/양쪽으로 갈라야 창을 어느 쪽으로 움직일지 정해진다.
+
+    "앞"·"뒤" 는 note 템플릿의 라벨이라 값이 0 이어도, 자리가 뒤바뀌어도
+    항상 등장한다 - 글자 존재만 보면 숫자가 틀려도 통과한다. 그래서 값 자체를
+    박는다. 0→5(뒤가 짧음)→100(앞이 짧음) 이므로 앞 1·뒤 1·양쪽 0 이어야 한다.
+    """
     ch = _changes([(0, 0, 40.0, 41.0), (5, 1, 40.0, 41.0), (100, 2, 40.0, 41.0)])
     _, _, iso = _pipeline(ch)
     f = trace.funnel(pd.DataFrame({S.LOT: []}), pd.DataFrame({S.LOT: []}), ch, iso)
     note = f[f["stage"] == "격리 통과"].iloc[0]["note"]
-    assert "앞" in note and "뒤" in note
+    assert note == "탈락 앞 1 · 뒤 1 · 양쪽 0"
+
+
+def test_funnel_rejection_buckets_partition_the_rejected_events():
+    """세 갈래(앞/뒤/양쪽)의 합이 탈락 건수와 같아야 한다.
+
+    사유 문자열이 세 접두어 중 어느 것과도 안 맞으면 그 이벤트는 note 집계에서
+    조용히 사라진다 - 개수가 안 맞는데도 예외 없이 넘어간다. 이 등식이 그
+    누락을 잡는 유일한 자리다. 0→3→8 이 연달아 짧아 뒤/양쪽/앞 세 사유를
+    한 이벤트씩 만들고, 200 은 앞뒤 모두 넉넉해 격리를 통과한다:
+      t=0  : gap_after =3  <10           -> "뒤 3.0<10"
+      t=3  : gap_before=3, gap_after=5<10 -> "앞뒤 3.0/5.0<10/10"
+      t=8  : gap_before=5  <10           -> "앞 5.0<10"
+      t=200: 앞뒤 모두 충분               -> 격리
+    """
+    ch = _changes([(0, 0, 40.0, 41.0), (3, 1, 40.0, 41.0),
+                   (8, 2, 40.0, 41.0), (200, 3, 40.0, 41.0)])
+    _, _, iso = _pipeline(ch)
+
+    ok = iso["isolated"].astype(bool)
+    reasons = iso.loc[~ok, S.ISO_REASON]
+    n_before = int(reasons.str.startswith("앞 ").sum())
+    n_after = int(reasons.str.startswith("뒤 ").sum())
+    n_both = int(reasons.str.startswith("앞뒤").sum())
+    assert (n_before, n_after, n_both) == (1, 1, 1)
+    assert n_before + n_after + n_both == len(iso) - int(ok.sum())
+
+    f = trace.funnel(pd.DataFrame({S.LOT: []}), pd.DataFrame({S.LOT: []}), ch, iso)
+    note = f[f["stage"] == "격리 통과"].iloc[0]["note"]
+    assert note == "탈락 앞 1 · 뒤 1 · 양쪽 1"
 
 
 def test_funnel_counts_fragments_of_continuous_runs():
