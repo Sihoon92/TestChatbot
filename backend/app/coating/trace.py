@@ -19,6 +19,20 @@ LEDGER_COLS = [
 ]
 
 
+def _run_sizes(df: pd.DataFrame) -> pd.Series:
+    """run_id 하나에 이벤트가 몇 개 들었나. 인덱스가 run_id 인 시리즈. ★순수
+
+    event_ledger·funnel·timeline 셋 다 "이 run 이 쪼개진 것인가(size>1)" 를
+    묻는다. 묻는 방법이 갈린다 - 행 단위(각 이벤트에 자기 run 크기를 붙임)로
+    쓰는 곳도, run 단위(run 하나당 한 줄)로 쓰는 곳도 있다. 여기서는 더 작은
+    쪽(run 단위, groupby().size())을 진짜로 삼는다 - 행 단위가 필요한 곳은
+    `df[S.RUN].map(_run_sizes(df))` 로 이 결과를 다시 펼치면 되지만, 거꾸로
+    run 단위가 필요한 곳에서 행 단위 결과를 되접는 것은 groupby 를 한 번 더
+    부르는 것과 다르지 않다.
+    """
+    return df.groupby(S.RUN)[S.EVENT].size()
+
+
 def event_ledger(iso: pd.DataFrame, event_deltas: pd.DataFrame) -> pd.DataFrame:
     """묶음 하나당 한 줄. ★순수
 
@@ -30,7 +44,7 @@ def event_ledger(iso: pd.DataFrame, event_deltas: pd.DataFrame) -> pd.DataFrame:
 
     out = iso.copy()
     # run 이 이벤트 하나짜리면 비운다 - 눈에 띄어야 할 것은 쪼개진 것뿐이다.
-    sizes = out.groupby(S.RUN)[S.EVENT].transform("size")
+    sizes = out[S.RUN].map(_run_sizes(out))
     out[S.RUN] = out[S.RUN].where(sizes > 1, "")
 
     zoned = event_deltas[event_deltas[S.ZONE].notna()].copy()
@@ -69,8 +83,8 @@ def funnel(
 
     n_events = int(len(iso))
     if n_events:
-        sizes = iso.groupby(S.RUN)[S.EVENT].transform("size")
-        n_frag = int((sizes > 1).sum())
+        run_sizes = _run_sizes(iso)
+        n_frag = int(run_sizes[run_sizes > 1].sum())
         ok = iso["isolated"].astype(bool)
         n_iso = int(ok.sum())
         rej = iso.loc[~ok, S.ISO_REASON].fillna("")
@@ -226,3 +240,64 @@ def rule_comparison(
         "only_old_examples": examples,
         "n_runs": len(all_runs),
     }
+
+
+# 칸 하나에 이벤트가 둘 겹칠 때 어느 표식이 이길지. 숫자가 클수록 우선한다.
+# ✗(탈락)이 ✓(통과)를 덮어야 한다 - 통과 표식 뒤에 탈락이 숨으면, 그 lot 은
+# 실제로는 뭔가 잃었는데 그림만 보면 다 통과한 것처럼 보인다. 이 파일의
+# 다른 표들이 지키는 원칙과 같다(funnel: "이름 없는 감소가 없어야 한다") -
+# 그림에서도 나쁜 소식이 좋은 소식 뒤에 조용히 묻히면 안 된다.
+_CELL_PRIORITY = {"─": 0, "✓": 1, "✗": 2}
+
+
+def timeline(
+    iso: pd.DataFrame, bounds: pd.DataFrame, width: int = 80
+) -> tuple[float, list[dict]]:
+    """lot 하나를 한 줄로 그린다. ★순수 — 문자열만 만들고 출력은 안 한다.
+
+    스케일은 **전체 공통**이다. 가장 긴 lot 이 width 칸에 들어가도록 분/칸을 정하고
+    모든 lot 에 같은 값을 쓴다. lot 마다 폭에 맞춰 늘이면 모든 lot 이 같은 길이로
+    보여 "이 lot 은 짧다" 는 정보가 사라진다 - 표로는 안 보이고 이 그림으로만
+    보이는 것이 바로 그 길이 차이다.
+
+    통과가 0건인 lot 도 그린다. 그런 lot 이야말로 봐야 할 것이다 - 이벤트가
+    하나도 안 남았다는 사실은 행이 아예 없으면 조용히 사라진다.
+
+    한 칸에 이벤트가 둘 겹치면(스케일이 굵을 때 생긴다) ✗ 가 ✓ 를 덮는다
+    (_CELL_PRIORITY). 이유는 위 상수 주석에 있다.
+    """
+    if bounds is None or bounds.empty:
+        return 0.0, []
+
+    minute = pd.Timedelta(minutes=1)
+    spans = (bounds["end"] - bounds["start"]) / minute
+    longest = float(spans.max()) if len(spans) else 0.0
+    mpc = max(longest / width, 1.0) if longest > 0 else 1.0
+
+    rows = []
+    for b in bounds.sort_values(S.LOT).itertuples(index=False):
+        lot = getattr(b, S.LOT)
+        span = (b.end - b.start) / minute
+        n = max(int(round(span / mpc)), 1)
+        cells = ["─"] * n
+        g = iso[iso[S.LOT] == lot]
+
+        pos = {}
+        for e in g.itertuples(index=False):
+            i = max(0, min(int(((getattr(e, S.AT) - b.start) / minute) / mpc), n - 1))
+            pos[getattr(e, S.EVENT)] = i
+            mark = "✓" if bool(e.isolated) else "✗"
+            if _CELL_PRIORITY[mark] >= _CELL_PRIORITY[cells[i]]:
+                cells[i] = mark
+
+        runs = []
+        if len(g):
+            sizes = _run_sizes(g)
+            for run_id, k in sizes[sizes > 1].items():
+                idx = [pos[e] for e in g.loc[g[S.RUN] == run_id, S.EVENT]]
+                runs.append({S.RUN: run_id, "n": int(k),
+                             "first_cell": min(idx), "last_cell": max(idx)})
+
+        rows.append({S.LOT: lot, "start": b.start, "end": b.end,
+                     "cells": "".join(cells), "runs": runs})
+    return mpc, rows

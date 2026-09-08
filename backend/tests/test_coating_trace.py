@@ -221,3 +221,41 @@ def test_rule_comparison_counts_overlap_at_the_run_level():
     _, dl, iso = _pipeline(ch, pre=10, post=10)
     cmp = trace.rule_comparison(iso, dl, _bounds(), 10, 10, 10, 10)
     assert cmp["both"] + cmp["only_new"] + cmp["only_old"] >= 1
+
+
+def test_timeline_uses_one_common_scale_for_every_lot():
+    """lot 마다 폭에 맞춰 늘이면 모든 lot 이 같은 길이로 보여 길이가 사라진다."""
+    ch = pd.concat([
+        _changes([(0, 0, 40.0, 41.0)], lot="L1"),
+        _changes([(0, 1, 40.0, 41.0)], lot="L2"),
+    ], ignore_index=True)
+    ev, dl = ev_mod.build_events(ch, 2)
+    bounds = pd.DataFrame([
+        {S.LOT: "L1", "start": BASE, "end": BASE + pd.Timedelta(minutes=400)},
+        {S.LOT: "L2", "start": BASE, "end": BASE + pd.Timedelta(minutes=100)},
+    ])
+    iso = ev_mod.isolation(ev, 10, 10, bounds)
+    mpc, rows = trace.timeline(iso, bounds, width=40)
+    by = {r[S.LOT]: r for r in rows}
+    # 4배 긴 lot 이 4배 길게 그려져야 한다
+    assert len(by["L1"]["cells"]) > 3 * len(by["L2"]["cells"])
+    assert mpc == pytest.approx(10.0)
+
+
+def test_timeline_includes_lots_with_no_isolated_event():
+    """통과가 0건인 lot 이야말로 봐야 할 것이다."""
+    ch = _changes([(0, 0, 40.0, 41.0), (5, 1, 40.0, 41.0)])
+    _, _, iso = _pipeline(ch)
+    _, rows = trace.timeline(iso, _bounds(), width=40)
+    assert len(rows) == 1
+    assert "✗" in rows[0]["cells"]
+
+
+def test_timeline_marks_split_runs():
+    # 0→1.5→3 은 한 연쇄인데 앵커가 둘로 쪼갠다.
+    ch = _changes([(0, 0, 40.0, 41.0), (1.5, 1, 40.0, 41.0), (3, 2, 40.0, 41.0),
+                   (200, 3, 40.0, 41.0)])
+    _, _, iso = _pipeline(ch)
+    _, rows = trace.timeline(iso, _bounds(), width=40)
+    assert rows[0]["runs"]
+    assert rows[0]["runs"][0]["n"] == 2
