@@ -140,7 +140,7 @@ def test_collecting_tables_does_not_change_the_verdict():
     readings = _readings_with_two_events()
     plain = report.profile_readings(readings)
     collected = report.profile_readings(readings, tables={})
-    for key in ("verdict", "n_events", "n_clean_events", "effective_rank"):
+    for key in ("verdict", "n_events", "n_isolated_events", "effective_rank"):
         assert plain[key] == collected[key]
 
 

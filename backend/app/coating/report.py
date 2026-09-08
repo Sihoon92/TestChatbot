@@ -136,7 +136,7 @@ def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict
         "n_events": int(len(ev)),
         # "쓸 수 있는 이벤트" 는 이제 격리 통과 건수 하나뿐이다. 정착 기반
         # contaminated_ratio 는 진단으로만 남는다.
-        "n_clean_events": int(len(usable)),
+        "n_isolated_events": int(len(usable)),
         "contaminated_ratio": (
             float(ev[S.CONTAMINATED].astype(bool).mean()) if len(ev) else 0.0
         ),
@@ -301,7 +301,7 @@ def _dynamics_facts(readings, ev, dl, s, bounds, tables=None) -> dict:
 
 
 def _verdict(f: dict) -> dict:
-    if f["n_clean_events"] == 0:
+    if f["n_isolated_events"] == 0:
         return {
             "verdict": "insufficient",
             "verdict_reason": (
@@ -309,11 +309,11 @@ def _verdict(f: dict) -> dict:
                 "입력→출력 관계를 배울 수 없다. 튜닝 과정이 포함된 구간의 데이터가 필요하다."
             ),
         }
-    if f["n_clean_events"] < _MIN_EVENTS:
+    if f["n_isolated_events"] < _MIN_EVENTS:
         return {
             "verdict": "insufficient",
             "verdict_reason": (
-                f"깨끗한 조정 이벤트가 {f['n_clean_events']}건으로 하한 {_MIN_EVENTS}건에 못 미친다."
+                f"격리된 조정 이벤트가 {f['n_isolated_events']}건으로 하한 {_MIN_EVENTS}건에 못 미친다."
             ),
         }
     if f["effective_rank"] < 3:
@@ -526,7 +526,7 @@ def render_markdown(f: dict) -> str:
         "",
         "## 조정 이벤트",
         f"- 전체 이벤트: {f['n_events']}",
-        f"- 깨끗한 이벤트: {f['n_clean_events']}",
+        f"- 격리된 이벤트: {f['n_isolated_events']} (아래 '제어 구간 격리' 절과 같은 수치)",
         f"- 오염 비율: {f['contaminated_ratio']:.1%}",
         f"- lot 당 제어값 변경 횟수: {f['changes_per_lot'] or '없음'}",
         "",
