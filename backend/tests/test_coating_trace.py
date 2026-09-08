@@ -259,3 +259,78 @@ def test_timeline_marks_split_runs():
     _, rows = trace.timeline(iso, _bounds(), width=40)
     assert rows[0]["runs"]
     assert rows[0]["runs"][0]["n"] == 2
+
+
+def test_timeline_cell_collision_always_shows_the_rejected_mark():
+    """한 칸에 통과와 탈락이 겹치면 탈락(✗)이 남아야 한다 - 그리는 순서와 무관하게.
+
+    한 lot 안에 두 그룹을 둔다. 앞쪽 그룹(칸5)은 통과(e1)가 먼저 그려지고
+    탈락(e2·e3)이 나중에 겹쳐 덮어써야 하고, 뒤쪽 그룹(칸20)은 탈락(e4)이
+    먼저 그려지고 통과(e5)가 나중에 겹쳐도 덮이면 안 된다. 두 순서 모두
+    ✗ 로 끝나야 우선순위 규칙이 이벤트가 그려지는 순서(=시각 순서)에
+    의존하지 않는다는 것이 보인다 - 어느 한쪽만 확인하면 "지금 이 순서에서만
+    맞는" 우연일 수 있다.
+
+    분/칸을 실행 전에 손으로 정한다: bounds span=4000분, width=40
+    -> mpc=max(4000/40,1.0)=100. 칸 인덱스는 (AT-start)//100:
+      e1(500)·e2(550)·e3(555) -> 전부 칸5 (500~599 구간).
+      e4(2000)·e5(2050)       -> 전부 칸20 (2000~2099 구간).
+
+    격리(pre=post=10)도 실행 전에 손으로 정한다(간격은 직전 이벤트의
+    끝에서 잰다):
+      e1: 앞=500-0(경계)=500, 뒤=550-500=50            -> 통과(✓)
+      e2: 앞=550-500=50, 뒤=555-550=5<10               -> 탈락(✗, 뒤가 짧음)
+      e3: 앞=555-550=5<10                              -> 탈락(✗, 앞이 짧음)
+      e0: 이웃일 뿐 - e4 를 탈락시키려고 놓은 헬퍼. 자기 판정은 안 쓴다.
+      e4: 앞=2000-1993(e0)=7<10                        -> 탈락(✗, 앞이 짧음)
+      e5: 앞=2050-2000=50, 뒤=4000(경계)-2050=1950       -> 통과(✓)
+
+    실행해서 확인한 값(코드 실행 결과, 손 계산과 일치): mpc=100.0,
+    cells[5]='✗', cells[20]='✗'.
+    """
+    ch = _changes([
+        (500, 0, 40.0, 41.0),
+        (550, 1, 40.0, 41.0),
+        (555, 2, 40.0, 41.0),
+        (1993, 3, 40.0, 41.0),
+        (2000, 4, 40.0, 41.0),
+        (2050, 5, 40.0, 41.0),
+    ])
+    ev, _ = ev_mod.build_events(ch, 2)
+    bounds = pd.DataFrame([{
+        S.LOT: "L1", "start": BASE, "end": BASE + pd.Timedelta(minutes=4000),
+    }])
+    iso = ev_mod.isolation(ev, 10, 10, bounds)
+    mpc, rows = trace.timeline(iso, bounds, width=40)
+    assert mpc == pytest.approx(100.0)
+    cells = rows[0]["cells"]
+    # 칸5: ✓(e1)가 먼저 그려지고 ✗(e2,e3)가 나중에 덮는다.
+    assert cells[5] == "✗"
+    # 칸20: ✗(e4)가 먼저 그려지고 ✓(e5)가 나중에 와도 덮이지 않는다.
+    assert cells[20] == "✗"
+
+
+def test_timeline_clamps_an_event_exactly_at_bounds_end():
+    """lot 끝 시각과 정확히 같은 이벤트도 문자열 밖(n 번째)이 아니라
+    마지막 칸(n-1)에 들어가야 한다.
+
+    bounds span=100분, width=10 -> mpc=max(100/10,1.0)=10, n=max(round(100/10),1)=10
+    (칸 인덱스 0..9). 이벤트가 정확히 end 에 있으면 원시 인덱스는
+    (100-0)/10=10.0 -> int 10 인데, 이는 유효 범위(0..9) 밖이다. 클램프
+    (min(10, n-1=9))가 없으면 `cells[10] = ...` 에서 IndexError 가 난다.
+    클램프가 있으면 9번(마지막) 칸에 들어간다.
+
+    이 이벤트는 이웃이 없어 gap_before 는 경계(=100, 통과)지만 gap_after 는
+    lot 끝과 자기 자신이 같아 0<10 으로 탈락한다 - 그래서 마지막 칸은 '✗'.
+    실행해서 확인한 값(코드 실행 결과, 손 계산과 일치):
+    cells == '─'*9 + '✗'.
+    """
+    ch = _changes([(100, 0, 40.0, 41.0)])
+    ev, _ = ev_mod.build_events(ch, 2)
+    bounds = pd.DataFrame([{
+        S.LOT: "L1", "start": BASE, "end": BASE + pd.Timedelta(minutes=100),
+    }])
+    iso = ev_mod.isolation(ev, 10, 10, bounds)
+    mpc, rows = trace.timeline(iso, bounds, width=10)
+    assert mpc == pytest.approx(10.0)
+    assert rows[0]["cells"] == "─" * 9 + "✗"
