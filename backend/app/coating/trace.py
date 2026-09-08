@@ -10,6 +10,7 @@
 """
 import pandas as pd
 
+from app.coating import events as ev_mod
 from app.coating import schemas as S
 
 LEDGER_COLS = [
@@ -108,3 +109,92 @@ def funnel(
         int(ns[i] - ns[i - 1]) if chains[i] else None for i in range(len(out))
     ]
     return out[FUNNEL_COLS]
+
+
+def legacy_events(iso: pd.DataFrame) -> pd.DataFrame:
+    """구 규칙의 묶음. ★순수
+
+    구 규칙은 연쇄 병합이고, 연쇄 묶음은 run 그 자체다(schemas.RUN). 그래서 새
+    이벤트 표를 run 으로 접으면 구 규칙의 묶음이 그대로 나온다 - 원본을 다시
+    훑을 필요가 없다.
+
+    `last_at` 을 **넣지 않는다.** events.isolation 은 그 열이 없으면 시작 기준으로
+    간격을 재는데, 그것이 구 규칙의 나머지 절반(앞30/뒤60 은 호출부에서 넣는다)이다.
+    """
+    if iso.empty:
+        return pd.DataFrame(columns=[S.LOT, S.EVENT, S.AT, "n_items"])
+    out = (
+        iso.groupby([S.LOT, S.RUN], as_index=False)
+        .agg(**{S.AT: (S.AT, "min"), "n_items": ("n_items", "sum")})
+    )
+    out[S.EVENT] = out[S.RUN]
+    return out[[S.LOT, S.EVENT, S.AT, "n_items"]].sort_values(
+        [S.LOT, S.AT]
+    ).reset_index(drop=True)
+
+
+def rule_comparison(
+    iso: pd.DataFrame,
+    event_deltas: pd.DataFrame,
+    bounds: pd.DataFrame | None,
+    old_pre: int,
+    old_post: int,
+    new_pre: int,
+    new_post: int,
+) -> dict:
+    """구 규칙과 신 규칙이 무엇을 살리고 무엇을 죽였나. ★순수
+
+    구 규칙은 **세 가지를 다 되돌린 것**이다 - 연쇄 병합 + 시작 기준 간격 +
+    옛 창(앞30/뒤60). 하나만 되돌리면 무엇이 차이를 만들었는지 갈리지 않는다.
+    (연쇄 병합과 시작 기준은 legacy_events 가 last_at 을 빼는 것으로 한 번에
+    되돌리고, 옛 창은 여기서 old_pre/old_post 로 넣는다.)
+
+    겹침은 **run 단위**로 센다. 구는 묶음이 run 이고 신은 그 안의 조각이라
+    단위가 다른데, 그대로 빼면 뜻이 없는 숫자가 나온다.
+    """
+    empty = {"n_clusters": 0, "n_isolated": 0, "n_items": 0}
+    if iso.empty:
+        return {"old": empty, "new": empty, "both": 0,
+                "only_new": 0, "only_old": 0, "only_old_examples": [],
+                "n_runs": 0}
+
+    old = ev_mod.isolation(legacy_events(iso), old_pre, old_post, bounds)
+    new_ok = iso["isolated"].astype(bool)
+
+    zoned = event_deltas[event_deltas[S.ZONE].notna()]
+    n_items_new = int(zoned[zoned[S.EVENT].isin(iso.loc[new_ok, S.EVENT])].shape[0])
+    old_ok_runs = set(old.loc[old["isolated"].astype(bool), S.EVENT])
+    n_items_old = int(zoned[zoned[S.EVENT].isin(
+        iso.loc[iso[S.RUN].isin(old_ok_runs), S.EVENT]
+    )].shape[0])
+
+    runs_with_new = set(iso.loc[new_ok, S.RUN])
+    all_runs = set(iso[S.RUN])
+    both = old_ok_runs & runs_with_new
+    only_old = old_ok_runs - runs_with_new
+    only_new = runs_with_new - old_ok_runs
+
+    examples = []
+    for r in sorted(only_old)[:3]:
+        g = iso[iso[S.RUN] == r]
+        examples.append({
+            "run": r,
+            "first": g[S.AT].min(),
+            "last": g[S.LAST_AT].max(),
+            "n_fragments": int(len(g)),
+            "n_items": int(g["n_items"].sum()),
+        })
+
+    return {
+        "old": {"n_clusters": int(len(old)),
+                "n_isolated": int(len(old_ok_runs)),
+                "n_items": n_items_old},
+        "new": {"n_clusters": int(len(iso)),
+                "n_isolated": int(new_ok.sum()),
+                "n_items": n_items_new},
+        "both": len(both),
+        "only_new": len(only_new),
+        "only_old": len(only_old),
+        "only_old_examples": examples,
+        "n_runs": len(all_runs),
+    }

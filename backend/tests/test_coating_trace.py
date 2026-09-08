@@ -151,3 +151,36 @@ def test_funnel_counts_fragments_of_continuous_runs():
     f = trace.funnel(pd.DataFrame({S.LOT: []}), pd.DataFrame({S.LOT: []}), ch, iso)
     row = f[f["stage"] == "연속 조작 구간 조각"].iloc[0]
     assert row["n"] == 2
+
+
+def test_legacy_events_fold_fragments_back_into_runs():
+    """구 규칙의 묶음 = 연쇄 = run. 접으면 그대로 나온다."""
+    ch = _changes([(0, 0, 40.0, 41.0), (1.5, 1, 40.0, 41.0), (3, 2, 40.0, 41.0),
+                   (100, 3, 40.0, 41.0)])
+    _, dl, iso = _pipeline(ch)
+    old = trace.legacy_events(iso)
+    assert len(old) == 2                      # 앞 셋이 한 연쇄
+    assert S.LAST_AT not in old.columns       # 시작 기준으로 재게 한다
+
+
+def test_rule_comparison_finds_events_only_the_old_rule_kept():
+    """연쇄가 삼켰던 긴 구간이 여기서 사례로 나온다."""
+    ch = _changes([(0, 0, 40.0, 41.0), (1.5, 1, 40.0, 41.0), (3, 2, 40.0, 41.0),
+                   (4.5, 3, 40.0, 41.0), (200, 4, 40.0, 41.0)])
+    _, dl, iso = _pipeline(ch)
+    cmp = trace.rule_comparison(iso, dl, _bounds(), 30, 60, 10, 10)
+    # 연쇄로 보면 0~4.5 가 한 덩어리 + 200 = 2. 앵커로 보면 {0,1.5} {3,4.5} {200} = 3.
+    assert cmp["old"]["n_clusters"] == 2
+    assert cmp["new"]["n_clusters"] == 3
+    assert cmp["only_old"] >= 1
+    assert cmp["only_old_examples"]
+    ex = cmp["only_old_examples"][0]
+    assert ex["n_fragments"] >= 2
+
+
+def test_rule_comparison_counts_overlap_at_the_run_level():
+    """구는 run, 신은 이벤트라 단위가 다르다. 겹침은 run 으로 센다."""
+    ch = _changes([(0, 0, 40.0, 41.0), (200, 1, 40.0, 41.0)])
+    _, dl, iso = _pipeline(ch, pre=10, post=10)
+    cmp = trace.rule_comparison(iso, dl, _bounds(), 10, 10, 10, 10)
+    assert cmp["both"] + cmp["only_new"] + cmp["only_old"] >= 1
