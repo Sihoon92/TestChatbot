@@ -365,6 +365,11 @@ def render_preprocess(path, s) -> str:
     도는 것은 비싸다.
 
     사용자가 돌려줄 것은 §0·§4·§5 세 덩어리뿐이다. 나머지는 혼자 판정하는 데 쓴다.
+
+    절마다 `_section` 으로 감싼다. 한 절이 죽어도 나머지 절은 이미 계산됐고
+    보여줄 수 있다 - 예외 하나가 §0~§n 전체를 삼키면, 계산은 됐는데 아무것도
+    못 돌려주는 것이라 트레이스백을 던지는 것과 실질적으로 같은 실패다
+    (CLAUDE.md: "진단은 문장으로 출력되게 하고(트레이스백 금지)").
     """
     from app.coating import (
         events as ev_mod, panel as panel_mod, parse, pivot,
@@ -394,18 +399,64 @@ def render_preprocess(path, s) -> str:
         "쓸 수 있고, 그래서 L 을 재는 데 쓸 수 있다.",
         "",
     ]
-    lines += _funnel_lines(trace.funnel(readings, deduped, changes, iso))
-    lines += _ledger_lines(trace.event_ledger(iso, dl))
-    lines += _timeline_lines(*trace.timeline(iso, bounds))
-    lines += _comparison_lines(trace.rule_comparison(
-        iso, dl, bounds, _LEGACY_ISOLATION_PRE_MINUTES, _LEGACY_ISOLATION_POST_MINUTES,
-        s.coating_isolation_pre_minutes, s.coating_isolation_post_minutes,
-    ))
-    lines += _window_check_lines(
-        deduped, iso, dl, s, panel_mod, resp_mod
+    lines += _section(
+        "0. 어디서 얼마나 줄었나",
+        lambda: _funnel_lines(trace.funnel(readings, deduped, changes, iso)),
     )
-    lines += _legacy_tables(ev, iso, changes, bounds, s, ev_mod)
+    lines += _section(
+        "1. 묶음 원장",
+        lambda: _ledger_lines(trace.event_ledger(iso, dl)),
+    )
+    lines += _section(
+        "2. 타임라인",
+        lambda: _timeline_lines(*trace.timeline(iso, bounds)),
+    )
+    lines += _section(
+        "3. 구/신 규칙 대조",
+        lambda: _comparison_lines(trace.rule_comparison(
+            iso, dl, bounds,
+            _LEGACY_ISOLATION_PRE_MINUTES, _LEGACY_ISOLATION_POST_MINUTES,
+            s.coating_isolation_pre_minutes, s.coating_isolation_post_minutes,
+        )),
+    )
+    lines += _section(
+        f"4. {s.coating_response_post_minutes}분 창이 반응을 담고 있나",
+        lambda: _window_check_lines(deduped, iso, dl, s, panel_mod, resp_mod),
+    )
+    lines += _section(
+        "5. 격리 창을 바꿔가며",
+        lambda: _isolation_window_lines(ev, iso, bounds, ev_mod),
+    )
+    lines += _section(
+        "6. 변경 사이의 간격 분포",
+        lambda: _gap_histogram_lines(changes, ev_mod),
+    )
+    lines += _section(
+        "7. 병합창 민감도",
+        lambda: _merge_sensitivity_lines(changes, bounds, s, ev_mod),
+    )
     return LF.join(lines) + LF
+
+
+def _section(name: str, builder) -> list[str]:
+    """섹션 하나를 계산한다. 실패해도 나머지 절은 영향받지 않는다.
+
+    render_preprocess 는 절마다 나온 줄을 리스트에 계속 이어 붙이고 마지막에
+    한 번만 join 한다. 이 래퍼가 없으면 한 절의 계산에서 난 예외가 그 전까지
+    이미 계산해 둔 앞 절들까지 통째로 삼킨다. 실측에서 이 자리가 실제로
+    터졌다 - Wet zone 이 통째로 결측인 lot 에서 §4 가 all-NaN Series 에
+    idxmax 를 불러 ValueError 를 던졌고, 그 순간 §0~§3 이 전부 사라졌다.
+    """
+    try:
+        return builder()
+    except Exception as e:  # noqa: BLE001 - 사용자에게 문장으로 돌려줘야 한다
+        return [
+            f"## {name}",
+            "",
+            f"   ⚠ 이 절을 만들다 실패했다: {type(e).__name__}: {e}",
+            "   (다른 절은 이 실패와 무관하게 계산된다 - 위아래 절을 계속 본다.)",
+            "",
+        ]
 
 
 # --isolation 은 별칭으로 남긴다. 기존 문서와 손버릇이 깨지지 않게.
@@ -529,8 +580,18 @@ def _window_check_lines(deduped, iso, dl, s, panel_mod, resp_mod) -> list[str]:
     )
     curve = resp_mod.response_curve(aligned)
     fwd = curve[curve[resp_mod.LAG] >= 0] if len(curve) else curve
-    if not len(fwd):
-        return out + ["   정렬된 응답이 없다. 표본이 모자라거나 패널이 비었다.", ""]
+    if not len(fwd) or not fwd["mean"].notna().any():
+        # all-NaN Series 에 idxmax 를 부르면 pandas 3.0.5 에서
+        # "ValueError: Encountered all NA values" 다 - 조정한 zone 의 Wet 이
+        # 이 창에서 통째로 결측이면(features.wet_wide 가 0 을 결측으로 마스킹
+        # 하므로 "0으로 기록된 zone" 도 여기 해당한다) 실제로 일어난다. 여기서
+        # 막아 문장으로 낸다 - 트레이스백은 사용자가 돌려줄 수 있는 것이 스택뿐이다.
+        return out + [
+            "   정렬된 응답이 없다. 표본이 모자라거나(격리 통과 건수를 §0 에서",
+            "   본다), 이 창의 모든 lag 에서 Wet 이 결측이다 - 조정된 zone 의 Wet 이",
+            "   이 lot 에서 통째로 미측정(0)이었을 수 있다.",
+            "",
+        ]
     peak_lag = int(fwd.loc[fwd["mean"].idxmax(), resp_mod.LAG])
     last_lag = int(fwd[resp_mod.LAG].max())
     mark = "  ⚠  마지막 칸이다 — 창이 짧다." if peak_lag >= last_lag else "  ✓"
@@ -550,37 +611,40 @@ def _window_check_lines(deduped, iso, dl, s, panel_mod, resp_mod) -> list[str]:
     ]
 
 
-def _legacy_tables(ev, iso, changes, bounds, s, ev_mod) -> list[str]:
-    """창을 고르는 근거 세 표. 새 다섯 절 뒤에 그대로 유지한다.
-
-    §6·§7 은 `ev` 가 아니라 `changes` 를 입력으로 쓴다 - 그래서 이벤트가
-    0건(`ev.empty`)이어도 낼 수 있다. §5 만 조기에 "0건" 을 적고 §6·§7 은
-    끝까지 그린다 - 절이 통째로 사라지면 "재서 0 이다" 와 "이 표는 원래
-    없다" 를 구별할 수 없다.
-    """
+def _isolation_window_lines(ev, iso, bounds, ev_mod) -> list[str]:
+    """§5 — 창을 고르는 근거 표 하나. 새 다섯 절 뒤에 그대로 유지한다."""
     lines = ["## 5. 격리 창을 바꿔가며", "", "   창(앞=뒤)   홀로 선 이벤트"]
     if ev.empty:
-        lines += ["   (조정 이벤트가 0건이다)", ""]
-    else:
-        table = ev_mod.isolation_table(ev, bounds=bounds)
-        for r in table.itertuples(index=False):
-            lines.append(
-                f"   {r.post_minutes:>6}분   {r.n_isolated:>4} / {r.n_events}"
-                f" ({r.ratio:.0%})"
-            )
-        n_now = int(iso["isolated"].sum()) if len(iso) else 0
-        lines += ["", f"- 현재 설정 → **{n_now}건**", "",
-                   _isolation_verdict(table, n_now)]
+        return lines + ["   (조정 이벤트가 0건이다)", ""]
+    table = ev_mod.isolation_table(ev, bounds=bounds)
+    for r in table.itertuples(index=False):
+        lines.append(
+            f"   {r.post_minutes:>6}분   {r.n_isolated:>4} / {r.n_events}"
+            f" ({r.ratio:.0%})"
+        )
+    n_now = int(iso["isolated"].sum()) if len(iso) else 0
+    lines += ["", f"- 현재 설정 → **{n_now}건**", "",
+              _isolation_verdict(table, n_now), ""]
+    return lines
 
-    lines += ["", "## 6. 변경 사이의 간격 분포 — 병합창은 몇 분이어야 하나", ""]
+
+def _gap_histogram_lines(changes, ev_mod) -> list[str]:
+    """§6 — 변경 사이의 간격 분포. `changes` 를 입력으로 쓴다 - 이벤트가
+    0건이어도(§5 가 "0건" 을 적고 끝나도) 이 절은 계속 그릴 수 있다. 절이
+    통째로 사라지면 "재서 0 이다" 와 "이 표는 원래 없다" 를 구별할 수 없다."""
+    lines = ["## 6. 변경 사이의 간격 분포 — 병합창은 몇 분이어야 하나", ""]
     hist = ev_mod.gap_histogram(changes)
     peak = max(hist["n"]) or 1
     for r in hist.itertuples(index=False):
         bar = "█" * int(round(r.n / peak * 28))
         lines.append(f"   {r.bucket:>8}  {r.n:>5} ({r.ratio:>4.0%})  {bar}")
-    lines += ["", _gap_verdict(hist)]
+    lines += ["", _gap_verdict(hist), ""]
+    return lines
 
-    lines += ["", "## 7. 병합창을 바꾸면 쓸 수 있는 것이 얼마나 달라지나", ""]
+
+def _merge_sensitivity_lines(changes, bounds, s, ev_mod) -> list[str]:
+    """§7 — 병합창을 바꾸면 쓸 수 있는 것이 얼마나 달라지나. `changes` 입력."""
+    lines = ["## 7. 병합창을 바꾸면 쓸 수 있는 것이 얼마나 달라지나", ""]
     sens = ev_mod.merge_sensitivity(
         changes,
         pre_minutes=s.coating_isolation_pre_minutes,
@@ -594,7 +658,7 @@ def _legacy_tables(ev, iso, changes, bounds, s, ev_mod) -> list[str]:
             f"   {r.merge_minutes:>4}분  {r.n_clusters:>5}   {r.n_isolated:>7}건"
             f"   {r.n_items:>14}개{mark}"
         )
-    lines += ["", _merge_verdict(sens, s.coating_event_merge_minutes)]
+    lines += ["", _merge_verdict(sens, s.coating_event_merge_minutes), ""]
     return lines
 
 

@@ -471,6 +471,61 @@ def test_preprocess_renders_all_five_sections(tmp_path, monkeypatch):
     assert "lag = +8분 (관측 끝 +10분)" in text
 
 
+def test_preprocess_survives_a_response_that_is_all_nan(tmp_path, monkeypatch):
+    """§4 가 예외 없이, 트레이스백 없이 §0~§3 을 살려낸다(전체 fix A 회귀).
+
+    조정한 zone(zone5)의 Wet 이 그 lot 에서 통째로 0(=미측정)이면, 그 이벤트의
+    응답은 모든 lag 에서 NaN 이다 - align_events 의 유일한 가드
+    (`base.isna().all()`)는 zone1 처럼 **다른** zone 에 Wet 값이 있으면
+    통과하므로 이 케이스를 못 거른다. §4 의 옛 코드는 `fwd["mean"].idxmax()`
+    를 all-NaN Series 에 그대로 불러 pandas 3.0.5 에서
+    `ValueError: Encountered all NA values` 를 던졌고, render_preprocess 가
+    lines 를 끝에 한 번만 join 하므로 그 예외가 이미 계산된 §0~§3 까지
+    통째로 삼켰다.
+    """
+    import pandas as pd
+
+    from app.coating import diagnose, parse
+    from app.coating import schemas as S
+    from app.config import get_settings
+
+    base = pd.Timestamp("2026-02-02 06:00")
+    rows = []
+    for m in range(0, 200):
+        at = base + pd.Timedelta(minutes=m)
+        # zone1 gap 은 안 바뀐다 - 격리·이벤트 계산에 끼어들지 않게.
+        rows.append({S.LOT: "L1", S.AT: at, S.PRODUCT: "P",
+                     S.ITEM: S.GAP_ITEM_IDS[0], S.VALUE: 40.0, S.ROW_NO: len(rows)})
+        # zone5 gap 은 m=30 에 한 번 조정된다 - 이 이벤트의 응답을 §4 가 본다.
+        rows.append({S.LOT: "L1", S.AT: at, S.PRODUCT: "P",
+                     S.ITEM: S.GAP_ITEM_IDS[4],
+                     S.VALUE: 41.0 if m >= 30 else 40.0, S.ROW_NO: len(rows)})
+        # zone1 Wet 은 정상 관측(18.0 고정) - base.isna().all() 가드를 지나가게 한다.
+        rows.append({S.LOT: "L1", S.AT: at, S.PRODUCT: "P",
+                     S.ITEM: S.WET_ITEM_IDS[0], S.VALUE: 18.0, S.ROW_NO: len(rows)})
+        # zone5 Wet 은 이 lot 에서 통째로 미측정(0) - wet_wide 가 NaN 으로 마스킹한다.
+        rows.append({S.LOT: "L1", S.AT: at, S.PRODUCT: "P",
+                     S.ITEM: S.WET_ITEM_IDS[4], S.VALUE: 0.0, S.ROW_NO: len(rows)})
+    src = tmp_path / "synth_all_nan.parquet"
+    pd.DataFrame(rows).to_parquet(src)
+
+    monkeypatch.setattr(
+        parse, "load_readings",
+        lambda *a, **k: pd.read_parquet(src).assign(**{
+            S.IO: lambda d: [
+                S.IO_OUTPUT if i.startswith("9") else S.IO_INPUT for i in d[S.ITEM]
+            ]
+        }),
+    )
+    text = diagnose.render_preprocess(str(src), get_settings())
+
+    for head in ("## 0.", "## 1.", "## 2.", "## 3.", "## 4."):
+        assert head in text
+    assert "Traceback" not in text
+    assert "ValueError" not in text
+    assert "정렬된 응답이 없다" in text
+
+
 def test_isolation_flag_is_an_alias_for_preprocess():
     from app.coating import diagnose
 
