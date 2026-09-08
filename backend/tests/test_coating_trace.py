@@ -81,3 +81,39 @@ def test_ledger_carries_the_isolation_verdict_and_reason():
     led = trace.event_ledger(iso, dl)
     assert list(led["isolated"]) == [False, False, True]
     assert led.iloc[0][S.ISO_REASON] == "뒤 5.0<10"
+
+
+def test_funnel_accounts_for_every_drop():
+    """단계마다 이름이 붙고, 증감이 앞 단계와 이어져야 한다."""
+    ch = _changes([(0, 0, 40.0, 41.0), (5, 1, 40.0, 41.0), (100, 2, 40.0, 41.0)])
+    ev, dl, iso = _pipeline(ch)
+    readings = pd.DataFrame({S.LOT: ["L1"] * 50})
+    deduped = pd.DataFrame({S.LOT: ["L1"] * 20})
+    f = trace.funnel(readings, deduped, ch, iso)
+    stages = list(f["stage"])
+    assert stages[0] == "원본 행"
+    assert f.iloc[0]["n"] == 50
+    assert f.iloc[1]["n"] == 20
+    assert f.iloc[1]["delta"] == -30
+    # 마지막은 격리 통과
+    assert stages[-1] == "격리 통과"
+    assert f.iloc[-1]["n"] == 1
+
+
+def test_funnel_names_the_rejection_breakdown():
+    """탈락을 앞/뒤/양쪽으로 갈라야 창을 어느 쪽으로 움직일지 정해진다."""
+    ch = _changes([(0, 0, 40.0, 41.0), (5, 1, 40.0, 41.0), (100, 2, 40.0, 41.0)])
+    _, _, iso = _pipeline(ch)
+    f = trace.funnel(pd.DataFrame({S.LOT: []}), pd.DataFrame({S.LOT: []}), ch, iso)
+    note = f[f["stage"] == "격리 통과"].iloc[0]["note"]
+    assert "앞" in note and "뒤" in note
+
+
+def test_funnel_counts_fragments_of_continuous_runs():
+    # 0→1.5→3 은 한 연쇄인데 앵커가 둘로 쪼갠다. 그 둘이 "조각" 이다.
+    ch = _changes([(0, 0, 40.0, 41.0), (1.5, 1, 40.0, 41.0), (3, 2, 40.0, 41.0),
+                   (100, 3, 40.0, 41.0)])
+    _, _, iso = _pipeline(ch)
+    f = trace.funnel(pd.DataFrame({S.LOT: []}), pd.DataFrame({S.LOT: []}), ch, iso)
+    row = f[f["stage"] == "연속 조작 구간 조각"].iloc[0]
+    assert row["n"] == 2
