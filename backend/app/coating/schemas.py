@@ -40,6 +40,15 @@ DELTA = "delta"
 SETTLED_AT = "settled_at"
 CONTAMINATED = "contaminated"
 DROP_REASON = "drop_reason"
+# 묶음의 마지막 변경 시각. 앞뒤 간격을 시작이 아니라 **끝** 에서 재기 위해 필요하다 -
+# 묶음이 span 을 가지면 실제 조용한 시간은 시작 기준보다 span 만큼 짧다.
+LAST_AT = "last_at"
+SPAN = "span_min"
+# 연속 조작 구간. 앵커 창을 넘겨서도 변경이 끊기지 않을 때 생기는 조각들의 공통 표식이고,
+# 정의상 **구 규칙의 연쇄 묶음**과 같다. 배제에는 쓰지 않는다 - 로그에서 그 조각들이
+# 한 덩어리였음을 보이고, 구/신 대조를 추가 계산 없이 내는 것이 목적이다.
+RUN = "run_id"
+ISO_REASON = "iso_reason"
 
 # 파생
 WET_MEAN = "wet_mean"

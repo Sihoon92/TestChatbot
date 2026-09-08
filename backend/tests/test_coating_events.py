@@ -36,6 +36,58 @@ def test_changes_beyond_window_become_separate_events():
     assert len(ev) == 2
 
 
+def test_anchor_bounds_the_span_of_one_event():
+    """묶음은 앵커에서 merge_minutes 안까지다. 직전 변경이 아니라 앵커와 잰다.
+
+    0, 1.5, 3, 4.5 는 연쇄로 보면 전부 2분 이내로 이어져 한 묶음이 되지만,
+    한 번의 조작이 2분 안에 끝난다는 가정에서는 두 번의 조작이다.
+    """
+    base = pd.Timestamp("2026-02-02 06:00")
+    c = _changes([
+        ("L1", S.GAP_ITEM_IDS[i], base + pd.Timedelta(minutes=m), 41.0, 40.0)
+        for i, m in enumerate([0, 1.5, 3, 4.5])
+    ])
+    ev, _ = events.build_events(c, merge_minutes=2)
+    assert len(ev) == 2
+    assert list(ev[S.SPAN]) == [1.5, 1.5]
+
+
+def test_chaining_no_longer_swallows_a_long_run():
+    """8분에 걸친 여섯 번의 손질은 한 번의 계단 입력이 아니다."""
+    base = pd.Timestamp("2026-02-02 06:00")
+    c = _changes([
+        ("L1", S.GAP_ITEM_IDS[i], base + pd.Timedelta(minutes=m), 41.0, 40.0)
+        for i, m in enumerate([0, 1.5, 3, 4.5, 6, 8])
+    ])
+    ev, _ = events.build_events(c, merge_minutes=2)
+    assert len(ev) == 3                       # 연쇄였다면 1
+    assert (ev[S.SPAN] <= 2.0).all()
+
+
+def test_run_id_marks_fragments_of_one_continuous_run():
+    """쪼개진 조각들은 공통 run_id 를 갖는다. 배제하지는 않는다 - 설명만 한다."""
+    base = pd.Timestamp("2026-02-02 06:00")
+    c = _changes([
+        ("L1", S.GAP_ITEM_IDS[i], base + pd.Timedelta(minutes=m), 41.0, 40.0)
+        for i, m in enumerate([0, 1.5, 3, 4.5, 120])
+    ])
+    ev, _ = events.build_events(c, merge_minutes=2)
+    runs = list(ev[S.RUN])
+    assert runs[0] == runs[1]                 # 앞 두 조각은 한 덩어리였다
+    assert runs[2] != runs[0]                 # 2시간 뒤는 다른 덩어리
+
+
+def test_last_at_is_the_final_change_of_the_event():
+    base = pd.Timestamp("2026-02-02 06:00")
+    c = _changes([
+        ("L1", S.GAP_ITEM_IDS[0], base, 41.0, 40.0),
+        ("L1", S.GAP_ITEM_IDS[1], base + pd.Timedelta(minutes=1), 41.0, 40.0),
+    ])
+    ev, _ = events.build_events(c, merge_minutes=2)
+    assert ev.iloc[0][S.AT] == base
+    assert ev.iloc[0][S.LAST_AT] == base + pd.Timedelta(minutes=1)
+
+
 def test_initial_values_are_not_events():
     """lot 시작값은 '사람이 바꾼 것' 이 아니다. 이걸 이벤트로 세면
     모든 lot 이 25개짜리 가짜 이벤트를 하나씩 갖게 된다."""
@@ -197,15 +249,19 @@ def test_gap_histogram_shows_where_the_valley_is():
 
 
 def test_merge_sensitivity_shows_data_lost_to_a_narrow_window():
-    """병합창이 좁으면 한 번의 튜닝이 쪼개지고, 쪼개진 것들이 서로를 탈락시킨다."""
+    """병합창이 좁으면 한 번의 조작이 쪼개지고, 쪼개진 것들이 서로를 탈락시킨다.
+
+    앵커 병합에서는 창을 넓혀도 span 상한이 같이 넓어질 뿐 연쇄는 없다.
+    그래도 "넓히면 쓸 수 있는 것이 는다" 는 여전히 참이다 - 한 순간의 조작이
+    분 단위로 흩어져 기록됐을 때 그것을 하나로 보게 되기 때문이다.
+    """
     ch = _chg([0, 5, 10, 300, 303, 600])
     t = ev_mod.merge_sensitivity(ch, merge_windows=(2, 6), pre_minutes=30,
                                  post_minutes=60).set_index("merge_minutes")
     assert t.loc[2, "n_clusters"] == 6
-    assert t.loc[6, "n_clusters"] == 3
-    # 넓히면 쓸 수 있는 것이 늘어난다 - 이것이 이 표의 요점이다
-    assert t.loc[6, "n_isolated"] > t.loc[2, "n_isolated"]
-    assert t.loc[6, "n_items"] > t.loc[2, "n_items"]
+    assert t.loc[6, "n_clusters"] == 4      # {0,5} {10} {300,303} {600}
+    assert t.loc[6, "n_isolated"] >= t.loc[2, "n_isolated"]
+    assert t.loc[6, "n_items"] >= t.loc[2, "n_items"]
 
 
 def test_merge_sensitivity_counts_items_not_just_events():

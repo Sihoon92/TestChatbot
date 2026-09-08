@@ -9,13 +9,48 @@ import pandas as pd
 from app.coating import schemas as S
 
 
+def _anchor_groups(times: pd.Series, merge_minutes: int) -> np.ndarray:
+    """정렬된 시각들에 **앵커** 묶음 번호를 매긴다. ★순수
+
+    앵커 t0 에서 merge_minutes 안이면 같은 묶음이고, 넘으면 그 시각이 새 앵커다.
+    직전 값이 아니라 앵커와 재기 때문에 묶음 span 이 merge_minutes 를 넘지 못한다 -
+    "한 번의 제어 조작은 merge_minutes 안에 끝난다" 는 가정을 코드가 강제하는 자리다.
+    """
+    w = pd.Timedelta(minutes=merge_minutes)
+    out = np.empty(len(times), dtype=int)
+    g, anchor = 0, None
+    for i, t in enumerate(times):
+        if anchor is None or t - anchor > w:
+            g += 1
+            anchor = t
+        out[i] = g
+    return out
+
+
+def _run_groups(times: pd.Series, merge_minutes: int) -> np.ndarray:
+    """정렬된 시각들에 **연쇄** 묶음 번호를 매긴다. ★순수
+
+    직전 변경과의 간격으로 잇는다. 이것이 구 규칙이고, 지금은 배제가 아니라
+    "이 조각들이 원래 한 덩어리였다" 를 보이는 용도로만 쓴다(schemas.RUN).
+    """
+    gap = times.diff()
+    return (gap.isna() | (gap > pd.Timedelta(minutes=merge_minutes))).cumsum().to_numpy()
+
+
+EVENT_COLS = [S.LOT, S.EVENT, S.AT, S.LAST_AT, S.RUN, S.SPAN, "n_items"]
+
+
 def build_events(
     changes: pd.DataFrame, merge_minutes: int
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """제어 항목의 '변경'을 merge_minutes 이내로 묶어 이벤트를 만든다.
+    """제어 항목의 '변경'을 앵커 기준 merge_minutes 안으로 묶어 이벤트를 만든다.
 
     시작값(prev_value 가 NaN)은 사람이 바꾼 것이 아니므로 이벤트가 아니다.
     출력(Wet) 변화도 이벤트가 아니다 — 그건 결과다.
+
+    묶음은 **앵커**에서 잰다. 직전 변경에서 재면(구 규칙) 2분씩 이어질 때 묶음이
+    무한히 이어붙어, 8분에 걸친 여섯 번의 손질이 "t0 의 한 번의 계단 입력" 이 된다.
+    그 상태로 격리를 통과하면 순수 지연 L 이 그 span 만큼 오염된다.
     """
     ctrl = changes[
         changes[S.ITEM].isin(S.CONTROL_ITEM_IDS) & changes[S.PREV_VALUE].notna()
@@ -23,24 +58,37 @@ def build_events(
 
     if ctrl.empty:
         return (
-            pd.DataFrame(columns=[S.LOT, S.EVENT, S.AT, "n_items"]),
+            pd.DataFrame(columns=EVENT_COLS),
             pd.DataFrame(columns=[S.EVENT, S.ITEM, S.ZONE, S.DELTA]),
         )
 
-    gap = ctrl.groupby(S.LOT)[S.AT].diff()
-    # 첫 변경이거나 직전 변경과 merge_minutes 를 넘겨 떨어져 있으면 새 이벤트
-    new_group = gap.isna() | (gap > pd.Timedelta(minutes=merge_minutes))
-    ctrl["_grp"] = new_group.groupby(ctrl[S.LOT]).cumsum()
-    ctrl[S.EVENT] = ctrl[S.LOT] + "#" + ctrl["_grp"].astype(int).astype(str)
+    parts = []
+    for _, g in ctrl.groupby(S.LOT, sort=False):
+        g = g.sort_values(S.AT).copy()
+        g["_g"] = _anchor_groups(g[S.AT], merge_minutes)
+        g["_r"] = _run_groups(g[S.AT], merge_minutes)
+        parts.append(g)
+    ctrl = pd.concat(parts, ignore_index=True)
+
+    ctrl[S.EVENT] = ctrl[S.LOT] + "#" + ctrl["_g"].astype(int).astype(str)
+    ctrl[S.RUN] = ctrl[S.LOT] + "@" + ctrl["_r"].astype(int).astype(str)
     ctrl[S.DELTA] = ctrl[S.VALUE] - ctrl[S.PREV_VALUE]
     ctrl[S.ZONE] = ctrl[S.ITEM].map(_zone_of)
 
     ev = (
         ctrl.groupby([S.LOT, S.EVENT], as_index=False)
-        .agg(**{S.AT: (S.AT, "min"), "n_items": (S.ITEM, "nunique")})
+        .agg(**{
+            S.AT: (S.AT, "min"),
+            S.LAST_AT: (S.AT, "max"),
+            # 앵커 묶음은 연쇄 묶음의 세분이므로 한 이벤트는 한 run 안에만 있다.
+            S.RUN: (S.RUN, "first"),
+            "n_items": (S.ITEM, "nunique"),
+        })
         .sort_values([S.LOT, S.AT])
         .reset_index(drop=True)
     )
+    ev[S.SPAN] = (ev[S.LAST_AT] - ev[S.AT]) / pd.Timedelta(minutes=1)
+    ev = ev[EVENT_COLS]
     dl = ctrl[[S.EVENT, S.ITEM, S.ZONE, S.DELTA]].reset_index(drop=True)
     return ev, dl
 
