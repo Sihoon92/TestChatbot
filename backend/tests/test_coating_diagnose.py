@@ -715,3 +715,29 @@ def test_funnel_lines_reports_duplicate_zone_aggregate():
     lines_without_dup = diagnose._funnel_lines(f, n_dup_events=0)
     text0 = "\n".join(lines_without_dup)
     assert "중복 zone" in text0 and "0건" in text0
+
+
+def test_out_flag_writes_the_file_instead_of_flooding_the_console(tmp_path, capsys, monkeypatch):
+    """--out 을 쓰는 이유가 콘솔이 한글을 못 보여주기 때문이다. 파일에 쓰면서
+    화면에도 같이 쏟으면 고치려던 것을 그대로 한다."""
+    from app.coating import diagnose
+
+    monkeypatch.setattr(diagnose, "render_preprocess", lambda p, s: "## 0. 격리 통과 31건\n")
+    out = tmp_path / "preprocess.txt"
+    text = diagnose.main(["--preprocess", "x.parquet", "--out", str(out)])
+
+    assert out.read_bytes().startswith(b"\xef\xbb\xbf")   # 메모장이 cp949 로 안 넘겨짚게
+    assert out.read_text(encoding="utf-8-sig") == "## 0. 격리 통과 31건\n"
+    assert text == "## 0. 격리 통과 31건\n"                # 반환값은 그대로
+    printed = capsys.readouterr().out
+    assert "격리 통과" not in printed                      # 본문은 화면에 안 나간다
+    assert "wrote:" in printed and printed.isascii()       # 확인 줄은 ASCII 여야 읽힌다
+
+
+def test_without_out_flag_the_text_still_goes_to_stdout(capsys, monkeypatch):
+    """기존 사용법이 깨지면 안 된다."""
+    from app.coating import diagnose
+
+    monkeypatch.setattr(diagnose, "render_preprocess", lambda p, s: "## 0. 본문\n")
+    diagnose.main(["--preprocess", "x.parquet"])
+    assert "## 0. 본문" in capsys.readouterr().out

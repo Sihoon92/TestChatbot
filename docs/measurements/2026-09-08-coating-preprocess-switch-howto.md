@@ -8,8 +8,16 @@
 
 ```
 cd backend
-python -m app.coating.diagnose --preprocess data/coating/raw/merged.parquet
+python -m app.coating.diagnose --preprocess data/coating/raw/merged.parquet --out preprocess.txt
 ```
+
+`--out` 을 쓴다. **셸 리다이렉션(`> preprocess.txt`)은 쓰지 않는다** — PowerShell 은
+외부 프로그램의 출력을 파일에 담기 전에 `[Console]::OutputEncoding`(사내 PC 기본
+cp949)으로 한 번 해석한다. 프로그램이 UTF-8 로 내보내도 그 자리에서 한글이 깨지고,
+깨진 글자가 그대로 저장돼 무엇으로 열어도 돌아오지 않는다. `--out` 은 파일을 직접
+쓰므로(UTF-8 BOM) 셸이 무엇이든 상관없고, 메모장·엑셀도 바로 알아본다.
+
+`--out` 없이 돌리면 화면으로 나온다. 콘솔이 한글을 제대로 보여주면 그래도 된다.
 
 리포트까지 같이 보려면:
 

@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from app.coating import console
+from app.coating import dump
 from app.coating import features
 from app.coating import response as resp
 from app.coating import schemas as S
@@ -871,6 +872,9 @@ def build_parser() -> argparse.ArgumentParser:
             "예) 전처리 전 과정 — 리포트를 안 돌려도 된다\n"
             "    python -m app.coating.diagnose \\\n"
             "      --preprocess data/coating/raw/merged.parquet\n\n"
+            "예) 콘솔이 한글을 못 보여줄 때 — 셸 리다이렉션 대신 --out 을 쓴다\n"
+            "    python -m app.coating.diagnose \\\n"
+            "      --preprocess data/coating/raw/merged.parquet --out preprocess.txt\n\n"
             "예) 커널 진단 — 리포트를 --dump 로 먼저 돌린다\n"
             "    python -m app.coating.diagnose \\\n"
             "      --dump data/coating/reports/dump/20260907-101500"
@@ -890,6 +894,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--alpha", type=float, default=None,
         help="릿지 α 를 이번 실행에만 바꾼다 (생략 시 COATING_RIDGE_ALPHA)",
+    )
+    p.add_argument(
+        "--out", dest="out_path", default=None, metavar="PATH",
+        help="결과를 파일로 쓴다(UTF-8 BOM). 셸 리다이렉션(> out.txt)은 PowerShell 이"
+             " 출력을 cp949 로 한 번 해석해 한글을 깨뜨리므로 이쪽을 쓴다.",
     )
     return p
 
@@ -914,7 +923,16 @@ def main(argv: list[str] | None = None) -> str:
             "  --preprocess <원본 parquet>   전처리 전 과정 (별칭: --isolation)\n"
             "  --dump <덤프 폴더>             커널 진단 (리포트를 --dump 로 먼저 돌린다)"
         )
-    print(text)
+    if args.out_path:
+        # 화면에 같이 뿌리지 않는다. --out 을 쓰는 이유가 콘솔이 한글을 못
+        # 보여주기 때문인데, 거기에 다시 쏟으면 고치려던 것을 그대로 한다.
+        #
+        # 확인 줄만 ASCII 로 적는다. 이 한 줄은 어차피 그 콘솔에 찍히므로,
+        # 한글로 쓰면 "한글이 깨져서 파일로 뺐다" 는 안내가 깨진 채 나온다.
+        written = dump.write_text(args.out_path, text)
+        print(f"wrote: {written}  ({len(text.splitlines())} lines, UTF-8 BOM)")
+    else:
+        print(text)
     return text
 
 

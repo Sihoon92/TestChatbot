@@ -204,3 +204,30 @@ def test_cli_dump_defaults_to_none_so_run_stays_single_source():
 def test_dump_is_off_by_default():
     """실데이터는 매 실행마다 수 MB 를 남긴다. 기본은 꺼져 있어야 한다."""
     assert get_settings().coating_dump_enabled is False
+
+
+# ── 진단 텍스트 파일 쓰기 ────────────────────────────────────────────
+# CLI 가 stdout 으로만 내면 사용자는 셸 리다이렉션을 쓸 수밖에 없는데, 그 경로가
+# 사내 PC 에서 한글을 깨뜨린다(PowerShell 이 외부 프로그램 출력을 cp949 로 한 번
+# 해석한 뒤 담는다). 파일을 우리가 직접 쓰면 셸이 무엇이든 상관없어진다.
+
+
+def test_write_text_puts_a_bom_so_notepad_does_not_guess_cp949(tmp_path):
+    """BOM 이 없으면 메모장·엑셀이 utf-8 을 cp949 로 넘겨짚어 한글이 깨진다.
+    CSV 를 utf-8-sig 로 쓰는 이유와 같은 이유다."""
+    p = dump.write_text(tmp_path / "진단.txt", "격리 통과 31건 · σ 0.02\n")
+    raw = p.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")
+    assert p.read_text(encoding="utf-8-sig") == "격리 통과 31건 · σ 0.02\n"
+
+
+def test_write_text_creates_missing_parent_directories(tmp_path):
+    """출력 경로를 사용자가 직접 적는다. 폴더가 없다고 진단을 잃으면 안 된다."""
+    p = dump.write_text(tmp_path / "없던폴더" / "진단.txt", "한 줄\n")
+    assert p.exists()
+
+
+def test_manifest_is_readable_in_excel_too(tmp_path):
+    """매니페스트도 사람이 메모장으로 여는 텍스트다 - 표와 같은 함정을 밟는다."""
+    dump.write_tables({"01_x": pd.DataFrame({"a": [1]})}, tmp_path, {"창": "10분"})
+    assert (tmp_path / dump.MANIFEST).read_bytes().startswith(b"\xef\xbb\xbf")

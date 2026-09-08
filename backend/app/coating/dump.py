@@ -77,5 +77,26 @@ def _write_manifest(out: Path, tables: dict, meta: dict) -> Path:
         lines += ["", "## 이 덤프를 만든 입력과 설정"]
         lines += [f"- {k}: {v}" for k, v in meta.items()]
     p = out / MANIFEST
-    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # 표와 같은 ENCODING 을 쓴다. 이것도 사람이 메모장으로 여는 텍스트라,
+    # BOM 이 없으면 표는 멀쩡한데 매니페스트만 깨지는 이상한 폴더가 된다.
+    p.write_text("\n".join(lines) + "\n", encoding=ENCODING)
+    return p
+
+
+def write_text(path, text: str) -> Path:
+    """진단 텍스트를 그대로 파일에 쓴다. 계산하지 않는다.
+
+    CLI 가 stdout 으로만 내면 사용자는 셸 리다이렉션(`> out.txt`)을 쓸 수밖에
+    없는데, 그 경로가 사내 PC 에서 한글을 깨뜨린다. PowerShell 은 외부 프로그램의
+    출력을 파일에 담기 전에 [Console]::OutputEncoding(한글 Windows 기본 cp949)으로
+    **한 번 해석한다.** 프로그램이 아무리 UTF-8 로 내보내도 그 자리에서 깨지고,
+    깨진 글자가 그대로 저장돼 무엇으로 열어도 돌아오지 않는다. 우리가 직접 쓰면
+    셸이 무엇이든 상관없어진다.
+
+    이 모듈에 두는 이유는 경계다 - 이 기능에서 파일을 쓰는 곳은 여기 하나여야
+    한다(모듈 docstring). diagnose 가 직접 열기 시작하면 그 약속이 깨진다.
+    """
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text, encoding=ENCODING)
     return p
