@@ -357,75 +357,202 @@ def load_dump(dump_dir) -> dict:
     return out
 
 
-def render_isolation(path, s) -> str:
-    """원본에서 바로 격리 표를 낸다. ★파일을 읽는 두 번째 가장자리.
+def render_preprocess(path, s) -> str:
+    """원본에서 바로 전처리 전 과정을 낸다. ★파일을 읽는 두 번째 가장자리.
 
-    리포트 전체를 돌리지 않고도 "쓸 수 있는 이벤트가 몇 건인가" 만 보려는
-    경로다. 창을 정하는 일은 이 표를 몇 번 들여다보는 일이라, 그때마다
-    파이프라인 전체를 도는 것은 비싸다.
+    리포트 전체를 돌리지 않고도 "무엇이 어디서 걸러졌나" 를 보는 경로다. 창을
+    정하는 일은 이 출력을 몇 번 들여다보는 일이라, 그때마다 파이프라인 전체를
+    도는 것은 비싸다.
+
+    사용자가 돌려줄 것은 §0·§4·§5 세 덩어리뿐이다. 나머지는 혼자 판정하는 데 쓴다.
     """
-    from app.coating import events as ev_mod, parse, pivot, segment
+    from app.coating import (
+        events as ev_mod, panel as panel_mod, parse, pivot,
+        response as resp_mod, segment, trace,
+    )
 
     fmt = parse.format_for(path, None, s.coating_input_format)
     readings = parse.load_readings(path, parse.DEFAULT_DICT_PATH, source=fmt)
     deduped = pivot.dedupe_minute(readings)
     changes = pivot.compress_runs(deduped)
     bounds = segment.lot_bounds(deduped)
-    ev, _ = ev_mod.build_events(changes, s.coating_event_merge_minutes)
+    ev, dl = ev_mod.build_events(changes, s.coating_event_merge_minutes)
+    iso = ev_mod.isolation(
+        ev, s.coating_isolation_pre_minutes, s.coating_isolation_post_minutes, bounds
+    )
 
-    n_changes = int(len(
-        changes[changes[S.ITEM].isin(S.CONTROL_ITEM_IDS)
-                & changes[S.PREV_VALUE].notna()]
-    ))
     lines = [
-        "# 제어 구간 격리 — 쓸 수 있는 이벤트가 몇 건인가",
+        "# 전처리 — 무엇이 어디서 걸러졌나",
         "",
-        # 층위를 명시한다. "이벤트 N건" 만 적으면 그것이 관측인 줄 알지만,
-        # 실제로는 merge_minutes 가 만든 숫자다.
         f"- lot {len(bounds)}개",
-        f"- **변경** {n_changes}건 — 제어 항목 29개 중 무엇이든 값이 바뀐 횟수."
-        " 이건 데이터가 그대로 준다.",
-        f"- **묶음** {len(ev)}건 — 위를 {s.coating_event_merge_minutes}분"
-        " 이내로 이어 붙인 것(COATING_EVENT_MERGE_MINUTES). **설정이 만든 숫자다.**",
-        "- **쓸 수 있는 이벤트** — 묶음 중 앞뒤로 격리된 것. 아래 표.",
+        f"- 묶음 규칙: 앵커 {s.coating_event_merge_minutes}분"
+        f" (한 묶음의 폭이 이 값을 넘지 못한다)",
+        f"- 격리 규칙: 앞{s.coating_isolation_pre_minutes}분 /"
+        f" 뒤{s.coating_isolation_post_minutes}분, 묶음의 **끝**에서 잰다",
         "",
         "이 판정은 Wet 을 보지 않는다. 이벤트 시각만으로 정해지므로 L 을 몰라도",
         "쓸 수 있고, 그래서 L 을 재는 데 쓸 수 있다.",
         "",
-        "## 1. 격리 창을 바꿔가며",
-        "",
-        "   뒤 창   앞 창   홀로 선 이벤트",
     ]
-    if ev.empty:
-        return LF.join(lines + ["", "- 조정 이벤트가 0건이다."]) + LF
+    lines += _funnel_lines(trace.funnel(readings, deduped, changes, iso))
+    lines += _ledger_lines(trace.event_ledger(iso, dl))
+    lines += _timeline_lines(*trace.timeline(iso, bounds))
+    lines += _comparison_lines(trace.rule_comparison(
+        iso, dl, bounds, _LEGACY_ISOLATION_PRE_MINUTES, _LEGACY_ISOLATION_POST_MINUTES,
+        s.coating_isolation_pre_minutes, s.coating_isolation_post_minutes,
+    ))
+    lines += _window_check_lines(
+        deduped, iso, dl, s, panel_mod, resp_mod
+    )
+    lines += _legacy_tables(ev, iso, changes, bounds, s, ev_mod)
+    return LF.join(lines) + LF
 
+
+# --isolation 은 별칭으로 남긴다. 기존 문서와 손버릇이 깨지지 않게.
+render_isolation = render_preprocess
+
+
+# 구 규칙(연쇄 병합·시작 기준)의 옛 창. 실측값이 아니라 이 저장소가 예전에
+# 쓰던 상수라, 이름을 붙여야 "누가 방금 입력한 숫자" 와 구별된다.
+_LEGACY_ISOLATION_PRE_MINUTES = 30
+_LEGACY_ISOLATION_POST_MINUTES = 60
+
+
+def _funnel_lines(f) -> list[str]:
+    """단위가 바뀌는 줄은 Δ 를 숨긴다.
+
+    trace.funnel 은 그 자리에 파이썬 None 을 넣지만, int 와 섞인 열을 DataFrame
+    에 실으면 pandas 가 조용히 float64 로 승격시키며 None 을 NaN 으로 바꾼다
+    (`r.delta is None` 은 그래서 절대 참이 안 된다 - events.isolation 이 같은
+    함정을 dtype=object 로 피하는 이유와 같다). `pd.isna` 로 checks 하면 두 표현
+    모두 잡는다.
+    """
+    out = ["## 0. 어디서 얼마나 줄었나", ""]
+    for r in f.itertuples(index=False):
+        d = "" if pd.isna(r.delta) else f"  ({r.delta:+,.0f})"
+        note = f"   {r.note}" if r.note else ""
+        out.append(f"   {r.stage:<20} {r.n:>10,}{d}{note}")
+    return out + [""]
+
+
+def _ledger_lines(led, head: int = 20) -> list[str]:
+    out = [
+        f"## 1. 묶음 원장  ({len(led)}건 중 앞 {min(head, len(led))}"
+        f" · 전체는 12_event_ledger.csv)",
+        "",
+        "   event         run   첫 변경           마지막   span  n  중복"
+        "   앞간격   뒤간격  판정",
+    ]
+    if led.empty:
+        return out + ["   (조정 이벤트가 0건이다)", ""]
+    for r in led.head(head).itertuples(index=False):
+        run = getattr(r, S.RUN) or "-"
+        first = getattr(r, S.AT)
+        last = getattr(r, S.LAST_AT)
+        dup = f"⚠{r.n_dup_zones}" if r.n_dup_zones else "-"
+        gb = "  없음" if pd.isna(r.gap_before) else f"{r.gap_before:6.1f}"
+        ga = "  없음" if pd.isna(r.gap_after) else f"{r.gap_after:6.1f}"
+        verdict = "✓" if r.isolated else f"✗ {getattr(r, S.ISO_REASON)}"
+        out.append(
+            f"   {getattr(r, S.EVENT):<13} {run:<5} {first:%m-%d %H:%M:%S}"
+            f"  {last:%H:%M:%S} {getattr(r, S.SPAN):5.1f} {r.n_items:>2}"
+            f"  {dup:>3} {gb} {ga}  {verdict}"
+        )
+    out += ["", "   zone 별 Δ 는 CSV 의 zones 열에 있다.", ""]
+    return out
+
+
+def _timeline_lines(mpc, rows) -> list[str]:
+    out = [
+        f"## 2. 타임라인  (─ 조용  ✓ 격리통과  ✗ 탈락  1칸 = {mpc:.0f}분)",
+        "",
+    ]
+    for r in rows:
+        out.append(
+            f"   {r[S.LOT]:<12} {r['start']:%m-%d %H:%M} ├{r['cells']}┤"
+            f" {r['end']:%H:%M}"
+        )
+        for run in r["runs"]:
+            pad = " " * (len(f"   {r[S.LOT]:<12} ") + 12)
+            out.append(f"{pad}└─ {run[S.RUN]}: 조각 {run['n']}개")
+    return out + [""]
+
+
+def _comparison_lines(c) -> list[str]:
+    """창 값은 c 에서 읽는다. 헤더에 30/60 을 박아 두면 다른 창으로 부른 날
+    제목만 옛 숫자를 말하는 거짓말이 된다."""
+    o, n = c["old"], c["new"]
+    out = [
+        f"## 3. 구 규칙(연쇄·시작 기준·앞{o['pre']}/뒤{o['post']}) 대비"
+        f" — 신 규칙은 앵커·끝 기준·앞{n['pre']}/뒤{n['post']}",
+        "",
+        "                     구       신",
+        f"   묶음          {o['n_clusters']:>6}  {n['n_clusters']:>6}",
+        f"   격리 통과     {o['n_isolated']:>6}  {n['n_isolated']:>6}",
+        f"   Δgap 항목     {o['n_items']:>6}  {n['n_items']:>6}",
+        "",
+        f"   양쪽 통과 {c['both']}건 · 신에만 {c['only_new']}건"
+        f" · 구에만 {c['only_old']}건   (연속 구간 {c['n_runs']}개 중,"
+        " 어느 쪽도 통과 못 한 구간은 어디에도 안 든다)",
+    ]
+    if c["only_old_examples"]:
+        out += ["", "   구에만 남은 것 = 연쇄가 삼켰던 긴 구간:"]
+        for e in c["only_old_examples"]:
+            out.append(
+                f"     {e['run']}  구 = {e['first']:%m-%d %H:%M}~{e['last']:%H:%M}"
+                f" 한 건 / 신 = 조각 {e['n_fragments']}개"
+                f" · 항목 손질 {e['n_item_touches']}회"
+            )
+    return out + [""]
+
+
+def _window_check_lines(deduped, iso, dl, s, panel_mod, resp_mod) -> list[str]:
+    """응답창이 반응을 담고 있나. 10분은 실측이 아니라 가정이다.
+
+    곡선의 최댓값이 마지막 lag 에서 나오면 창이 짧다는 뜻이다. 이 두 줄이 매
+    실행마다 그 가정을 스스로 검사한다 - 없으면 틀린 창으로 낸 L·τ 가 숫자처럼
+    보여서 더 위험하다.
+    """
+    post = s.coating_response_post_minutes
+    out = [f"## 4. {post}분 창이 반응을 담고 있나", ""]
+    usable = iso[iso["isolated"]] if len(iso) else iso
+    if not len(usable):
+        return out + ["   격리를 통과한 이벤트가 0건이라 판정할 수 없다.", ""]
+    p = panel_mod.build_panel(deduped, s.coating_panel_ffill_max_minutes)
+    aligned = resp_mod.align_events(
+        p, usable, dl, s.coating_response_pre_minutes, post,
+        s.coating_delta_window_minutes,
+    )
+    curve = resp_mod.response_curve(aligned)
+    fwd = curve[curve[resp_mod.LAG] >= 0] if len(curve) else curve
+    if not len(fwd):
+        return out + ["   정렬된 응답이 없다. 표본이 모자라거나 패널이 비었다.", ""]
+    peak_lag = int(fwd.loc[fwd["mean"].idxmax(), resp_mod.LAG])
+    last_lag = int(fwd[resp_mod.LAG].max())
+    mark = "  ⚠  마지막 칸이다 — 창이 짧다." if peak_lag >= last_lag else "  ✓"
+    return out + [
+        f"   정렬 응답 곡선 최댓값 lag = +{peak_lag}분 (관측 끝 +{last_lag}분){mark}",
+        f"   (최댓값이 창 한가운데면 정상. 마지막 lag 이면 "
+        f"COATING_ISOLATION_POST_MINUTES 와 COATING_RESPONSE_POST_MINUTES 를 올린다.)",
+        "",
+    ]
+
+
+def _legacy_tables(ev, iso, changes, bounds, s, ev_mod) -> list[str]:
+    """창을 고르는 근거 세 표. 새 다섯 절 뒤에 그대로 유지한다."""
+    lines = ["## 5. 격리 창을 바꿔가며", "", "   창(앞=뒤)   홀로 선 이벤트"]
+    if ev.empty:
+        return lines + ["   (조정 이벤트가 0건이다)", ""]
     table = ev_mod.isolation_table(ev, bounds=bounds)
     for r in table.itertuples(index=False):
         lines.append(
-            f"   {r.post_minutes:>4}분  {r.pre_minutes:>4}분"
-            f"   {r.n_isolated:>4} / {r.n_events} ({r.ratio:.0%})"
+            f"   {r.post_minutes:>6}분   {r.n_isolated:>4} / {r.n_events}"
+            f" ({r.ratio:.0%})"
         )
-    cur = ev_mod.isolation(
-        ev, s.coating_isolation_pre_minutes, s.coating_isolation_post_minutes, bounds
-    )
-    n = int(cur["isolated"].sum())
-    lines += [
-        "",
-        f"- 현재 설정 앞{s.coating_isolation_pre_minutes}분 /"
-        f" 뒤{s.coating_isolation_post_minutes}분 → **{n}건**",
-        "",
-        _isolation_verdict(table, n),
-    ]
-    # 탈락 사유는 몇 건만 보여 준다. 전부 찍으면 표가 묻힌다.
-    rejected = cur[~cur["isolated"]].head(5)
-    if len(rejected):
-        lines += ["", "  탈락 예시 — 이웃까지의 간격(분)"]
-        for r in rejected.itertuples(index=False):
-            b = "없음" if pd.isna(r.gap_before) else f"{r.gap_before:.0f}"
-            a = "없음" if pd.isna(r.gap_after) else f"{r.gap_after:.0f}"
-            lines.append(f"    {getattr(r, S.EVENT)}   앞 {b:>5}   뒤 {a:>5}")
+    n_now = int(iso["isolated"].sum()) if len(iso) else 0
+    lines += ["", f"- 현재 설정 → **{n_now}건**", "", _isolation_verdict(table, n_now)]
 
-    lines += ["", "## 2. 변경 사이의 간격 분포 — 병합창은 몇 분이어야 하나", ""]
+    lines += ["", "## 6. 변경 사이의 간격 분포 — 병합창은 몇 분이어야 하나", ""]
     hist = ev_mod.gap_histogram(changes)
     peak = max(hist["n"]) or 1
     for r in hist.itertuples(index=False):
@@ -433,7 +560,7 @@ def render_isolation(path, s) -> str:
         lines.append(f"   {r.bucket:>8}  {r.n:>5} ({r.ratio:>4.0%})  {bar}")
     lines += ["", _gap_verdict(hist)]
 
-    lines += ["", "## 3. 병합창을 바꾸면 쓸 수 있는 것이 얼마나 달라지나", ""]
+    lines += ["", "## 7. 병합창을 바꾸면 쓸 수 있는 것이 얼마나 달라지나", ""]
     sens = ev_mod.merge_sensitivity(
         changes,
         pre_minutes=s.coating_isolation_pre_minutes,
@@ -448,7 +575,7 @@ def render_isolation(path, s) -> str:
             f"   {r.n_items:>14}개{mark}"
         )
     lines += ["", _merge_verdict(sens, s.coating_event_merge_minutes)]
-    return LF.join(lines) + LF
+    return lines
 
 
 def _gap_verdict(hist: pd.DataFrame) -> str:
@@ -544,9 +671,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m app.coating.diagnose",
         description="덤프를 되읽어 커널이 왜 그 모양인지 따진다.",
         epilog=(
-            "예) 제어 구간 격리 표 — 리포트를 안 돌려도 된다\n"
+            "예) 전처리 전 과정 — 리포트를 안 돌려도 된다\n"
             "    python -m app.coating.diagnose \\\n"
-            "      --isolation data/coating/raw/merged.parquet\n\n"
+            "      --preprocess data/coating/raw/merged.parquet\n\n"
             "예) 커널 진단 — 리포트를 --dump 로 먼저 돌린다\n"
             "    python -m app.coating.diagnose \\\n"
             "      --dump data/coating/reports/dump/20260907-101500"
@@ -554,8 +681,10 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
-        "--isolation", dest="isolation_input", default=None, metavar="PARQUET",
-        help="원본 parquet 에서 제어 구간 격리 표만 낸다. 리포트를 안 돌려도 된다.",
+        "--preprocess", "--isolation", dest="preprocess_input",
+        default=None, metavar="PARQUET",
+        help="원본에서 전처리 전 과정을 낸다(깔때기·원장·타임라인·구신대조·창 검사)."
+             " 리포트를 안 돌려도 된다. --isolation 은 별칭이다.",
     )
     p.add_argument(
         "--dump", dest="dump_dir", default=None, metavar="PATH",
@@ -575,8 +704,8 @@ def main(argv: list[str] | None = None) -> str:
 
     args = build_parser().parse_args(argv)
     s = get_settings()
-    if args.isolation_input:
-        text = render_isolation(args.isolation_input, s)
+    if args.preprocess_input:
+        text = render_preprocess(args.preprocess_input, s)
     elif args.dump_dir:
         alpha = args.alpha if args.alpha is not None else s.coating_ridge_alpha
         text = render(load_dump(args.dump_dir), alpha)
@@ -585,8 +714,8 @@ def main(argv: list[str] | None = None) -> str:
         # 하나가 원본을, 다른 하나가 파생물을 읽어서 값이 다른 것을 본다는 데 있다.
         raise SystemExit(
             "무엇을 진단할지 정해야 한다.\n"
-            "  --isolation <원본 parquet>   제어 구간 격리 표 (리포트 불필요)\n"
-            "  --dump <덤프 폴더>            커널 진단 (리포트를 --dump 로 먼저 돌린다)"
+            "  --preprocess <원본 parquet>   전처리 전 과정 (별칭: --isolation)\n"
+            "  --dump <덤프 폴더>             커널 진단 (리포트를 --dump 로 먼저 돌린다)"
         )
     print(text)
     return text

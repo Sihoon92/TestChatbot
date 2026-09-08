@@ -386,3 +386,54 @@ def test_merge_verdict_confirms_when_current_is_already_best():
         {"merge_minutes": 10, "n_clusters": 12, "n_isolated": 5, "n_items": 20},
     ])
     assert "현재 2분이 최선" in diagnose._merge_verdict(sens, current=2)
+
+
+# ── --preprocess 렌더러 ─────────────────────────────────────────────
+
+
+def test_preprocess_renders_all_five_sections(tmp_path, monkeypatch):
+    """다섯 절이 다 있어야 한다. 절이 통째로 사라지면 '안 쟀다' 와
+    '재서 0 이다' 를 구별할 수 없다."""
+    import pandas as pd
+
+    from app.coating import diagnose, parse
+    from app.coating import schemas as S
+    from app.config import get_settings
+
+    base = pd.Timestamp("2026-02-02 06:00")
+    rows = []
+    for m in range(0, 240):
+        at = base + pd.Timedelta(minutes=m)
+        for zi in range(3):
+            v = 41.0 if (zi == 0 and m >= 30) else 40.0
+            rows.append({S.LOT: "L1", S.AT: at, S.PRODUCT: "P",
+                         S.ITEM: S.GAP_ITEM_IDS[zi], S.VALUE: v,
+                         S.ROW_NO: len(rows)})
+        for zi in range(3):
+            rows.append({S.LOT: "L1", S.AT: at, S.PRODUCT: "P",
+                         S.ITEM: S.WET_ITEM_IDS[zi],
+                         S.VALUE: 18.0 if m < 38 else 18.4,
+                         S.ROW_NO: len(rows)})
+    src = tmp_path / "synth.parquet"
+    pd.DataFrame(rows).to_parquet(src)
+
+    monkeypatch.setattr(
+        parse, "load_readings",
+        lambda *a, **k: pd.read_parquet(src).assign(**{
+            S.IO: lambda d: [
+                S.IO_OUTPUT if i.startswith("9") else S.IO_INPUT for i in d[S.ITEM]
+            ]
+        }),
+    )
+    text = diagnose.render_preprocess(str(src), get_settings())
+    for head in ("## 0.", "## 1.", "## 2.", "## 3.", "## 4."):
+        assert head in text
+    assert "격리 통과" in text
+
+
+def test_isolation_flag_is_an_alias_for_preprocess():
+    from app.coating import diagnose
+
+    p = diagnose.build_parser()
+    args = p.parse_args(["--isolation", "x.parquet"])
+    assert args.preprocess_input == "x.parquet"
