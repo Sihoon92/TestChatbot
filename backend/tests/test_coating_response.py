@@ -140,9 +140,10 @@ def test_only_adjusted_zones_are_aligned():
     assert aligned.groupby([S.EVENT, S.ZONE]).ngroups == aligned[S.EVENT].nunique()
 
 
-def test_contaminated_events_are_excluded():
-    """오염 이벤트는 다음 조정의 효과가 섞여 지연을 왜곡한다
-    (features.delta_samples 와 같은 기준)."""
+def test_align_events_do_not_look_at_contamination():
+    """선별은 호출자(격리)가 끝내고 온다. align_events 가 정착 판정을 다시
+    보면 격리로 고른 뜻이 사라지고, 정착은 L 을 알아야 서는데 L 을 여기서
+    잰다(순환) — features.delta_samples 와 같은 이유."""
     p, _, ev, dl, *_ = run(plant())
     assert len(ev) >= 2
 
@@ -151,8 +152,7 @@ def test_contaminated_events_are_excluded():
     aligned = response.align_events(p, dirty, dl, 15, 60, 5)
 
     kept = set(aligned[S.EVENT])
-    assert kept == set(dirty.loc[~dirty[S.CONTAMINATED], S.EVENT])
-    assert kept.isdisjoint(set(dirty.loc[dirty[S.CONTAMINATED], S.EVENT]))
+    assert kept == set(dirty[S.EVENT])
 
 
 def test_baseline_is_a_window_mean_not_one_point():

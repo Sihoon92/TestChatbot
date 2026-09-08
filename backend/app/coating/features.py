@@ -48,26 +48,34 @@ def delta_samples(
     event_deltas: pd.DataFrame,
     wet: pd.DataFrame,
     valid: list[int],
-    window_minutes: int,
+    post_minutes: int,
+    delta_window_minutes: int,
 ) -> pd.DataFrame:
-    """깨끗한 이벤트마다 (Δgap 25, ΔWet 25) 한 행.
+    """쓸 수 있는 이벤트마다 (Δgap 25, ΔWet 25) 한 행.
 
-    ΔWet 은 '조정 직전 안정 구간 평균' 대비 '정착 후 구간 평균' 이다.
+    ΔWet 은 `mean[t1+post-w, t1+post] − mean[t0-w, t0)` 이다.
+    t0 = 묶음의 첫 변경, t1 = 마지막 변경, w = delta_window_minutes.
     한 시점끼리 빼면 측정 노이즈가 그대로 신호에 섞인다.
+
+    **선별은 하지 않는다.** 호출자가 격리로 거른 표를 준다. 여기서 정착 판정
+    (contaminated)을 다시 보면 격리로 고른 뜻이 사라지고, 정착은 L 을 알아야
+    서는데 L 을 그 뒤에서 재므로 순환이 돌아온다.
     """
-    clean = events_df[~events_df[S.CONTAMINATED].astype(bool)]
     zone_cols = [S.zone_col(z) for z in valid]
-    win = pd.Timedelta(minutes=window_minutes)
+    win = pd.Timedelta(minutes=delta_window_minutes)
+    post = pd.Timedelta(minutes=post_minutes)
 
     rows = []
-    for _, e in clean.iterrows():
-        before = _window_mean(wet, e[S.LOT], e[S.AT] - win, e[S.AT], zone_cols)
+    for _, e in events_df.iterrows():
+        t0 = e[S.AT]
+        t1 = e[S.LAST_AT] if S.LAST_AT in events_df.columns else t0
+        before = _window_mean(wet, e[S.LOT], t0 - win, t0, zone_cols, end_open=True)
         after = _window_mean(
-            wet, e[S.LOT], e[S.SETTLED_AT], e[S.SETTLED_AT] + win, zone_cols
+            wet, e[S.LOT], t1 + post - win, t1 + post, zone_cols
         )
         if before is None or after is None:
             continue
-        row = {S.EVENT: e[S.EVENT], S.LOT: e[S.LOT], S.AT: e[S.AT]}
+        row = {S.EVENT: e[S.EVENT], S.LOT: e[S.LOT], S.AT: t0}
         for z in range(1, S.N_ZONES + 1):
             col = S.zone_col(z)
             row[WET_DELTA_COLS[z - 1]] = (
@@ -100,8 +108,14 @@ def delta_samples(
     return out.reset_index()
 
 
-def _window_mean(wet, lot_id, start, end, zone_cols):
-    g = wet[(wet[S.LOT] == lot_id) & (wet[S.AT] >= start) & (wet[S.AT] <= end)]
+def _window_mean(wet, lot_id, start, end, zone_cols, end_open: bool = False):
+    """[start, end] 구간의 zone 평균. end_open 이면 end 를 제외한다.
+
+    기준선 창은 조정이 일어난 분 자체를 포함하면 안 된다 - 그 분의 값에는 이미
+    조정의 영향이 섞여 있을 수 있다.
+    """
+    upper = (wet[S.AT] < end) if end_open else (wet[S.AT] <= end)
+    g = wet[(wet[S.LOT] == lot_id) & (wet[S.AT] >= start) & upper]
     if g.empty:
         return None
     return g[zone_cols].mean(axis=0, skipna=True).to_dict()

@@ -85,19 +85,28 @@ def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict
     wm = features.wet_mean_series(wet, valid)
 
     ev, dl = ev_mod.build_events(changes, s.coating_event_merge_minutes)
+    bounds = segment.lot_bounds(deduped)
     if tables is not None:
-        # 오염 표시가 붙기 **전** 의 이벤트다. 04 와 나란히 놓고 보면 어느 것이
+        # 격리 판정이 붙기 **전** 의 이벤트다. 10 과 나란히 놓고 보면 어느 것이
         # 왜 버려졌는지가 두 파일의 차이로 드러난다.
         tables["01_changes_control"] = changes[changes[S.ITEM].isin(S.CONTROL_ITEM_IDS)]
         tables["02_events"] = ev
         tables["03_event_deltas"] = dl
+
+    iso = ev_mod.isolation(
+        ev, s.coating_isolation_pre_minutes, s.coating_isolation_post_minutes, bounds
+    ) if not ev.empty else ev
+    usable = iso[iso["isolated"]] if len(iso) else iso
+
     if not ev.empty:
+        # 선별에는 안 쓴다. 튜닝 종료 교차검증과 오염 비율 진단용으로만 남긴다.
         ev = ev_mod.annotate_settling(
             ev, wm, s.coating_settle_std_max,
             s.coating_settle_window_minutes, s.coating_settle_max_wait_minutes,
         )
         ds = features.delta_samples(
-            ev, dl, wet, valid, s.coating_settle_window_minutes
+            usable, dl, wet, valid,
+            s.coating_response_post_minutes, s.coating_delta_window_minutes,
         )
     else:
         ds = pd.DataFrame(columns=features.GAP_DELTA_COLS)
@@ -125,7 +134,9 @@ def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict
         "period": (str(deduped[S.AT].min()), str(deduped[S.AT].max())),
         "n_rows": int(len(readings)),
         "n_events": int(len(ev)),
-        "n_clean_events": int((~ev[S.CONTAMINATED].astype(bool)).sum()) if len(ev) else 0,
+        # "쓸 수 있는 이벤트" 는 이제 격리 통과 건수 하나뿐이다. 정착 기반
+        # contaminated_ratio 는 진단으로만 남는다.
+        "n_clean_events": int(len(usable)),
         "contaminated_ratio": (
             float(ev[S.CONTAMINATED].astype(bool).mean()) if len(ev) else 0.0
         ),
@@ -138,7 +149,6 @@ def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict
         "missing_control_items": missing,
         "tuning_end": segment.tuning_end_last_change(changes).to_dict("records"),
     }
-    bounds = segment.lot_bounds(deduped)
     abs_samples = features.absolute_samples(
         changes, wm, bounds,
         s.coating_settle_max_wait_minutes, s.coating_settle_window_minutes,
@@ -259,12 +269,7 @@ def _dynamics_facts(readings, ev, dl, s, bounds, tables=None) -> dict:
     iso = ev_mod.isolation(
         ev, s.coating_isolation_pre_minutes, s.coating_isolation_post_minutes, bounds
     ) if len(ev) else ev
-    # CONTAMINATED 를 떼고 넘긴다. align_events 가 그 열을 보면 정착 기반
-    # 판정이 다시 끼어들어 격리로 고른 뜻이 사라진다.
-    usable = (
-        iso[iso["isolated"]].drop(columns=[S.CONTAMINATED], errors="ignore")
-        if len(iso) else ev
-    )
+    usable = iso[iso["isolated"]] if len(iso) else ev
     aligned = response.align_events(
         p, usable, dl, s.coating_response_pre_minutes,
         s.coating_response_post_minutes, s.coating_settle_window_minutes,

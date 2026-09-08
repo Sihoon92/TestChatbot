@@ -51,15 +51,15 @@ def test_wet_mean_ignores_invalid_zones():
     assert wm.iloc[0][S.WET_MEAN] == 18.2
 
 
-def test_delta_samples_only_use_clean_events():
-    """오염 이벤트는 델타 샘플에 들어가면 안 된다."""
+def test_delta_samples_do_not_look_at_contamination():
+    """선별은 호출자(격리)가 끝내고 온다. 여기서 정착 판정이 다시 끼어들면
+    격리로 고른 뜻이 사라진다."""
     ev = pd.DataFrame({
         S.LOT: ["L1", "L1"],
         S.EVENT: ["L1#1", "L1#2"],
         S.AT: pd.to_datetime(["2026-01-31 19:00", "2026-01-31 19:20"]),
-        S.SETTLED_AT: pd.to_datetime(["2026-01-31 19:05", "2026-01-31 19:25"]),
-        S.CONTAMINATED: [False, True],
-        S.DROP_REASON: [None, "overlapped"],
+        S.LAST_AT: pd.to_datetime(["2026-01-31 19:00", "2026-01-31 19:20"]),
+        S.CONTAMINATED: [False, True],       # 있어도 무시돼야 한다
     })
     dl = pd.DataFrame({
         S.EVENT: ["L1#1", "L1#2"],
@@ -67,12 +67,42 @@ def test_delta_samples_only_use_clean_events():
         S.ZONE: [1.0, 1.0],
         S.DELTA: [5.0, 7.0],
     })
-    times = pd.to_datetime([f"2026-01-31 19:{m:02d}" for m in range(0, 30)])
-    w = pd.DataFrame({S.LOT: ["L1"] * 30, S.AT: times})
+    # t0(19:00) 의 before 창 [18:57, 19:00) 을 재려면 패널이 그보다 앞에서
+    # 시작해야 한다 - 패널이 19:00 에서 시작하면 before 가 비어 이벤트 자체가
+    # (오염 여부와 무관하게) 걸러져 이 테스트의 취지가 사라진다.
+    times = pd.date_range("2026-01-31 18:55", periods=45, freq="1min")
+    w = pd.DataFrame({S.LOT: ["L1"] * 45, S.AT: times})
     for z in range(1, 26):
-        w[f"z{z}"] = [18.2] * 15 + [18.5] * 15
-    out = features.delta_samples(ev, dl, w, valid=list(range(1, 26)), window_minutes=3)
-    assert list(out[S.EVENT]) == ["L1#1"]
+        w[f"z{z}"] = [18.2] * 45
+    out = features.delta_samples(
+        ev, dl, w, valid=list(range(1, 26)),
+        post_minutes=10, delta_window_minutes=3,
+    )
+    assert list(out[S.EVENT]) == ["L1#1", "L1#2"]
+
+
+def test_delta_samples_read_wet_at_the_end_of_the_quiet_window():
+    """after 는 보장된 조용 구간의 맨 끝 w분이다. 정착 시각에 의존하지 않는다."""
+    ev = pd.DataFrame({
+        S.LOT: ["L1"],
+        S.EVENT: ["L1#1"],
+        S.AT: pd.to_datetime(["2026-01-31 19:00"]),
+        S.LAST_AT: pd.to_datetime(["2026-01-31 19:01"]),
+    })
+    dl = pd.DataFrame({S.EVENT: ["L1#1"], S.ITEM: ["30030838"],
+                       S.ZONE: [1.0], S.DELTA: [5.0]})
+    # before 창 [18:57, 19:00) 을 재려면 패널이 그보다 앞에서 시작해야 한다.
+    times = pd.date_range("2026-01-31 18:55", periods=35, freq="1min")
+    w = pd.DataFrame({S.LOT: ["L1"] * 35, S.AT: times})
+    # 19:00 이전 18.0, 19:08 부터 19.0. after 창은 [19:01+10-3, 19:01+10] = 19:08~19:11
+    for z in range(1, 26):
+        w[f"z{z}"] = [18.0 if t < pd.Timestamp("2026-01-31 19:08") else 19.0
+                      for t in times]
+    out = features.delta_samples(
+        ev, dl, w, valid=list(range(1, 26)),
+        post_minutes=10, delta_window_minutes=3,
+    )
+    assert out.iloc[0]["dw1"] == pytest.approx(1.0)
     assert out.iloc[0]["dg1"] == 5.0
 
 
@@ -86,9 +116,7 @@ def test_delta_samples_sums_repeated_adjustments_of_one_zone():
         S.LOT: ["L1"],
         S.EVENT: ["L1#1"],
         S.AT: pd.to_datetime(["2026-01-31 19:00"]),
-        S.SETTLED_AT: pd.to_datetime(["2026-01-31 19:05"]),
-        S.CONTAMINATED: [False],
-        S.DROP_REASON: [None],
+        S.LAST_AT: pd.to_datetime(["2026-01-31 19:01"]),
     })
     # 같은 zone1 을 +1 씩 세 번 = 총 +3
     dl = pd.DataFrame({
@@ -97,11 +125,15 @@ def test_delta_samples_sums_repeated_adjustments_of_one_zone():
         S.ZONE: [1.0, 1.0, 1.0],
         S.DELTA: [1.0, 1.0, 1.0],
     })
-    times = pd.to_datetime([f"2026-01-31 19:{m:02d}" for m in range(0, 30)])
-    w = pd.DataFrame({S.LOT: ["L1"] * 30, S.AT: times})
+    # before 창 [18:57, 19:00) 을 재려면 패널이 그보다 앞에서 시작해야 한다.
+    times = pd.date_range("2026-01-31 18:55", periods=35, freq="1min")
+    w = pd.DataFrame({S.LOT: ["L1"] * 35, S.AT: times})
     for z in range(1, 26):
-        w[f"z{z}"] = [18.2] * 15 + [18.5] * 15
-    out = features.delta_samples(ev, dl, w, valid=list(range(1, 26)), window_minutes=3)
+        w[f"z{z}"] = [18.2] * 35
+    out = features.delta_samples(
+        ev, dl, w, valid=list(range(1, 26)),
+        post_minutes=10, delta_window_minutes=3,
+    )
     assert out.iloc[0]["dg1"] == 3.0
 
 

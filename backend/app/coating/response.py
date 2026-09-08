@@ -58,7 +58,7 @@ def align_events(
     post: int,
     baseline_minutes: int,
 ) -> pd.DataFrame:
-    """깨끗한 이벤트를 lag=0 으로 정렬한 long 표.
+    """이벤트를 lag=0 으로 정렬한 long 표. 선별은 호출자(격리)가 끝내고 온다.
 
     반환: event_id · lot_id · lag_min · zone · d_gap · response
 
@@ -76,7 +76,9 @@ def align_events(
     if panel.empty or events.empty:
         return empty
 
-    clean = events[~events[S.CONTAMINATED].astype(bool)] if S.CONTAMINATED in events else events
+    # 선별은 호출자(격리)가 끝내고 온다. 여기서 정착 판정을 보면 격리로 고른
+    # 뜻이 사라지고, 정착은 L 을 알아야 서는데 L 을 여기서 잰다(순환).
+    clean = events
     zoned = event_deltas[event_deltas[S.ZONE].notna()]
     if clean.empty or zoned.empty:
         return empty
