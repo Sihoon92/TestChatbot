@@ -463,13 +463,14 @@ def test_preprocess_renders_all_five_sections(tmp_path, monkeypatch):
     #   신에만/구에만 0건.
     assert "양쪽 통과 1건 · 신에만 0건 · 구에만 0건" in text
 
-    #   §4 응답창: t0=m30, baseline=[27,30) 은 Wet 이 아직 18.0 이라 기준선
-    #   18.0. Wet 은 m=38 에 18.4 로 계단(step) → lag=38-30=8 부터 반응이
-    #   보이고(lag 8·9·10 모두 0.4, 그 앞은 0), 창은 post=10 분까지라
-    #   last_lag=10. tie 는 앞선 lag(8)를 고른다 → 최댓값 lag=+8, 관측 끝=+10,
-    #   마지막 칸이 아니다. 다만 이 이벤트는 zone1 하나·표본 1건뿐이라 그
-    #   lag 의 SE 는 정의되지 않는다(n=1) → 유의성 검정을 통과 못 해 "노이즈
-    #   아래" 로 판정된다.
+    #   §4 응답창: t0=m30, baseline=[25,30)(coating_settle_window_minutes=5)
+    #   은 Wet 이 아직 18.0 이라 기준선 18.0(m<38 구간 전체가 18.0 이므로
+    #   baseline_minutes 를 3→5 로 바꾼 이 수정과 무관하게 값은 같다). Wet 은
+    #   m=38 에 18.4 로 계단(step) → lag=38-30=8 부터 반응이 보이고(lag
+    #   8·9·10 모두 0.4, 그 앞은 0), 창은 post=10 분까지라 last_lag=10. tie 는
+    #   앞선 lag(8)를 고른다 → 최댓값 lag=+8, 관측 끝=+10, 마지막 칸이 아니다.
+    #   다만 이 이벤트는 zone1 하나·표본 1건뿐이라 그 lag 의 SE 는 정의되지
+    #   않는다(n=1) → 유의성 검정을 통과 못 해 "노이즈 아래" 로 판정된다.
     assert "lag = +8분 (관측 끝 +10분)" in text
     assert "⚠ 노이즈 아래" in text
 
@@ -687,3 +688,30 @@ def test_render_preprocess_header_shows_the_window_mismatch(tmp_path, monkeypatc
     s = get_settings().model_copy(update={"coating_response_post_minutes": 20})
     text = diagnose.render_preprocess(str(src), s)
     assert "≠ 응답창" in text
+
+
+# ── §0 중복 zone 집계 (fix H9) ──────────────────────────────────────────
+
+
+def test_funnel_lines_reports_duplicate_zone_aggregate():
+    """n_dup_zones 는 원장 앞 20건에만 보인다(§1). 전체 집계가 §0 에 한 줄
+    있어야 20건 밖의 중복도 보인다(spec 문제 4)."""
+    import pandas as pd
+
+    from app.coating import diagnose, trace
+    from app.coating import schemas as S
+
+    f = trace.funnel(
+        pd.DataFrame({S.LOT: []}), pd.DataFrame({S.LOT: []}),
+        pd.DataFrame({S.LOT: [], S.ITEM: [], S.PREV_VALUE: []}), pd.DataFrame(),
+    )
+    assert "중복 zone" not in diagnose._funnel_lines(f, n_dup_events=None)[-2]
+
+    lines_with_dup = diagnose._funnel_lines(f, n_dup_events=3)
+    text = "\n".join(lines_with_dup)
+    assert "중복 zone" in text and "3건" in text
+    assert "⚠" in text
+
+    lines_without_dup = diagnose._funnel_lines(f, n_dup_events=0)
+    text0 = "\n".join(lines_without_dup)
+    assert "중복 zone" in text0 and "0건" in text0

@@ -364,3 +364,58 @@ def test_timeline_clamps_an_event_exactly_at_bounds_end():
     mpc, rows = trace.timeline(iso, bounds, width=10)
     assert mpc == pytest.approx(10.0)
     assert rows[0]["cells"] == "─" * 9 + "✗"
+
+
+# ── fix H4/H9/H10/H11 ──────────────────────────────────────────────────
+
+
+def test_funnel_appends_delta_wet_sample_row_when_given():
+    """07_delta_samples 는 격리 통과보다 적을 수 있다(Wet 창이 빈 이벤트는
+    버려진다) - 그 감소도 이름이 있어야 한다. 안 주면(기존 호출부) 이 줄은
+    없다."""
+    ch = _changes([(0, 0, 40.0, 41.0), (100, 1, 40.0, 41.0)])
+    ev, dl, iso = _pipeline(ch)
+    readings = pd.DataFrame({S.LOT: ["L1"] * 10})
+    deduped = pd.DataFrame({S.LOT: ["L1"] * 10})
+
+    without = trace.funnel(readings, deduped, ch, iso)
+    assert "ΔWet 표본" not in list(without["stage"])
+
+    ds = pd.DataFrame({S.EVENT: ["L1#1"]})   # 격리 통과 2건 중 1건만 살아남음
+    with_ds = trace.funnel(readings, deduped, ch, iso, ds)
+    row = with_ds[with_ds["stage"] == "ΔWet 표본"].iloc[0]
+    assert row["n"] == 1
+    assert row["delta"] == -1
+    assert "1건 제외" in row["note"]
+
+
+def test_legacy_events_column_is_named_touches_not_items():
+    """run 안 fragment 여러 개의 n_items 를 그대로 더하면 항목이 아니라
+    손질 '횟수' 다(같은 zone 이 두 fragment 에서 손질되면 두 번 잡힌다).
+    rule_comparison 의 n_item_touches 와 이름이 맞아야 한다."""
+    ch = _changes([(0, 0, 40.0, 41.0), (1.5, 1, 40.0, 41.0), (3, 2, 40.0, 41.0),
+                   (100, 3, 40.0, 41.0)])
+    _, dl, iso = _pipeline(ch)
+    old = trace.legacy_events(iso)
+    assert "n_item_touches" in old.columns
+    assert "n_items" not in old.columns
+
+
+def test_rule_comparison_orders_examples_by_first_timestamp_not_run_id_text():
+    """run id 문자열 정렬은 'L1@10' 이 'L1@2' 보다 앞에 오는 사전식 함정이
+    있다 - 사용자가 그대로 돌려주는 예시 세 줄의 순서가 실제 발생 순서와
+    어긋나면 안 된다. 여기서는 'L1@2' 가 시간상 먼저(5분), 'L1@10' 이
+    나중(500분)이다."""
+    iso = pd.DataFrame({
+        S.LOT: ["L1", "L1"],
+        S.EVENT: ["L1#2", "L1#10"],
+        S.RUN: ["L1@2", "L1@10"],
+        S.AT: [BASE + pd.Timedelta(minutes=5), BASE + pd.Timedelta(minutes=500)],
+        S.LAST_AT: [BASE + pd.Timedelta(minutes=5), BASE + pd.Timedelta(minutes=500)],
+        "n_items": [1, 1],
+        "isolated": [False, False],
+    })
+    dl = pd.DataFrame({S.EVENT: [], S.ZONE: [], S.DELTA: []})
+    cmp = trace.rule_comparison(iso, dl, None, 30, 60, 10, 10)
+    runs_in_order = [e["run"] for e in cmp["only_old_examples"]]
+    assert runs_in_order == ["L1@2", "L1@10"]

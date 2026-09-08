@@ -378,7 +378,11 @@ def render_preprocess(path, s) -> str:
     )
 
     fmt = parse.format_for(path, None, s.coating_input_format)
-    readings = parse.load_readings(path, parse.DEFAULT_DICT_PATH, source=fmt)
+    # encodings 도 .env 단일 출처를 따른다 - 안 넘기면 report 와 --preprocess 가
+    # 같은 cp949 CSV 를 다르게 읽을 수 있다.
+    readings = parse.load_readings(
+        path, parse.DEFAULT_DICT_PATH, s.coating_csv_encoding_list, source=fmt
+    )
     deduped = pivot.dedupe_minute(readings)
     changes = pivot.compress_runs(deduped)
     bounds = segment.lot_bounds(deduped)
@@ -403,7 +407,7 @@ def render_preprocess(path, s) -> str:
     lines += _window_invariant_lines(s)
     lines += _section(
         "0. 어디서 얼마나 줄었나",
-        lambda: _funnel_lines(trace.funnel(readings, deduped, changes, iso)),
+        lambda: _funnel_section(readings, deduped, changes, iso, dl, s),
     )
     lines += _section(
         "1. 묶음 원장",
@@ -482,6 +486,28 @@ def _window_invariant_lines(s) -> list[str]:
     ]
 
 
+def _funnel_section(readings, deduped, changes, iso, dl, s) -> list[str]:
+    """§0 을 만드는 데 필요한 표들을 모아 넘긴다.
+
+    delta_samples 까지 여기서 계산하는 이유는 그 표의 건수(07_delta_samples)가
+    §0 의 "격리 통과" 보다 적을 수 있어서다 - Wet 창이 비어 버려지는 이벤트가
+    있으면 그 감소도 이름이 있어야 한다(funnel 의 원칙: "이름 없는 감소가
+    없어야 한다").
+    """
+    from app.coating import trace
+
+    wet = features.wet_wide(deduped)
+    valid = features.valid_zones(wet)
+    usable = iso[iso["isolated"]] if len(iso) else iso
+    ds = features.delta_samples(
+        usable, dl, wet, valid,
+        s.coating_response_post_minutes, s.coating_delta_window_minutes,
+    )
+    led = trace.event_ledger(iso, dl)
+    n_dup = int((led["n_dup_zones"] > 0).sum()) if len(led) else 0
+    return _funnel_lines(trace.funnel(readings, deduped, changes, iso, ds), n_dup)
+
+
 # --isolation 은 별칭으로 남긴다. 기존 문서와 손버릇이 깨지지 않게.
 render_isolation = render_preprocess
 
@@ -492,7 +518,7 @@ _LEGACY_ISOLATION_PRE_MINUTES = 30
 _LEGACY_ISOLATION_POST_MINUTES = 60
 
 
-def _funnel_lines(f) -> list[str]:
+def _funnel_lines(f, n_dup_events: int | None = None) -> list[str]:
     """단위가 바뀌는 줄은 Δ 를 숨긴다.
 
     trace.funnel 은 그 자리에 파이썬 None 을 넣지만, int 와 섞인 열을 DataFrame
@@ -500,12 +526,22 @@ def _funnel_lines(f) -> list[str]:
     (`r.delta is None` 은 그래서 절대 참이 안 된다 - events.isolation 이 같은
     함정을 dtype=object 로 피하는 이유와 같다). `pd.isna` 로 검사하면 두 표현
     모두 잡는다.
+
+    `n_dup_events` 는 원장 **전체**(앞 20건이 아니라)에서 중복 zone 이 있는
+    이벤트 수다. 원장은 앞 20건만 화면에 찍으므로(§1), 20건 밖에 중복이
+    있으면 이 줄이 아니면 아무 데도 안 보인다(spec 문제 4).
     """
     out = ["## 0. 어디서 얼마나 줄었나", ""]
     for r in f.itertuples(index=False):
         d = "" if pd.isna(r.delta) else f"  ({r.delta:+,.0f})"
         note = f"   {r.note}" if r.note else ""
         out.append(f"   {r.stage:<20} {r.n:>10,}{d}{note}")
+    if n_dup_events is not None:
+        tag = "⚠ " if n_dup_events else ""
+        out.append(
+            f"   {tag}중복 zone(한 묶음에서 같은 zone 을 두 번 이상 만짐):"
+            f" {n_dup_events}건 — Δgap 이 눌릴 수 있는 자리다(§1 원장의 '중복' 열)."
+        )
     return out + [""]
 
 
@@ -633,6 +669,7 @@ def _window_check_lines(deduped, iso, dl, s, panel_mod, resp_mod) -> list[str]:
             "   이 lot 에서 통째로 미측정(0)이었을 수 있다.",
             "",
         ]
+
     peak_row = fwd.loc[fwd["mean"].idxmax()]
     peak_lag = int(peak_row[resp_mod.LAG])
     peak_mean = float(peak_row["mean"])

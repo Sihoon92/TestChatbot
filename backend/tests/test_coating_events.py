@@ -196,6 +196,9 @@ def test_isolation_reason_says_what_was_short():
                            pre_minutes=10, post_minutes=10)
     assert out.loc[0, SS.ISO_REASON] == "뒤 5.0<10"
     assert out.loc[1, SS.ISO_REASON].startswith("앞뒤")
+    # 이 fixture 가 만드는 index 2 는 "앞" 만 모자란 경우다(뒤 간격 190 은
+    # 넉넉하다) - 그런데도 지금까지 아무도 이 값을 확인하지 않았다.
+    assert out.loc[2, SS.ISO_REASON] == "앞 5.0<10"
     assert out.loc[3, SS.ISO_REASON] is None
 
 

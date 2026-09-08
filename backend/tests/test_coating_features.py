@@ -137,6 +137,35 @@ def test_delta_samples_sums_repeated_adjustments_of_one_zone():
     assert out.iloc[0]["dg1"] == 3.0
 
 
+def test_delta_samples_keeps_delta_nan_instead_of_zero_when_the_group_is_all_nan():
+    """부호 있는 델타가 못 읽힌(NaN) zone 은 "안 만졌다"(0.0) 와 다른 사실이다.
+
+    parse.py 가 to_numeric(errors="coerce") 로 NaN 델타를 남길 수 있다. groupby
+    합에 min_count 가 없으면 all-NaN 그룹이 조용히 0.0 이 되어 설계행렬에
+    "이 zone 은 안 움직였다" 는 거짓을 심는다 - fit_kernel 의 isfinite 마스크가
+    그 행을 걸러낼 기회조차 없어진다.
+    """
+    ev = pd.DataFrame({
+        S.LOT: ["L1"],
+        S.EVENT: ["L1#1"],
+        S.AT: pd.to_datetime(["2026-01-31 19:00"]),
+        S.LAST_AT: pd.to_datetime(["2026-01-31 19:01"]),
+    })
+    dl = pd.DataFrame({
+        S.EVENT: ["L1#1"], S.ITEM: ["30030838"],
+        S.ZONE: [1.0], S.DELTA: [np.nan],
+    })
+    times = pd.date_range("2026-01-31 18:55", periods=35, freq="1min")
+    w = pd.DataFrame({S.LOT: ["L1"] * 35, S.AT: times})
+    for z in range(1, 26):
+        w[f"z{z}"] = [18.2] * 35
+    out = features.delta_samples(
+        ev, dl, w, valid=list(range(1, 26)),
+        post_minutes=10, delta_window_minutes=3,
+    )
+    assert np.isnan(out.iloc[0]["dg1"])
+
+
 def test_delta_columns_are_25_each():
     assert len(features.GAP_DELTA_COLS) == 25
     assert len(features.WET_DELTA_COLS) == 25

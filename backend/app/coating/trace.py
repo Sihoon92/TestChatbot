@@ -71,12 +71,20 @@ def funnel(
     deduped: pd.DataFrame,
     changes: pd.DataFrame,
     iso: pd.DataFrame,
+    delta_samples: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """행이 어느 단계에서 얼마나 줄었나. ★순수
 
     **이름 없는 감소가 없어야 한다.** 원본 100만 행이 이벤트 31건이 되는 것은
     정상인데, 어느 줄에서 얼마가 빠졌는지 이름이 붙지 않으면 사람은 그 정상을
     이상으로 읽고 파이프라인을 의심하는 데 시간을 쓴다.
+
+    `delta_samples` 를 주면 마지막에 "ΔWet 표본" 한 줄이 더 붙는다.
+    `features.delta_samples` 는 격리를 통과한 이벤트라도 앞뒤 Wet 창이 비어
+    있으면(그 이벤트를 조정 전후로 Wet 이 안 잡힌 lot) 그 행을 조용히
+    버린다 - 07_delta_samples 가 §0 의 "격리 통과" 보다 적어질 수 있는데,
+    이름 없이 사라지면 그 감소도 "정상" 과 "이상" 이 안 갈린다. 안 주면
+    이 줄은 없다(기존 호출부와 호환).
 
     `delta` 열은 **nullable 정수(`Int64`)** 다 — 단위가 바뀌어 뺄셈이 뜻을
     잃는 줄은 파이썬 `int` 와 `None` 을 그냥 리스트로 섞어 담으면 pandas 가
@@ -124,6 +132,12 @@ def funnel(
         ("연속 조작 구간 조각", n_frag, "2분 가정을 넘겨 쪼개진 것", False),
         ("격리 통과", n_iso, note, False),
     ]
+    if delta_samples is not None:
+        n_ds = int(len(delta_samples))
+        n_dropped = max(n_iso - n_ds, 0)
+        ds_note = f"Wet 창이 비어 {n_dropped}건 제외" if n_dropped else ""
+        # 같은 단위(이벤트)의 부분집합이라 앞 줄("격리 통과")과 체인이 이어진다.
+        rows.append(("ΔWet 표본", n_ds, ds_note, True))
     out = pd.DataFrame(rows, columns=["stage", "n", "note", "_chains_from_prev"])
     ns = out["n"].tolist()
     chains = out["_chains_from_prev"].tolist()
@@ -145,15 +159,22 @@ def legacy_events(iso: pd.DataFrame) -> pd.DataFrame:
 
     `last_at` 을 **넣지 않는다.** events.isolation 은 그 열이 없으면 시작 기준으로
     간격을 재는데, 그것이 구 규칙의 나머지 절반(앞30/뒤60 은 호출부에서 넣는다)이다.
+
+    출력 열은 `n_items` 가 아니라 **`n_item_touches`** 다. 앵커 이벤트의 `n_items`
+    는 그 이벤트 하나 안에서의 nunique 항목 수인데, 여기서는 그것을 run 안의
+    fragment 여러 개에 걸쳐 그대로 **더한다** - 같은 항목이 fragment 두 개에서
+    손질됐으면 두 번 잡힌다(횟수이지 항목 수가 아니다). `rule_comparison` 이
+    `only_old_examples[i]["n_item_touches"]` 에서 이미 이 구분을 문서화하고
+    있었는데 이 함수의 열 이름만 옛 이름(`n_items`)을 쓰고 있었다.
     """
     if iso.empty:
-        return pd.DataFrame(columns=[S.LOT, S.EVENT, S.AT, "n_items"])
+        return pd.DataFrame(columns=[S.LOT, S.EVENT, S.AT, "n_item_touches"])
     out = (
         iso.groupby([S.LOT, S.RUN], as_index=False)
-        .agg(**{S.AT: (S.AT, "min"), "n_items": ("n_items", "sum")})
+        .agg(**{S.AT: (S.AT, "min"), "n_item_touches": ("n_items", "sum")})
     )
     out[S.EVENT] = out[S.RUN]
-    return out[[S.LOT, S.EVENT, S.AT, "n_items"]].sort_values(
+    return out[[S.LOT, S.EVENT, S.AT, "n_item_touches"]].sort_values(
         [S.LOT, S.AT]
     ).reset_index(drop=True)
 
@@ -225,8 +246,12 @@ def rule_comparison(
     only_old = old_ok_runs - runs_with_new
     only_new = runs_with_new - old_ok_runs
 
+    # run id 문자열 정렬은 "L1@10" 이 "L1@2" 보다 앞에 오는 사전식 함정이 있다
+    # (사용자가 그대로 붙여넣는 예시 세 줄이라 순서가 실제 발생 순서와 어긋나면
+    # 안 된다). run 의 첫 변경 시각으로 정렬한다.
+    run_first_at = iso.groupby(S.RUN)[S.AT].min()
     examples = []
-    for r in sorted(only_old)[:3]:
+    for r in sorted(only_old, key=lambda run_id: run_first_at[run_id])[:3]:
         g = iso[iso[S.RUN] == r]
         examples.append({
             "run": r,

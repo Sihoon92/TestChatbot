@@ -96,10 +96,15 @@ def delta_samples(
     # 만지면 행이 두 개 오는데, 아래 루프는 같은 칸에 쓰므로 합치지 않으면
     # 마지막 것만 남는다. ΔWet 은 그 두 번의 결과를 다 담고 있으므로 Δgap 만
     # 작아지고, 그 비율만큼 게인이 부풀려진다.
+    # min_count=1: 기본 skipna 합은 전부 NaN 인 그룹도 0.0 을 낸다. 0.0 은
+    # "이 zone 을 만졌는데 변화가 없었다" 로 설계행렬에 들어가는데, 전부 NaN 은
+    # "델타 자체를 못 읽었다" 는 뜻이라 다른 사실이다(parse.py 가 to_numeric
+    # errors="coerce" 로 NaN 델타를 남길 수 있다). min_count=1 이면 그 그룹은
+    # NaN 으로 남고, fit_kernel 의 isfinite 마스크가 그 행을 제외한다.
     zoned = (
         event_deltas[event_deltas[S.ZONE].notna()]
         .groupby([S.EVENT, S.ZONE], as_index=False)[S.DELTA]
-        .sum()
+        .sum(min_count=1)
     )
     out = out.set_index(S.EVENT)
     for _, d in zoned.iterrows():
