@@ -398,3 +398,18 @@ def test_dynamics_lines_warn_when_isolation_and_response_windows_diverge():
         isolation_post_minutes=10, response_post_minutes=20,
     )))
     assert "뒤 격리 10분 ≠ 응답창 20분" in md
+
+
+def test_dynamics_lines_report_whether_tau_was_measured_or_substituted():
+    """τ² 에 비례해 필요 표본이 정해지므로, 대입값을 쓰는지 실측값을 쓰는지가
+    안 보이면 식별성 판정의 근거를 확인할 수 없다."""
+    measured = "\n".join(report._dynamics_lines(
+        _identifiable_facts(tau=10, tau_used_minutes=10.0, tau_measured=True)
+    ))
+    assert "실측" in measured
+
+    substituted = "\n".join(report._dynamics_lines(_identifiable_facts(
+        tau=None, tau_used_minutes=5.0, tau_measured=False, identifiable=False,
+        reason="underpowered", required_events=50, shortfall_events=38,
+    )))
+    assert "대입값" in substituted

@@ -364,7 +364,8 @@ def render_preprocess(path, s) -> str:
     정하는 일은 이 출력을 몇 번 들여다보는 일이라, 그때마다 파이프라인 전체를
     도는 것은 비싸다.
 
-    사용자가 돌려줄 것은 §0·§4·§5 세 덩어리뿐이다. 나머지는 혼자 판정하는 데 쓴다.
+    사용자가 돌려줄 것은 §0·§3·§4 세 덩어리뿐이다(docs/measurements 의 전환
+    확인 howto 참고). 나머지는 혼자 판정하는 데 쓴다.
 
     절마다 `_section` 으로 감싼다. 한 절이 죽어도 나머지 절은 이미 계산됐고
     보여줄 수 있다 - 예외 하나가 §0~§n 전체를 삼키면, 계산은 됐는데 아무것도
@@ -511,7 +512,8 @@ def _funnel_lines(f) -> list[str]:
 def _ledger_lines(led, head: int = 20) -> list[str]:
     out = [
         f"## 1. 묶음 원장  ({len(led)}건 중 앞 {min(head, len(led))}"
-        f" · 전체는 12_event_ledger.csv)",
+        " · 전체는 12_event_ledger.csv — `python -m app.coating.report --dump`"
+        " 가 남긴다. 이 명령(--preprocess)은 파일을 쓰지 않는다)",
         "",
         "   event         run   첫 변경           마지막   span  n  중복"
         "   앞간격   뒤간격  판정",

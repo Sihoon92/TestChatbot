@@ -183,7 +183,13 @@ def _event_caption(events: pd.DataFrame) -> str:
     if events is None or events.empty:
         return "이 구간에 조정 이벤트가 없다 — 제어값이 한 번도 바뀌지 않았다."
     bad = int(events[S.CONTAMINATED].astype(bool).sum()) if S.CONTAMINATED in events else 0
-    return f"조정 이벤트 {len(events)}건 (오염 {bad}건 — 붉은 점선)"
+    # "오염" 은 이제 진단용 표시일 뿐이다 - annotate_settling 은 더 이상 아무것도
+    # 선별하지 않는다(선별은 events.isolation 이 맡는다). 이 캡션이 "선별 기준"
+    # 처럼 읽히면 안 되므로 매번 그 사실을 붙인다.
+    return (
+        f"조정 이벤트 {len(events)}건 (진단상 오염 {bad}건 — 붉은 점선."
+        " 선별에는 쓰지 않는다 · 실제 격리 기준은 diagnose.py --preprocess 로 확인한다)"
+    )
 
 
 main()

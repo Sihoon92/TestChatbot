@@ -27,8 +27,11 @@ INPUT_SCALAR = "입력 · 제어값 (스칼라)"
 OUTPUT = "출력 · Wet (L/L)"
 GROUP_ORDER = (INPUT_ZONE, INPUT_SCALAR, OUTPUT)
 
-# 조정 이벤트 세로선. 오염 이벤트는 인과 분리가 안 되는 것이라 색을 달리한다
-# (events.annotate_settling 의 contaminated).
+# 조정 이벤트 세로선. 오염(events.annotate_settling 의 contaminated)은 이제
+# 선별 기준이 아니라 진단 전용 표시다 - 실제 선별은 events.isolation 이 맡는다.
+# 색이 다르다고 "이 이벤트는 인과가 안 갈린다" 는 뜻이 아니다(annotate_settling
+# 은 더 이상 아무것도 걸러내지 않는다) - dashboard._event_caption 이 이 사실을
+# 캡션에 그대로 붙인다.
 _EVENT_COLOR = "#2b6cb0"
 _CONTAMINATED_COLOR = "#c53030"
 

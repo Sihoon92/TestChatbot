@@ -29,8 +29,9 @@ def _readings_with_two_events():
     올림과 내림을 섞는 이유는 aligned 표의 부호 정렬이 실제로 일어나게
     하기 위해서다 — 한 방향만 있으면 그 열이 맞는지 알 수 없다.
 
-    조정 뒤로 조용한 구간을 길게 둔다. noise_floor 가 모든 이벤트에서 60분
-    떨어진 구간만 쓰므로, 짧게 만들면 σ 가 NaN 이 되어 판정이 흐려진다.
+    조정 뒤로 조용한 구간을 길게 둔다. noise_floor 의 가드는 coating_response_post_minutes
+    (기본 10분) 만큼 모든 이벤트 주변을 빼므로, 짧게 만들면 σ 가 NaN 이 되어
+    판정이 흐려진다.
     """
     gap, wet = S.GAP_ITEM_IDS[0], S.WET_ITEM_IDS[0]
     rows = []

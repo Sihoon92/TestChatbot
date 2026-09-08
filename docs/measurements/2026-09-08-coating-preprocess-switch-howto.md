@@ -46,8 +46,11 @@ python -m app.coating.report --input data/coating/raw/merged.parquet --dump
 설정이 바뀌면 이 문구도 같이 바뀐다(`app/coating/diagnose.py`
 `_window_check_lines`).
 
+뒤 격리(`COATING_ISOLATION_POST_MINUTES`)와 응답창(`COATING_RESPONSE_POST_MINUTES`)
 두 값은 **항상 같이** 움직여야 한다. 뒤 격리보다 응답창이 길면, 응답으로 읽는
-구간의 일부가 다른 조정에 오염돼 있어도 통과한다.
+구간의 일부가 다른 조정에 오염돼 있어도 통과한다. 둘이 어긋나면 이제 §4 의
+헤더와 리포트의 동특성 절 양쪽에서 `⚠` 로 스스로 경고한다(예외로 죽이지
+않는다 - 실행은 계속되고 사람이 보고 판단한다).
 
 ## 3. 읽는 법 — §0 (격리 통과 건수)
 
@@ -58,7 +61,7 @@ python -m app.coating.report --input data/coating/raw/merged.parquet --dump
 | 5건 미만 | 이 데이터로는 안 된다 — 위와 같은 판단선 | §3 의 "구에만" 건수를 근거로 사업부에 요구 |
 
 코드가 실제로 강제하는 하한은 이 "5" 가 아니라 둘이다. 커널은
-`_MIN_EVENTS=20`(`report.py:29`, 분기 `report.py:319`) 밑에서 안 돈다. L·τ 는
+`_MIN_EVENTS=20`(`report.py:29`, 분기 `report.py:343`) 밑에서 안 돈다. L·τ 는
 (이벤트×zone) 쌍이 `_MIN_PAIRS=3`(`response.py:46`, 분기 `response.py:273`) 밑으로
 떨어지면 평균의 표준오차조차 못 내 계산 자체가 멈춘다. 위 표의 "5건" 은 이
 쌍 하한 위에 여유를 둔 **판단선**일 뿐이다 — 이벤트 수와 쌍 수는 다르므로(zone

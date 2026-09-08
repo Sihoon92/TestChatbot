@@ -142,11 +142,20 @@ def profile_readings(readings: pd.DataFrame, tables: dict | None = None) -> dict
         "n_rows": int(len(readings)),
         "n_events": int(len(ev)),
         # "쓸 수 있는 이벤트" 는 이제 격리 통과 건수 하나뿐이다. 정착 기반
-        # contaminated_ratio 는 진단으로만 남는다.
+        # contaminated_ratio 는 진단으로만 남는다 - 더 이상 아무것도 선별하지
+        # 않는다. max_wait 가 30→10 으로 줄면서 _settle_time 의 이동창(5분)이
+        # 판정할 수 있는 자리가 26칸에서 6칸으로 줄어, 이 비율은 창을 좁힐수록
+        # 단조 증가하는 경향을 띤다 - 알람처럼 보이는 높은 값이 나올 수 있다는
+        # 뜻이다. 부호도 직관과 반대다: 죽은 시간(dead time)이 5분 이상인
+        # 이벤트는 반응 전 구간이 평평해 σ 검정을 통과해 "정착함(clean)" 으로
+        # 잡히는데, 그런 이벤트일수록 10분 창에서는 오히려 더 위험하다(응답이
+        # 아직 안 끝났을 확률이 높다). render_markdown 이 이 값을 "선별 기준이
+        # 아니다" 라고 명시하는 이유다.
         "n_isolated_events": int(len(usable)),
         "contaminated_ratio": (
             float(ev[S.CONTAMINATED].astype(bool).mean()) if len(ev) else 0.0
         ),
+        "contaminated_window_minutes": s.coating_settle_max_wait_minutes,
         "changes_per_lot": changes_per_lot.describe().to_dict() if len(changes_per_lot) else {},
         "valid_zones": valid,
         "invalid_zones": [z for z in range(1, S.N_ZONES + 1) if z not in valid],
@@ -205,8 +214,8 @@ def _kernel_facts(ds, dg, s) -> dict:
 def _isolation_facts(ev, bounds, s) -> dict:
     """제어 구간 격리 — 창을 넓혀가며 몇 건이 홀로 서는지.
 
-    이 표가 먼저 나와야 창을 고를 수 있다. 60분 격리가 3건뿐이라면 그 자체가
-    사업부에 낼 요구서이고, 30분에서 20건이 산다면 거기서 시작하면 된다.
+    이 표가 먼저 나와야 창을 고를 수 있다. 30분 격리가 3건뿐이라면 그 자체가
+    사업부에 낼 요구서이고, 10분에서 20건이 산다면 거기서 시작하면 된다.
     숫자를 고르는 일을 사람에게 남기되 고를 근거를 함께 준다.
     """
     if ev.empty:
@@ -297,7 +306,11 @@ def _dynamics_facts(readings, ev, dl, s, bounds, tables=None) -> dict:
     n_clean = int(len(usable))
     n_pairs = aligned.groupby([S.EVENT, S.ZONE]).ngroups if len(aligned) else 0
     # τ 를 아직 모를 때의 대입값. 관측 창의 절반을 쓴다 - 이보다 느린 반응은
-    # 애초에 이 창으로 못 본다.
+    # 애초에 이 창으로 못 본다. required_pairs 는 τ² 에 비례하므로, 대입값을
+    # 쓰는지 실측값을 쓰는지에 따라 식별성 문턱이 크게 달라진다(설정이
+    # 60→10분으로 줄면서 대입값도 30→5로 줄어 문턱이 약 36배 낮아졌다) -
+    # 그 사실이 안 보이면 숫자가 어느 쪽에서 나왔는지 알 수 없다.
+    tau_measured = dyn.get("tau") is not None
     tau_guess = dyn["tau"] or (s.coating_response_post_minutes / 2)
     return {
         "quiet_minutes": quiet_minutes,
@@ -307,9 +320,10 @@ def _dynamics_facts(readings, ev, dl, s, bounds, tables=None) -> dict:
         "implied_distance_m": response.implied_distance_m(
             dyn["dead_time"], s.coating_line_speed_mpm
         ),
-        # §4/diagnose._window_invariant_lines 의 불변식 경고와 같은 값 - 리포트의
-        # 판정 경로에서도 보여야 사람이 .env 를 손으로 고치다 하나만 올리는 실수를
-        # 바로 알아챈다.
+        "tau_used_minutes": tau_guess,
+        "tau_measured": tau_measured,
+        # §4/F 의 불변식 경고와 같은 값 - 리포트의 판정 경로에서도 보여야
+        # 사람이 .env 를 손으로 고치다 하나만 올리는 실수를 바로 알아챈다.
         "isolation_post_minutes": s.coating_isolation_post_minutes,
         "response_post_minutes": s.coating_response_post_minutes,
         **dyn,
@@ -358,7 +372,7 @@ def _dynamics_lines(d: dict) -> list[str]:
         f"- 노이즈 바닥: σ = {sigma:.4f} (분당 ΔWet, 조정 없는 {d['quiet_minutes']:,}분에서)"
     )
     lines.append(
-        f"- 깨끗한 이벤트 {d['n_events']}건 → (이벤트×zone) 표본 {d['n_pairs']}개"
+        f"- 격리된 이벤트 {d['n_events']}건 → (이벤트×zone) 표본 {d['n_pairs']}개"
     )
     iso_post, resp_post = d.get("isolation_post_minutes"), d.get("response_post_minutes")
     if iso_post is not None and resp_post is not None and iso_post != resp_post:
@@ -367,6 +381,12 @@ def _dynamics_lines(d: dict) -> list[str]:
             " 조용한 구간보다 더 긴 구간을 응답으로 읽고 있다 - 그 초과분에는"
             " 다른 조정이 섞여 있어도 걸러지지 않는다. COATING_ISOLATION_POST_MINUTES"
             " 와 COATING_RESPONSE_POST_MINUTES 를 같은 값으로 맞춘다."
+        )
+    if d.get("tau_used_minutes") is not None:
+        source = "실측" if d.get("tau_measured") else "대입값(응답창의 절반 - 아직 못 쟀다)"
+        lines.append(
+            f"- 식별성 판정에 쓴 τ = {d['tau_used_minutes']:.1f}분 ({source})"
+            " — 필요 표본 수는 τ² 에 비례해 이 값에 민감하다."
         )
     if not d.get("identifiable"):
         return lines + _not_identifiable_lines(d) + [""]
@@ -404,7 +424,7 @@ def _not_identifiable_lines(d: dict) -> list[str]:
     다른 진단이고 다음 행동도 다르다 - 앞은 조정 폭을, 뒤는 이벤트 수를 늘려야 한다."""
     reason = d.get("reason")
     if reason == "no_events":
-        return ["- **판정: 지연 추정 불가** — 깨끗한 조정 이벤트가 없다.",
+        return ["- **판정: 지연 추정 불가** — 격리된 조정 이벤트가 없다.",
                 "  - 제어값이 바뀐 구간의 데이터가 있어야 한다."]
     if reason == "no_response":
         det = d.get("detectable")
@@ -552,7 +572,8 @@ def render_markdown(f: dict) -> str:
         "## 조정 이벤트",
         f"- 전체 이벤트: {f['n_events']}",
         f"- 격리된 이벤트: {f['n_isolated_events']} (아래 '제어 구간 격리' 절과 같은 수치)",
-        f"- 오염 비율: {f['contaminated_ratio']:.1%}",
+        f"- 오염 비율(진단 전용 — 아무것도 선별하지 않는다. 판정창"
+        f" {f['contaminated_window_minutes']}분): {f['contaminated_ratio']:.1%}",
         f"- lot 당 제어값 변경 횟수: {f['changes_per_lot'] or '없음'}",
         "",
         "## 식별성",
