@@ -1,0 +1,1749 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>깨끗한 제어 앵커가 하나도 없다면 — 그래도 배울 수 있는가</title>
+<style>
+  :root{
+    --ink:#1b1d21; --muted:#5f6672; --line:#e2e5ea; --bg:#fbfbfc; --card:#fff;
+    --accent:#2f6fb0; --accent-soft:#eaf2fa;
+    --ok:#1f8a53; --ok-soft:#e8f5ee;
+    --no:#c0392b; --no-soft:#fdeeec;
+    --warn:#b06f00; --warn-soft:#fdf4e3;
+    --mono:"Cascadia Mono","D2Coding",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Pretendard","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;
+    line-height:1.75; font-size:16.5px;
+  }
+  .wrap{max-width:860px; margin:0 auto; padding:0 20px 140px}
+  header.top{padding:56px 0 28px; border-bottom:1px solid var(--line); margin-bottom:32px}
+  header.top h1{font-size:1.95rem; line-height:1.35; margin:0 0 12px; letter-spacing:-.02em}
+  header.top .sub{color:var(--muted); margin:0; font-size:1.02rem}
+  header.top .meta{color:var(--muted); font-size:.87rem; margin-top:18px}
+  h2{
+    font-size:1.42rem; margin:56px 0 6px; padding-top:18px;
+    border-top:2px solid var(--ink); letter-spacing:-.01em;
+  }
+  h3{font-size:1.1rem; margin:34px 0 6px; color:#2a2d33}
+  h4{font-size:.98rem; margin:22px 0 4px; color:#2a2d33}
+  p{margin:12px 0}
+  ul,ol{margin:12px 0; padding-left:1.35em}
+  li{margin:6px 0}
+  code{
+    font-family:var(--mono); font-size:.9em; background:#f0f2f5;
+    padding:1px 5px; border-radius:4px; word-break:break-word;
+  }
+  pre{
+    font-family:var(--mono); font-size:.845rem; line-height:1.6;
+    background:#1e2228; color:#e8eaed; padding:16px 18px; border-radius:8px;
+    overflow-x:auto; white-space:pre; margin:16px 0;
+  }
+  pre .c{color:#8d97a5}
+  pre .k{color:#7fb2e5}
+  pre .s{color:#a9d99b}
+  pre .hl{background:#3a4250; display:inline-block; width:100%}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin:20px 0}
+  .callout{border-left:4px solid var(--accent); background:var(--accent-soft); padding:14px 18px; border-radius:0 8px 8px 0; margin:20px 0}
+  .callout.ok{border-color:var(--ok); background:var(--ok-soft)}
+  .callout.no{border-color:var(--no); background:var(--no-soft)}
+  .callout.warn{border-color:var(--warn); background:var(--warn-soft)}
+  .callout .lbl{font-weight:700; font-size:.8rem; letter-spacing:.06em; display:block; margin-bottom:6px; text-transform:uppercase}
+  .callout p:first-of-type{margin-top:0}
+  .callout p:last-child{margin-bottom:0}
+  table{border-collapse:collapse; width:100%; margin:18px 0; font-size:.9rem}
+  th,td{border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top}
+  th{background:#f2f4f7; font-weight:600}
+  td.num{font-family:var(--mono); text-align:right}
+  .scrollx{overflow-x:auto; margin:18px 0}
+  .scrollx table{margin:0}
+  .mono{font-family:var(--mono)}
+  figure{margin:26px 0}
+  figure svg{display:block; width:100%; height:auto; background:var(--card); border:1px solid var(--line); border-radius:10px}
+  figcaption{color:var(--muted); font-size:.85rem; margin-top:9px; text-align:center}
+  .tag{display:inline-block; font-size:.72rem; font-weight:700; padding:2px 7px; border-radius:4px; vertical-align:2px}
+  .tag.ok{background:var(--ok-soft); color:var(--ok)}
+  .tag.no{background:var(--no-soft); color:var(--no)}
+  .tag.warn{background:var(--warn-soft); color:var(--warn)}
+  nav.toc{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 22px; margin:26px 0}
+  nav.toc h2{border:none; margin:0 0 10px; font-size:1rem; padding:0}
+  nav.toc ol{margin:0; padding-left:1.3em}
+  nav.toc a{color:var(--accent); text-decoration:none}
+  nav.toc a:hover{text-decoration:underline}
+  .skip{font-size:.85rem; color:var(--muted); font-style:italic}
+
+  .qmemo{border:1.5px dashed #b9c1cc; background:#f6f7f9; border-radius:9px; padding:13px 16px; margin:22px 0}
+  .qmemo[data-status="answered"]{border:1.5px solid var(--accent); background:#f4f9fe}
+  .qmemo-head{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-bottom:7px}
+  .qmemo-label{font-size:.74rem; font-weight:700; letter-spacing:.06em; color:var(--accent); text-transform:uppercase}
+  .qmemo-hint{font-size:.8rem; color:var(--muted)}
+  .qmemo-question{
+    min-height:2.4em; background:#fff; border:1px solid var(--line); border-radius:6px;
+    padding:8px 11px; font-size:.94rem; outline:none; white-space:pre-wrap;
+  }
+  .qmemo-question:focus{border-color:var(--accent)}
+  .qmemo-question:empty::before{content:attr(data-placeholder); color:#a6adb8}
+  .qmemo-answer{
+    margin-top:10px; padding:11px 14px; background:#fff;
+    border-left:3px solid var(--accent); border-radius:0 6px 6px 0; font-size:.94rem;
+  }
+  .qmemo-answer p:first-child{margin-top:0}
+  .qmemo-answer p:last-child{margin-bottom:0}
+
+  #qmemo-bar{
+    position:fixed; left:0; right:0; bottom:0; z-index:50;
+    background:rgba(27,29,33,.96); color:#fff; padding:11px 18px;
+    display:flex; gap:14px; align-items:center; flex-wrap:wrap; font-size:.86rem;
+  }
+  #qmemo-save-btn{
+    background:var(--accent); color:#fff; border:0; border-radius:6px;
+    padding:8px 15px; font-size:.86rem; font-weight:600; cursor:pointer;
+    font-family:inherit;
+  }
+  #qmemo-save-btn:hover{background:#265c94}
+  #qmemo-saymsg{color:#c9d2dd; font-family:var(--mono); font-size:.76rem; word-break:break-all}
+
+  .quiz{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin:20px 0}
+  .quiz .q{font-weight:600; margin:0 0 12px}
+  .quiz .opt{
+    display:block; width:100%; text-align:left; background:#fff; color:var(--ink);
+    border:1px solid var(--line); border-radius:7px; padding:10px 13px; margin:7px 0;
+    cursor:pointer; font-family:inherit; font-size:.93rem; line-height:1.5;
+  }
+  .quiz .opt:hover:not([disabled]){border-color:var(--accent); background:var(--accent-soft)}
+  .quiz .opt[disabled]{cursor:default}
+  .quiz .opt.right{border-color:var(--ok); background:var(--ok-soft)}
+  .quiz .opt.wrong{border-color:var(--no); background:var(--no-soft)}
+  .quiz .fb{margin-top:11px; font-size:.9rem; padding:11px 14px; border-radius:7px; display:none}
+  .quiz .fb.show{display:block}
+  .quiz .fb.right{background:var(--ok-soft); border-left:3px solid var(--ok)}
+  .quiz .fb.wrong{background:var(--no-soft); border-left:3px solid var(--no)}
+
+  @media (max-width:620px){
+    body{font-size:16px}
+    .wrap{padding:0 15px 150px}
+    header.top h1{font-size:1.55rem}
+    h2{font-size:1.25rem}
+    pre{font-size:.78rem}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>깨끗한 제어 앵커가 하나도 없다면 — 그래도 배울 수 있는가</h1>
+  <p class="sub">
+    격리를 통과한 이벤트가 0건일 때 무엇이 죽고 무엇이 살아남는지, 그리고
+    그때 어떤 모델로 갈아타야 하는지. 랭크·릿지·커널·되먹임을 처음부터 설명한다.
+  </p>
+  <p class="meta">
+    2026-09-08 · 대상 코드: <span class="mono">backend/app/coating/</span>
+    (<span class="mono">events.py · features.py · report.py · model/profile.py · model/level.py</span>)<br>
+    앞 글: <a href="2026-09-08-01-explanation-coating-control-event-extraction.html">제어 구간 추출 전처리 — 코드가 실제로 무엇을 하고 있나</a><br>
+    다음 글: <a href="2026-09-09-01-explanation-coating-model-without-anchors.html">앵커 0건이 확정됐다 — 그럼 어떤 모델을 쓰나</a>
+    <span style="color:#c0392b">(§9 의 "벽 2 = 랭크 결손" 분기를 실측에 맞춰 정정한다)</span>
+  </p>
+</header>
+
+<div class="callout">
+  <span class="lbl">이 페이지를 읽는 법</span>
+  <p>
+    읽다가 막히는 곳마다 <strong>질문 메모</strong> 상자가 있다. 거기에 그냥 타이핑하면
+    이 브라우저에 자동 저장되고(localStorage), 다 읽은 뒤 맨 아래 <strong>질문 저장</strong>을
+    누르면 질문이 <em>박혀 들어간</em> 같은 이름의 HTML 파일이 내려받아진다.
+    그 파일로 원본을 덮어쓰고 Claude 에게 "답해줘" 라고 하면 답이 이 페이지 안에 채워진다.
+  </p>
+</div>
+
+<nav class="toc">
+  <h2>차례</h2>
+  <ol>
+    <li><a href="#fix">정정 — 격리 창은 앞뒤 10분이다</a></li>
+    <li><a href="#bg">배경 — 이 파이프라인이 대체 무엇을 하려는 건가</a></li>
+    <li><a href="#alive">앵커 0건이면 무엇이 죽고 무엇이 사나</a></li>
+    <li><a href="#rank">랭크가 뭔데? — 랭크 결손</a></li>
+    <li><a href="#ridge">커널이 뭐고 릿지가 뭔가</a></li>
+    <li><a href="#loop">되먹임 아래의 계수 — 폐루프 함정</a></li>
+    <li><a href="#model">그래서 어떤 모델을 쓰나</a></li>
+    <li><a href="#code">코드 산책 — 어디를 손대는가</a></li>
+    <li><a href="#next">지금 사내 PC 에서 확인할 것</a></li>
+    <li><a href="#quiz">퀴즈</a></li>
+  </ol>
+</nav>
+
+
+<!-- ═══════════════════════════════════ 1. 정정 ═══════════════════════════════ -->
+<h2 id="fix">1. 정정 — 격리 창은 앞뒤 10분이다</h2>
+
+<p>
+  앞선 대화에서 나는 격리 기준을 "앞 30분 / 뒤 60분" 이라고 말했다. <strong>틀렸다.</strong>
+  실제 기준은 <strong>앞 10분 / 뒤 10분</strong>이다. <span class="mono">backend/.env</span> 가
+  단일 출처이고, 값은 이렇다.
+</p>
+
+<pre><span class="c"># backend/.env.example</span>
+COATING_ISOLATION_PRE_MINUTES=10
+COATING_ISOLATION_POST_MINUTES=10
+COATING_RESPONSE_PRE_MINUTES=10
+COATING_RESPONSE_POST_MINUTES=10   <span class="c"># ← 뒤 격리와 같은 값이어야 한다</span>
+COATING_EVENT_MERGE_MINUTES=2</pre>
+
+<p>
+  그럼 30/60 은 어디서 나온 숫자인가? 코드 안에 실제로 있긴 하다 — 다만
+  <strong>지금 파이프라인이 쓰는 값이 아니다.</strong> 두 군데에 산다.
+</p>
+
+<div class="scrollx">
+<table>
+  <thead>
+    <tr><th>어디</th><th>값</th><th>정체</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="mono">diagnose.py<br>_LEGACY_ISOLATION_*</td>
+      <td class="num">30 / 60</td>
+      <td><strong>구 규칙</strong>이다. 리포트 §3 "구/신 규칙 대조" 에서 <em>예전엔 이랬다</em>를
+          보여주는 용도로만 쓴다. 선별에는 관여하지 않는다.</td>
+    </tr>
+    <tr>
+      <td class="mono">events.merge_window_table<br>(기본 인자)</td>
+      <td class="num">30 / 60</td>
+      <td>함수 시그니처의 기본값. 그런데 실제 호출부
+          (<span class="mono">diagnose._merge_sensitivity_lines</span>)는 언제나
+          <span class="mono">s.coating_isolation_*_minutes</span> 를 명시적으로 넘긴다.
+          <strong>기본값이 쓰이는 경로가 없다.</strong></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="lbl">교훈 — 그리고 이 저장소가 이미 아는 것</span>
+  <p>
+    나는 <strong>함수 기본 인자</strong>를 읽고 그것이 운영값이라고 단정했다. 이게 정확히
+    <span class="mono">CLAUDE.md</span> 첫 규칙이 막으려는 실수다 — <em>설정값은 항상
+    <span class="mono">.env</span> 를 단일 출처로 참조한다.</em> 코드 안에 흩어진 숫자를 읽으면
+    "그 값이 진짜 쓰이는가" 를 매번 따로 확인해야 하고, 나처럼 한 번은 반드시 틀린다.
+    남아 있는 30/60 기본 인자도 사실 지울 후보다.
+  </p>
+</div>
+
+<p>
+  숫자가 10분으로 바뀌면 이야기의 <strong>강도</strong>도 바뀐다. 30/60 은 꽤 관대한 기준이라
+  "0건" 이면 이상한 일이지만, <strong>10/10 은 이미 상당히 빡빡한 기준</strong>이다.
+  10분씩 양쪽으로 조용한 순간조차 한 번도 없다면 — 그건 튜닝이 거의 연속으로
+  이뤄지고 있다는 뜻이고, 뒤에 나올 <a href="#loop">폐루프 함정</a>이 그만큼 더 위험해진다.
+</p>
+
+<figure>
+<svg viewBox="0 0 800 210" role="img" aria-label="격리 창 판정 예시">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5f6672"/>
+    </marker>
+  </defs>
+  <text x="16" y="24" font-size="12.5" fill="#5f6672" font-weight="600">lot A 타임라인 · ▲ = 조정 묶음(event)</text>
+
+  <!-- axis -->
+  <line x1="40" y1="90" x2="770" y2="90" stroke="#c9ced6" stroke-width="1.5"/>
+  <text x="40" y="112" font-size="10.5" fill="#8d97a5">09:00</text>
+  <text x="720" y="112" font-size="10.5" fill="#8d97a5">10:00</text>
+
+  <!-- quiet band for E1 -->
+  <rect x="140" y="60" width="60" height="30" fill="#e8f5ee" stroke="#1f8a53" stroke-dasharray="3 2"/>
+  <rect x="215" y="60" width="60" height="30" fill="#e8f5ee" stroke="#1f8a53" stroke-dasharray="3 2"/>
+  <!-- quiet band for E2 (short after) -->
+  <rect x="275" y="60" width="60" height="30" fill="#e8f5ee" stroke="#1f8a53" stroke-dasharray="3 2"/>
+  <rect x="350" y="60" width="36" height="30" fill="#fdeeec" stroke="#c0392b" stroke-dasharray="3 2"/>
+
+  <!-- events -->
+  <g fill="#2f6fb0">
+    <path d="M200,90 l7,-15 l7,15 z"/>
+    <path d="M335,90 l7,-15 l7,15 z"/>
+    <path d="M386,90 l7,-15 l7,15 z"/>
+    <path d="M560,90 l7,-15 l7,15 z"/>
+  </g>
+  <text x="192" y="66" font-size="11" fill="#2f6fb0" font-weight="700">E1</text>
+  <text x="327" y="66" font-size="11" fill="#2f6fb0" font-weight="700">E2</text>
+  <text x="378" y="66" font-size="11" fill="#2f6fb0" font-weight="700">E3</text>
+  <text x="552" y="66" font-size="11" fill="#2f6fb0" font-weight="700">E4</text>
+
+  <!-- labels -->
+  <text x="150" y="52" font-size="10.5" fill="#1f8a53">앞 12분 ✓</text>
+  <text x="225" y="52" font-size="10.5" fill="#1f8a53">뒤 11분 ✓</text>
+  <text x="345" y="129" font-size="10.5" fill="#c0392b">뒤 6분 ✗</text>
+
+  <text x="140" y="150" font-size="12" fill="#1f8a53" font-weight="700">E1 → 격리 통과</text>
+  <text x="140" y="168" font-size="11.5" fill="#5f6672">앞 10분 ✓ · 뒤 10분 ✓ — 이 하나가 "제어 앵커" 다</text>
+  <text x="140" y="188" font-size="12" fill="#c0392b" font-weight="700">E2 → 탈락 (뒤 6&lt;10)</text>
+
+  <!-- gap measured from last_at note -->
+  <line x1="600" y1="80" x2="660" y2="80" stroke="#5f6672" stroke-width="1" marker-end="url(#ar)"/>
+  <text x="600" y="72" font-size="10" fill="#5f6672">간격은 묶음의 &lt;끝&gt;에서 잰다</text>
+</svg>
+<figcaption>격리 판정. 앞 10분·뒤 10분 모두 조용해야 통과한다. 간격은 묶음의 <span class="mono">last_at</span> 기준이다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="fix-window-values" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">이 부분에서 궁금한 점을 적어보세요. 저장하면 이 파일에 그대로 남습니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ═══════════════════════════════════ 2. 배경 ═══════════════════════════════ -->
+<h2 id="bg">2. 배경 — 이 파이프라인이 대체 무엇을 하려는 건가</h2>
+
+<h3>2.1 아주 처음부터 <span class="skip">(이미 아는 내용이면 2.2 로 건너뛰어도 좋다)</span></h3>
+
+<p>
+  코팅 설비는 넓은 필름을 옆으로 펼쳐 놓고 그 위에 액체를 얇게 바른다.
+  액체가 나오는 입구를 <strong>다이(die)</strong> 라고 하고, 그 입구는 폭 방향으로
+  <strong>25개 구역(zone)</strong> 으로 나뉘어 있다. 구역마다 볼트가 하나씩 있어서
+  그걸 조이거나 풀면 그 자리의 <strong>틈(gap)</strong> 이 좁아지거나 넓어진다.
+</p>
+<p>
+  결과는 <strong>Wet</strong> — 도포량이다. 이것도 25개 zone 에서 매분 측정된다.
+  하고 싶은 일은 하나다.
+</p>
+
+<div class="callout">
+  <span class="lbl">이 프로젝트의 질문</span>
+  <p>
+    <strong>"Wet 을 목표대로 만들려면 25개 gap 을 각각 얼마로 놓아야 하나?"</strong><br>
+    이 질문에 답하려면 먼저 그 반대를 알아야 한다 —
+    <em>gap 을 바꾸면 Wet 이 어떻게 변하나?</em>
+  </p>
+</div>
+
+<p>
+  그런데 gap 하나를 건드리면 <strong>그 자리만</strong> 변하는 게 아니다. 액체는 옆으로 퍼지니까
+  이웃 zone 도 같이 움직인다. 그 퍼지는 모양이 <strong>종 모양</strong>이라는 것이 물리적 직관이고,
+  이 프로젝트에서 <strong>커널</strong>이라 부르는 것이 정확히 그 종 모양이다(5장에서 자세히).
+</p>
+<p>
+  그리고 즉시 변하지도 않는다. 다이에서 나온 액체가 측정기까지 흘러가는 데 시간이 걸린다.
+  그 순수한 이동 시간이 <strong>L (dead time, 순수 지연)</strong>, 변화가 최종값의 63.2%에
+  도달하는 데 걸리는 시간이 <strong>τ (시정수)</strong>, 다 안정될 때까지가
+  <strong>T<sub>s</sub> (정착시간)</strong> 이다.
+</p>
+
+<h3>2.2 실험을 할 수 없으니, 작업자의 조정을 실험으로 삼는다</h3>
+
+<p>
+  여기가 이 프로젝트의 핵심 아이디어다. 우리는 설비를 세워 놓고 실험할 수 없다.
+  대신 <strong>작업자가 이미 매일 하고 있는 조정</strong>을 공짜 실험으로 쓴다.
+  누가 09:20 에 zone 7 볼트를 0.02mm 열었다면, 그건 <em>계단 입력(step input)</em> 이고
+  그 뒤 Wet 의 움직임이 <em>계단 응답</em> 이다.
+</p>
+
+<p>공짜에는 대가가 있다. 실험 설계를 우리가 안 했다는 것이다. 그래서 세 단계의 정제가 붙는다.</p>
+
+<figure>
+<svg viewBox="0 0 800 300" role="img" aria-label="전처리 파이프라인">
+  <defs>
+    <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2f6fb0"/>
+    </marker>
+  </defs>
+
+  <g font-size="11.5">
+    <!-- box 1 -->
+    <rect x="24" y="30" width="150" height="66" rx="8" fill="#fff" stroke="#c9ced6"/>
+    <text x="99" y="54" text-anchor="middle" font-weight="700" fill="#1b1d21">원본 readings</text>
+    <text x="99" y="74" text-anchor="middle" fill="#5f6672">lot·분·항목 = 값</text>
+    <text x="99" y="89" text-anchor="middle" fill="#8d97a5" font-family="monospace" font-size="10">~수십만 행</text>
+
+    <line x1="176" y1="63" x2="212" y2="63" stroke="#2f6fb0" stroke-width="1.6" marker-end="url(#ar2)"/>
+
+    <!-- box 2 -->
+    <rect x="216" y="30" width="150" height="66" rx="8" fill="#fff" stroke="#c9ced6"/>
+    <text x="291" y="54" text-anchor="middle" font-weight="700" fill="#1b1d21">changes</text>
+    <text x="291" y="74" text-anchor="middle" fill="#5f6672">값이 &lt;바뀐&gt; 순간만</text>
+    <text x="291" y="89" text-anchor="middle" fill="#8d97a5" font-family="monospace" font-size="10">run-length 압축</text>
+
+    <line x1="368" y1="63" x2="404" y2="63" stroke="#2f6fb0" stroke-width="1.6" marker-end="url(#ar2)"/>
+
+    <!-- box 3 -->
+    <rect x="408" y="30" width="150" height="66" rx="8" fill="#fff" stroke="#c9ced6"/>
+    <text x="483" y="50" text-anchor="middle" font-weight="700" fill="#1b1d21">events</text>
+    <text x="483" y="69" text-anchor="middle" fill="#5f6672">2분 안의 변경들을</text>
+    <text x="483" y="84" text-anchor="middle" fill="#5f6672">한 조작으로 묶음</text>
+
+    <line x1="560" y1="63" x2="596" y2="63" stroke="#2f6fb0" stroke-width="1.6" marker-end="url(#ar2)"/>
+
+    <!-- box 4 -->
+    <rect x="600" y="30" width="176" height="66" rx="8" fill="#eaf2fa" stroke="#2f6fb0" stroke-width="1.6"/>
+    <text x="688" y="50" text-anchor="middle" font-weight="700" fill="#2f6fb0">isolation</text>
+    <text x="688" y="69" text-anchor="middle" fill="#2a4d70">앞10분·뒤10분 조용</text>
+    <text x="688" y="84" text-anchor="middle" fill="#2a4d70" font-weight="700">= 제어 앵커</text>
+  </g>
+
+  <!-- downstream split -->
+  <line x1="688" y1="98" x2="688" y2="126" stroke="#2f6fb0" stroke-width="1.6"/>
+  <line x1="300" y1="126" x2="688" y2="126" stroke="#2f6fb0" stroke-width="1.6"/>
+  <line x1="300" y1="126" x2="300" y2="150" stroke="#2f6fb0" stroke-width="1.6" marker-end="url(#ar2)"/>
+  <line x1="560" y1="126" x2="560" y2="150" stroke="#2f6fb0" stroke-width="1.6" marker-end="url(#ar2)"/>
+
+  <g font-size="11.5">
+    <rect x="180" y="154" width="240" height="82" rx="8" fill="#fff" stroke="#c9ced6"/>
+    <text x="300" y="176" text-anchor="middle" font-weight="700" fill="#1b1d21">delta_samples</text>
+    <text x="300" y="196" text-anchor="middle" fill="#5f6672">(Δgap 25, ΔWet 25) 한 행</text>
+    <text x="300" y="214" text-anchor="middle" fill="#8d97a5">→ 영향행렬 G (커널)</text>
+    <text x="300" y="229" text-anchor="middle" fill="#8d97a5">→ 랭크 진단</text>
+
+    <rect x="450" y="154" width="220" height="82" rx="8" fill="#fff" stroke="#c9ced6"/>
+    <text x="560" y="176" text-anchor="middle" font-weight="700" fill="#1b1d21">response</text>
+    <text x="560" y="196" text-anchor="middle" fill="#5f6672">lag 정렬된 응답 곡선</text>
+    <text x="560" y="214" text-anchor="middle" fill="#8d97a5">→ L · τ · T</text>
+    <text x="566" y="214" text-anchor="start" fill="#8d97a5" font-size="8" dy="3">s</text>
+  </g>
+
+  <!-- separate lane: absolute samples -->
+  <line x1="291" y1="98" x2="291" y2="112" stroke="#1f8a53" stroke-width="1.6"/>
+  <line x1="80" y1="112" x2="291" y2="112" stroke="#1f8a53" stroke-width="1.6"/>
+  <line x1="80" y1="112" x2="80" y2="150" stroke="#1f8a53" stroke-width="1.6" marker-end="url(#ar2)"/>
+  <path d="M75,150 L85,150 L80,142 z" fill="#1f8a53"/>
+  <g font-size="11.5">
+    <rect x="24" y="154" width="140" height="82" rx="8" fill="#e8f5ee" stroke="#1f8a53" stroke-width="1.6"/>
+    <text x="94" y="176" text-anchor="middle" font-weight="700" fill="#1f8a53">absolute_samples</text>
+    <text x="94" y="196" text-anchor="middle" fill="#20603f">안정 구간의</text>
+    <text x="94" y="211" text-anchor="middle" fill="#20603f">(제어상태, Wet)</text>
+    <text x="94" y="229" text-anchor="middle" fill="#20603f" font-weight="700">→ 레벨 모델</text>
+  </g>
+
+  <text x="24" y="268" font-size="11.5" fill="#1f8a53" font-weight="700">▲ 초록 경로는 isolation 을 &lt;거치지 않는다&gt;.</text>
+  <text x="24" y="286" font-size="11.5" fill="#5f6672">이것이 3장의 핵심이다 — 앵커 0건에도 이쪽은 후보가 남는다.</text>
+</svg>
+<figcaption>전처리 파이프라인. 파란 경로는 격리(제어 앵커)를 통과한 이벤트만 먹고, 초록 경로는 격리를 아예 거치지 않는다.</figcaption>
+</figure>
+
+<div class="qmemo" data-qid="bg-pipeline" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">파이프라인 그림에서 헷갈리는 부분이 있으면 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ═══════════════════════════════ 3. 무엇이 사나 ═════════════════════════════ -->
+<h2 id="alive">3. 앵커 0건이면 무엇이 죽고 무엇이 사나</h2>
+
+<p>
+  질문이 이거였다. <em>"레벨 모델, <span class="mono">zone_adjustment_diagnostics</span> 가 어떻게
+  계산되는 것인가? 제어 앵커가 없는데 이것들은 어떤 원리로 측정하는 건가?"</em>
+</p>
+<p>
+  코드를 다시 읽고 답한다. 둘의 답이 <strong>서로 다르다</strong> — 하나는 진짜로 살고,
+  하나는 내가 앞서 살 거라고 말했지만 <strong>실제 배선에서는 같이 죽는다.</strong>
+</p>
+
+<h3>3.1 레벨 모델 — 격리와 <em>다른</em> 관문을 쓴다 <span class="tag ok">산다</span></h3>
+
+<p>
+  레벨 모델은 "이 제어 상태에서 Wet 평균이 얼마였나" 를 배운다. 학습 데이터를 만드는
+  함수가 <span class="mono">features.absolute_samples</span> 인데, 이 함수의 인자를 보면
+  격리가 <strong>없다</strong>.
+</p>
+
+<pre><span class="k">def</span> absolute_samples(
+    changes,        <span class="c"># ← 격리 안 거친 &lt;전체&gt; 변경 기록</span>
+    wet_mean,
+    bounds,         <span class="c"># ← lot 시작·끝</span>
+    wait_minutes,       <span class="c"># COATING_ABSOLUTE_WAIT_MINUTES = 30</span>
+    min_window_minutes, <span class="c"># COATING_SETTLE_WINDOW_MINUTES  = 5</span>
+):
+    <span class="k">for</span> b <span class="k">in</span> bounds:
+        <span class="c"># lot 을 &lt;제어값이 바뀐 모든 시각&gt;으로 자른다</span>
+        edges = [b.start] + _control_change_times(changes, lot) + [b.end]
+        <span class="k">for</span> a, z <span class="k">in</span> zip(edges[:-1], edges[1:]):
+<span class="hl">            settled = a + wait      <span class="c"># 30분 기다리고</span></span>
+<span class="hl">            <span class="k">if</span> z - settled &lt; least: <span class="k">continue</span>  <span class="c"># 5분 이상 남아야 쓴다</span></span>
+            level = wet_mean[settled : z].mean()   <span class="c"># 그 구간 평균이 &lt;답&gt;</span></pre>
+
+<p>
+  원리는 이렇다. <strong>"조정과 조정 사이" 를 한 덩어리로 본다.</strong> 그 사이에는 정의상
+  아무도 아무것도 안 건드렸으니, 30분 기다려 앞 조정의 여파가 끝난 뒤부터 다음 조정
+  직전까지의 Wet 평균은 <em>그 제어 상태의 값</em>이다. 이벤트가 서로 겹치는지는
+  아예 묻지 않는다 — 겹침은 <em>변화</em>를 읽을 때만 문제이고, 여기는 <em>수준</em>을 읽는다.
+</p>
+
+<div class="callout warn">
+  <span class="lbl">그런데 관문이 격리보다 오히려 빡빡하다</span>
+  <p>
+    필요한 조용한 시간이 <strong>30 + 5 = 35분</strong>이다. 격리는 뒤로 <strong>10분</strong>만
+    요구한다. 즉 <em>뒤쪽</em>만 놓고 보면 레벨 모델이 <strong>3.5배 더 까다롭다.</strong>
+    "격리 0건 = 조정이 촘촘하다" 라면 이쪽도 대부분 굶는다.
+  </p>
+  <p>
+    다만 완전히 같이 죽지는 않는다. 이유가 둘이다.
+  </p>
+  <ul>
+    <li><strong>lot 의 머리와 꼬리가 남는다.</strong> <span class="mono">edges</span> 의 처음이
+        <span class="mono">b.start</span>, 끝이 <span class="mono">b.end</span> 다. 튜닝이 끝난 뒤
+        lot 이 끝날 때까지의 긴 구간은 조정이 없으므로 거의 항상 통과한다
+        (<span class="mono">segment.tuning_end_last_change</span> 가 재는 바로 그 지점 이후다).</li>
+    <li><strong>격리는 양쪽, 이쪽은 한쪽만 본다.</strong> 간격이 40분·5분·40분·5분 식으로
+        번갈아 나오면 어떤 이벤트도 "앞뒤 다 10분" 을 못 채워 격리는 0건인데,
+        40분짜리 구간은 레벨 샘플로 살아남는다.</li>
+  </ul>
+</div>
+
+<p>
+  실제로 레벨 모델이 배우는 건 아주 단출하다 — <span class="mono">model/level.py</span> 를 보면
+  피처가 네 개(<span class="mono">bp_open_rate, pump_rpm, os_gap, ds_gap</span>)에
+  제품 원핫뿐이고, 모델은 릿지 회귀다. 25개 zone 을 따로 보지 않고 <strong>Wet 평균 하나</strong>만
+  맞힌다. 커널이 "폭 방향 모양" 을 맡고 레벨이 "전체 높이" 를 맡는 분업이다.
+</p>
+
+<h3>3.2 zone_adjustment_diagnostics — 함수는 살지만 <em>배선</em>이 죽는다 <span class="tag no">지금은 죽는다</span></h3>
+
+<p>
+  여기서 앞선 내 설명을 하나 고쳐야 한다. 나는 "이건 Wet 을 안 보니까 앵커 0건과 무관하다"
+  고 말했다. <strong>함수만 보면 맞고, 실제로 연결된 방식을 보면 틀리다.</strong>
+</p>
+
+<p>함수 자체는 이렇게 생겼다. 인자가 <span class="mono">delta_gap</span> 하나뿐이다.</p>
+
+<pre><span class="c"># model/profile.py</span>
+<span class="k">def</span> zone_adjustment_diagnostics(delta_gap):   <span class="c"># Wet 을 &lt;안 받는다&gt;</span>
+    moved   = np.abs(dg).sum(axis=0) &gt; 0     <span class="c"># 한 번이라도 움직인 zone</span>
+    never   = [z <span class="k">for</span> z <span class="k">in</span> zones <span class="k">if</span> <span class="k">not</span> moved[z]]   <span class="c"># 없는 zone</span>
+    locked  = [(a,b) <span class="k">for</span> a,b <span class="k">in</span> pairs <span class="k">if</span> |corr(a,b)| &gt;= 0.99]  <span class="c"># 묶인 쌍</span>
+    ...</pre>
+
+<p>그런데 <span class="mono">report.py</span> 가 여기에 무엇을 먹이는지 따라가 보자.</p>
+
+<pre><span class="c"># report.py — 화살표를 따라가 보라</span>
+iso    = ev_mod.isolation(ev, 10, 10, bounds)
+<span class="hl">usable = iso[iso[<span class="s">"isolated"</span>]]            <span class="c"># ← 격리 통과분만</span></span>
+<span class="hl">ds     = features.delta_samples(usable, ...) <span class="c"># ← usable 을 먹는다</span></span>
+<span class="hl">dg     = ds[GAP_DELTA_COLS].to_numpy()      <span class="c"># ← ds 에서 나온다</span></span>
+...
+zones  = profile.zone_adjustment_diagnostics(dg)   <span class="c"># ← 그 dg 다</span></pre>
+
+<p>
+  <span class="mono">usable</span> 이 0행이면 <span class="mono">ds</span> 도 0행,
+  <span class="mono">dg</span> 는 <span class="mono">(0, 25)</span> 빈 배열이 되고, 함수는
+  맨 앞의 <span class="mono">if dg.size == 0</span> 가지로 빠져 <strong>전부 0인 딕셔너리</strong>를 돌려준다.
+  <span class="mono">never_adjusted</span> 에 1~25 가 전부 들어간다 — "아무 zone 도 조정된 적 없다"
+  라는, 명백히 사실이 아닌 보고다.
+</p>
+
+<div class="callout ok">
+  <span class="lbl">그런데 이건 고칠 수 있는 종류의 죽음이다</span>
+  <p>
+    함수는 Δgap 만 필요하고, Δgap 은 격리 <em>이전</em>에 이미 만들어져 있다 —
+    <span class="mono">event_deltas</span>(변수명 <span class="mono">dl</span>), 즉
+    <span class="mono">build_events</span> 의 두 번째 반환값이다. 이걸 이벤트×zone 행렬로 펴서
+    넣으면 <strong>격리 0건에서도 랭크·묶인쌍·안 만진 zone 이 전부 계산된다.</strong>
+  </p>
+  <p>
+    그리고 이건 단순한 편의가 아니다. 앵커가 0건일 때 가장 먼저 알아야 할 것이
+    <em>"조정 자체는 다양했는가"</em> 인데, 지금 배선은 정확히 그 순간에 그 답을 못 준다.
+    <strong>진단이 가장 필요한 상황에서 진단이 꺼진다.</strong>
+  </p>
+</div>
+
+<h3>3.3 정리 — 앵커 0건일 때의 생사표</h3>
+
+<div class="scrollx">
+<table>
+  <thead>
+    <tr><th>산출물</th><th>격리를 쓰나</th><th>앵커 0건이면</th><th>왜</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>커널 (영향행렬 G)</strong></td>
+      <td>예</td>
+      <td><span class="tag no">죽음</span></td>
+      <td>이벤트별 전후 뺄셈이 근거인데 뺄 이벤트가 없다</td>
+    </tr>
+    <tr>
+      <td><strong>L · τ · T<sub>s</sub></strong></td>
+      <td>예</td>
+      <td><span class="tag no">죽음</span></td>
+      <td>lag 정렬할 이벤트가 없다</td>
+    </tr>
+    <tr>
+      <td><span class="mono">zone_adjustment_diagnostics</span></td>
+      <td>배선상 예<br>(함수는 아니오)</td>
+      <td><span class="tag warn">지금은 죽음</span></td>
+      <td><span class="mono">dl</span> 을 직접 먹이면 살릴 수 있다</td>
+    </tr>
+    <tr>
+      <td><strong>레벨 모델</strong></td>
+      <td>아니오</td>
+      <td><span class="tag ok">삶</span> (조건부)</td>
+      <td>변경 사이 35분 구간 · lot 꼬리로 산다</td>
+    </tr>
+    <tr>
+      <td><strong>노이즈 σ</strong></td>
+      <td>아니오</td>
+      <td><span class="tag ok">삶</span></td>
+      <td>조정 없는 구간만 있으면 된다 (<span class="mono">response.py</span> docstring)</td>
+    </tr>
+    <tr>
+      <td><span class="mono">funnel</span> · 원장 · 타임라인</td>
+      <td>표시용</td>
+      <td><span class="tag ok">삶</span></td>
+      <td>"왜 0건인가" 를 설명하는 것이 본업이다</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="qmemo" data-qid="alive-level-vs-rank" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">"함수는 사는데 배선이 죽는다" 가 잘 안 와닿으면 여기 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ═══════════════════════════════════ 4. 랭크 ═══════════════════════════════ -->
+<h2 id="rank">4. 랭크가 뭔데? — 랭크 결손</h2>
+
+<h3>4.1 한 문장으로</h3>
+
+<div class="callout">
+  <span class="lbl">랭크 (rank)</span>
+  <p>
+    <strong>진짜로 서로 다른 "방향" 이 몇 개나 되는가.</strong><br>
+    데이터가 몇 <em>줄</em>이냐가 아니라, 그 줄들이 몇 <em>가지 서로 다른 이야기</em>를
+    하고 있느냐다.
+  </p>
+</div>
+
+<h3>4.2 저울 비유</h3>
+
+<p>
+  사과와 배의 무게를 각각 알고 싶다. 저울에 올려서 잰다.
+</p>
+
+<div class="scrollx">
+<table>
+  <thead><tr><th>실험</th><th>사과</th><th>배</th><th>합계 무게</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td class="num">1개</td><td class="num">1개</td><td class="num">300g</td></tr>
+    <tr><td>2</td><td class="num">2개</td><td class="num">2개</td><td class="num">600g</td></tr>
+    <tr><td>3</td><td class="num">5개</td><td class="num">5개</td><td class="num">1500g</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  실험을 <strong>300번</strong> 더 해도 사과 한 개의 무게는 절대 알 수 없다.
+  사과 100g·배 200g 도 답이고, 사과 200g·배 100g 도 답이고, 사과 299g·배 1g 도 답이다.
+  이유는 하나다 — <strong>사과와 배를 항상 같은 개수로 올렸기 때문이다.</strong>
+</p>
+<p>
+  이 표의 랭크는 <strong>1</strong> 이다. 줄이 셋인데 방향은 하나다("사과+배" 라는 방향 하나).
+  사과 1개·배 3개를 올리는 실험을 <em>한 번만</em> 추가하면 랭크가 2가 되고, 그 순간 둘 다 풀린다.
+</p>
+
+<figure>
+<svg viewBox="0 0 800 250" role="img" aria-label="랭크 1 대 랭크 2">
+  <g font-size="11.5">
+    <!-- left: rank 1 -->
+    <text x="30" y="24" font-weight="700" fill="#c0392b" font-size="12.5">랭크 1 — 모든 실험이 한 직선 위</text>
+    <line x1="60" y1="200" x2="330" y2="200" stroke="#c9ced6" stroke-width="1.5"/>
+    <line x1="60" y1="200" x2="60" y2="50" stroke="#c9ced6" stroke-width="1.5"/>
+    <text x="335" y="205" fill="#8d97a5" font-size="10.5">사과 수</text>
+    <text x="30" y="45" fill="#8d97a5" font-size="10.5">배 수</text>
+    <line x1="60" y1="200" x2="290" y2="70" stroke="#c0392b" stroke-width="1.4" stroke-dasharray="5 3"/>
+    <circle cx="105" cy="175" r="6" fill="#c0392b"/>
+    <circle cx="150" cy="149" r="6" fill="#c0392b"/>
+    <circle cx="255" cy="90" r="6" fill="#c0392b"/>
+    <text x="105" y="228" fill="#c0392b" font-size="10.5" text-anchor="middle">점이 셋이지만</text>
+    <text x="190" y="228" fill="#c0392b" font-size="10.5" text-anchor="start">방향은 하나 → 못 가름</text>
+
+    <!-- right: rank 2 -->
+    <text x="440" y="24" font-weight="700" fill="#1f8a53" font-size="12.5">랭크 2 — 방향이 둘</text>
+    <line x1="470" y1="200" x2="740" y2="200" stroke="#c9ced6" stroke-width="1.5"/>
+    <line x1="470" y1="200" x2="470" y2="50" stroke="#c9ced6" stroke-width="1.5"/>
+    <text x="745" y="205" fill="#8d97a5" font-size="10.5">사과 수</text>
+    <line x1="470" y1="200" x2="700" y2="70" stroke="#1f8a53" stroke-width="1.4" stroke-dasharray="5 3"/>
+    <line x1="470" y1="200" x2="700" y2="185" stroke="#1f8a53" stroke-width="1.4" stroke-dasharray="5 3"/>
+    <circle cx="515" cy="175" r="6" fill="#1f8a53"/>
+    <circle cx="560" cy="149" r="6" fill="#1f8a53"/>
+    <circle cx="665" cy="90" r="6" fill="#1f8a53"/>
+    <circle cx="650" cy="188" r="6" fill="#1f8a53" stroke="#0d4a2b" stroke-width="2"/>
+    <text x="650" y="176" fill="#1f8a53" font-size="10.5" text-anchor="middle" font-weight="700">★ 새 방향</text>
+    <text x="470" y="228" fill="#1f8a53" font-size="10.5">이 점 &lt;하나&gt;가 사과와 배를 갈라 준다</text>
+  </g>
+</svg>
+<figcaption>왼쪽은 점이 몇 개든 못 푼다. 오른쪽은 점 하나만 더 있으면 풀린다. 표본 수가 아니라 <strong>방향의 수</strong>가 문제다.</figcaption>
+</figure>
+
+<h3>4.3 이 프로젝트에서의 랭크</h3>
+
+<p>
+  사과·배 자리에 <strong>zone 1~25</strong> 가 들어가고, 실험 하나가 <strong>조정 이벤트 하나</strong>다.
+  <span class="mono">delta_samples</span> 가 만드는 표가 바로 저 저울 표다.
+</p>
+
+<figure>
+<svg viewBox="0 0 800 260" role="img" aria-label="Δgap 행렬과 묶인 쌍">
+  <g font-size="11">
+    <text x="24" y="22" font-weight="700" fill="#1b1d21" font-size="12.5">Δgap 행렬 (이벤트 × zone) — 실제로 랭크를 결정하는 것</text>
+
+    <!-- header -->
+    <g fill="#5f6672" font-size="10.5" text-anchor="middle">
+      <text x="150" y="50">z5</text><text x="196" y="50">z6</text><text x="242" y="50">z7</text>
+      <text x="288" y="50">z8</text><text x="334" y="50">z9</text><text x="380" y="50">z10</text>
+    </g>
+    <!-- locked highlight -->
+    <rect x="174" y="56" width="92" height="132" fill="#fdf4e3" stroke="#b06f00" stroke-dasharray="4 3"/>
+    <text x="220" y="208" text-anchor="middle" fill="#b06f00" font-size="11" font-weight="700">항상 같이 움직임</text>
+    <text x="220" y="224" text-anchor="middle" fill="#b06f00" font-size="10.5">corr = 1.00 → 묶인 쌍</text>
+
+    <!-- rows -->
+    <g font-family="monospace" font-size="11" text-anchor="middle">
+      <text x="60" y="76" text-anchor="start" fill="#5f6672">E1</text>
+      <text x="150" y="76" fill="#8d97a5">0</text><text x="196" y="76" fill="#1b1d21">+.02</text>
+      <text x="242" y="76" fill="#1b1d21">+.02</text><text x="288" y="76" fill="#8d97a5">0</text>
+      <text x="334" y="76" fill="#8d97a5">0</text><text x="380" y="76" fill="#8d97a5">0</text>
+
+      <text x="60" y="106" text-anchor="start" fill="#5f6672">E2</text>
+      <text x="150" y="106" fill="#8d97a5">0</text><text x="196" y="106" fill="#1b1d21">-.01</text>
+      <text x="242" y="106" fill="#1b1d21">-.01</text><text x="288" y="106" fill="#1b1d21">+.03</text>
+      <text x="334" y="106" fill="#8d97a5">0</text><text x="380" y="106" fill="#8d97a5">0</text>
+
+      <text x="60" y="136" text-anchor="start" fill="#5f6672">E3</text>
+      <text x="150" y="136" fill="#8d97a5">0</text><text x="196" y="136" fill="#1b1d21">+.04</text>
+      <text x="242" y="136" fill="#1b1d21">+.04</text><text x="288" y="136" fill="#8d97a5">0</text>
+      <text x="334" y="136" fill="#1b1d21">+.01</text><text x="380" y="136" fill="#8d97a5">0</text>
+
+      <text x="60" y="166" text-anchor="start" fill="#5f6672">E4</text>
+      <text x="150" y="166" fill="#8d97a5">0</text><text x="196" y="166" fill="#1b1d21">+.02</text>
+      <text x="242" y="166" fill="#1b1d21">+.02</text><text x="288" y="166" fill="#1b1d21">-.02</text>
+      <text x="334" y="166" fill="#8d97a5">0</text><text x="380" y="166" fill="#8d97a5">0</text>
+    </g>
+
+    <!-- never adjusted -->
+    <rect x="128" y="56" width="44" height="132" fill="#fdeeec" stroke="#c0392b" stroke-dasharray="4 3"/>
+    <rect x="358" y="56" width="44" height="132" fill="#fdeeec" stroke="#c0392b" stroke-dasharray="4 3"/>
+    <text x="150" y="208" text-anchor="middle" fill="#c0392b" font-size="10.5" font-weight="700">열 전체 0</text>
+    <text x="380" y="208" text-anchor="middle" fill="#c0392b" font-size="10.5" font-weight="700">열 전체 0</text>
+    <text x="265" y="240" text-anchor="middle" fill="#c0392b" font-size="10.5">= never_adjusted (이 zone 은 애초에 관측이 없다)</text>
+
+    <!-- verdict panel -->
+    <rect x="470" y="56" width="306" height="168" rx="8" fill="#fff" stroke="#c9ced6"/>
+    <text x="486" y="80" font-weight="700" fill="#1b1d21" font-size="12">진단 결과</text>
+    <g font-size="11.5" fill="#5f6672" font-family="monospace">
+      <text x="486" y="106">n_adjusted        = 4   (z6,z7,z8,z9)</text>
+      <text x="486" y="128">never_adjusted    = [z5, z10, ...]</text>
+      <text x="486" y="150">locked_pairs      = [(6, 7)]</text>
+      <text x="486" y="172">reachable_rank    = min(4, 4-1) = 3</text>
+      <text x="486" y="194">effective_rank    = 3</text>
+    </g>
+    <text x="486" y="216" font-size="11.5" fill="#1f8a53" font-weight="700">unexplained_shortfall = 0 ✓</text>
+  </g>
+</svg>
+<figcaption>랭크 결손을 셋으로 나눈다 — 없는 zone(정상), 묶인 쌍(습관, 요청으로 풀림), 설명 안 됨(남으면 더 볼 것이 있다).</figcaption>
+</figure>
+
+<h3>4.4 "랭크 결손" 이란</h3>
+
+<p>
+  zone 이 25개니까 랭크가 25면 좋겠다. 그런데 실제로는 그보다 작다. 그 차이가 결손이다.
+  <span class="mono">zone_adjustment_diagnostics</span> 의 우아한 점은
+  이 결손을 <strong>변명이 되는 것과 안 되는 것으로 갈라</strong> 준다는 데 있다.
+</p>
+
+<ol>
+  <li>
+    <strong>없는 zone</strong> (<span class="mono">never_adjusted</span>) — 항목이 아예 없거나
+    한 번도 안 바뀐 열. 결손의 정상적인 사유다.
+  </li>
+  <li>
+    <strong>묶인 쌍</strong> (<span class="mono">locked_pairs</span>) — 상관계수가 0.99 이상.
+    사과·배를 늘 같이 올린 것과 똑같다. <strong>작업 습관이므로 요청으로 풀 수 있다.</strong>
+  </li>
+  <li>
+    <strong>설명 안 됨</strong> (<span class="mono">unexplained_shortfall</span>) —
+    위 둘로 설명 안 되는 나머지. 남아 있으면 아직 못 본 게 있다는 신호다.
+  </li>
+</ol>
+
+<p>
+  <span class="mono">reachable_rank = min(이벤트 수, 조정된 zone 수 − 묶인 쌍 수)</span> 라는 식에
+  <strong>이벤트 수</strong>가 들어 있는 게 중요하다. 이벤트가 10건이면 zone 23개를 건드렸어도
+  랭크는 10을 못 넘는다. 이걸 빼먹으면 멀쩡한 데이터를 "결손 13" 이라고 몰아세운다.
+</p>
+
+<div class="callout no">
+  <span class="lbl">여기가 딥러닝이 못 넘는 벽이다</span>
+  <p>
+    작업자가 zone 6·7 을 <strong>항상 같이 같은 양으로</strong> 돌렸다면, g<sub>6</sub> 와 g<sub>7</sub> 을
+    가르는 정보는 <strong>데이터 안에 존재하지 않는다.</strong> 이벤트를 500건 모아도,
+    파라미터 1억 개짜리 모델을 써도 안 갈라진다. 없는 것을 만들어낼 수는 없다.
+  </p>
+  <p>
+    나쁜 건, <strong>큰 모델일수록 "못 가른다" 고 말하지 않고 그냥 아무 값이나 자신 있게
+    답한다</strong>는 점이다. 릿지는 최소한 표준오차가 커져서 티가 난다
+    (<span class="mono">shape_is_resolvable</span> 이 그걸 잡는다).
+  </p>
+</div>
+
+<div class="qmemo" data-qid="rank-basics" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">랭크·묶인 쌍에 대해 더 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ═══════════════════════════════ 5. 커널·릿지 ═══════════════════════════════ -->
+<h2 id="ridge">5. 커널이 뭐고 릿지가 뭔가</h2>
+
+<h3>5.1 커널 — "볼트 하나 돌리면 퍼지는 모양"</h3>
+
+<div class="callout warn">
+  <span class="lbl">먼저 용어 정리</span>
+  <p>
+    "커널" 은 분야마다 뜻이 다른 위험한 단어다. SVM 의 커널 트릭도 커널, 운영체제 커널도 커널,
+    CNN 의 필터도 커널이다. <strong>이 프로젝트의 커널은 그중 어느 것도 아니다.</strong>
+    여기서 커널은 <em>임펄스 응답</em> — <strong>"한 자리를 건드렸을 때 주변으로 퍼지는 모양"</strong>
+    이라는 뜻이다. CNN 필터와 수학적으로는 가장 가깝다(둘 다 합성곱의 그 커널이다).
+  </p>
+</div>
+
+<p>
+  zone 7 볼트를 0.02mm 열었다고 하자. Wet 은 zone 7 에서 가장 많이 변하고, 6·8 에서는 덜,
+  5·9 에서는 더 덜 변한다. 이 <strong>다섯 개의 숫자</strong>가 커널이다.
+</p>
+
+<figure>
+<svg viewBox="0 0 800 280" role="img" aria-label="커널과 Toeplitz 전개">
+  <g font-size="11.5">
+    <text x="24" y="22" font-weight="700" fill="#1b1d21" font-size="12.5">커널 g — 탭 5개 (k = 2, 즉 2k+1 = 5)</text>
+
+    <!-- bars -->
+    <line x1="60" y1="150" x2="330" y2="150" stroke="#c9ced6" stroke-width="1.5"/>
+    <rect x="76"  y="132" width="34" height="18" fill="#9dc3e6"/>
+    <rect x="122" y="106" width="34" height="44" fill="#5b9bd5"/>
+    <rect x="168" y="62"  width="34" height="88" fill="#2f6fb0"/>
+    <rect x="214" y="106" width="34" height="44" fill="#5b9bd5"/>
+    <rect x="260" y="132" width="34" height="18" fill="#9dc3e6"/>
+
+    <g text-anchor="middle" font-size="10.5" fill="#5f6672">
+      <text x="93"  y="166">-2</text><text x="139" y="166">-1</text>
+      <text x="185" y="166">0</text><text x="231" y="166">+1</text><text x="277" y="166">+2</text>
+    </g>
+    <g text-anchor="middle" font-family="monospace" font-size="10" fill="#1b1d21">
+      <text x="93"  y="126">.05</text><text x="139" y="100">.18</text>
+      <text x="185" y="56">.42</text><text x="231" y="100">.18</text><text x="277" y="126">.05</text>
+    </g>
+    <text x="185" y="188" text-anchor="middle" font-size="11" fill="#5f6672">이웃까지의 거리 (offset)</text>
+
+    <text x="185" y="216" text-anchor="middle" font-size="11.5" fill="#2f6fb0" font-weight="700">중심이 최대 · 부호 일관 · 바깥으로 감소</text>
+    <text x="185" y="234" text-anchor="middle" font-size="10.5" fill="#5f6672">이 셋이 kernel_diagnostics 의 물리 관문이다</text>
+
+    <!-- toeplitz -->
+    <text x="430" y="22" font-weight="700" fill="#1b1d21" font-size="12.5">Toeplitz 전개 → 25×25 영향행렬 G</text>
+    <g font-family="monospace" font-size="9.5" fill="#5f6672">
+      <text x="430" y="52">        z5   z6   z7   z8   z9</text>
+      <text x="430" y="72">  w5  [.42  .18  .05    0    0]</text>
+      <text x="430" y="90">  w6  [.18  .42  .18  .05    0]</text>
+      <text x="430" y="108">  w7  [.05  .18 </text>
+      <text x="430" y="126">  w8  [  0  .05  .18  .42  .18]</text>
+      <text x="430" y="144">  w9  [  0    0  .05  .18  .42]</text>
+    </g>
+    <rect x="530" y="98" width="30" height="14" fill="#eaf2fa" stroke="#2f6fb0"/>
+    <text x="545" y="109" font-family="monospace" font-size="9.5" fill="#2f6fb0" text-anchor="middle">.42</text>
+    <text x="562" y="109" font-family="monospace" font-size="9.5" fill="#5f6672">.18  .05]</text>
+
+    <text x="430" y="176" font-size="11.5" fill="#5f6672">같은 다섯 숫자가 한 칸씩 밀리며 반복된다.</text>
+    <text x="430" y="196" font-size="11.5" fill="#5f6672">"퍼지는 모양은 zone 위치와 무관하다"</text>
+    <text x="430" y="216" font-size="11.5" fill="#5f6672">는 물리를 강제한 결과다.</text>
+    <text x="430" y="244" font-size="12" fill="#1f8a53" font-weight="700">파라미터 625개 → 5개</text>
+    <text x="430" y="264" font-size="11" fill="#5f6672">소수 이벤트로도 풀 수 있는 이유가 이것이다.</text>
+  </g>
+</svg>
+<figcaption>커널은 다섯 개의 숫자다. Toeplitz(공간 불변) 가정이 그 다섯 개를 25×25 행렬로 펼친다.</figcaption>
+</figure>
+
+<p>
+  <span class="mono">profile.build_design</span> 의 주석이 짚는 대목이 여기다 — 이벤트 하나가
+  <strong>방정식 25개</strong>(zone 마다 하나)를 준다. 미지수는 5개뿐이다. 그래서 이벤트가
+  몇 건만 있어도 원리상은 풀 수 있다. <em>원리상은.</em> (실제 제약은 4장의 랭크다.)
+</p>
+
+<h3>5.2 릿지 — "확신이 없으면 작게 대답해라"</h3>
+
+<p>
+  커널 5개를 어떻게 구하나. 가장 소박한 방법이 <strong>최소제곱</strong>이다 —
+  예측과 실측의 차이 제곱합을 최소로 만드는 g 를 찾는다.
+</p>
+
+<pre>최소제곱:  minimize  ‖X·g − y‖²
+릿지:      minimize  ‖X·g − y‖²  +  α·‖g‖²
+                     └─ 잘 맞혀라 ─┘     └─ 근데 크지 마라 ─┘</pre>
+
+<p>
+  <strong>α·‖g‖²</strong> 라는 벌점 하나가 붙었을 뿐이다. "계수가 커지면 벌금을 낸다."
+  왜 이게 필요한가?
+</p>
+
+<div class="callout">
+  <span class="lbl">왜 벌점이 필요한가 — 다시 사과와 배</span>
+  <p>
+    사과·배를 항상 같이 올렸을 때, 최소제곱은 답을 <em>못</em> 고르는 게 아니라
+    <strong>아무 답이나 고른다.</strong> 그리고 데이터에 노이즈가 아주 조금만 있어도
+    <span class="mono">사과 +8300g, 배 −8000g</span> 같은 미친 답을 고를 수 있다 —
+    둘이 상쇄돼서 합계는 여전히 잘 맞기 때문이다.
+  </p>
+  <p>
+    릿지의 벌점은 이 상쇄 조합에 <strong>거대한 벌금</strong>을 매긴다
+    (‖g‖² 가 어마어마하니까). 그래서 남는 답은 "작고 얌전한" 조합이 된다.
+  </p>
+</div>
+
+<figure>
+<svg viewBox="0 0 800 220" role="img" aria-label="릿지가 하는 일">
+  <g font-size="11.5">
+    <text x="24" y="22" font-weight="700" fill="#c0392b" font-size="12.5">α = 0 (최소제곱)</text>
+    <line x1="40" y1="120" x2="330" y2="120" stroke="#c9ced6" stroke-width="1.4"/>
+    <rect x="60"  y="60"  width="30" height="60" fill="#c0392b"/>
+    <rect x="106" y="120" width="30" height="72" fill="#c0392b"/>
+    <rect x="152" y="46"  width="30" height="74" fill="#c0392b"/>
+    <rect x="198" y="120" width="30" height="55" fill="#c0392b"/>
+    <rect x="244" y="76"  width="30" height="44" fill="#c0392b"/>
+    <text x="185" y="212" text-anchor="middle" font-size="11" fill="#c0392b">부호가 튀고 크기가 폭발 — 종 모양이 아니다</text>
+
+    <text x="440" y="22" font-weight="700" fill="#1f8a53" font-size="12.5">α = 1 (릿지)</text>
+    <line x1="450" y1="120" x2="740" y2="120" stroke="#c9ced6" stroke-width="1.4"/>
+    <rect x="470" y="108" width="30" height="12" fill="#1f8a53"/>
+    <rect x="516" y="88"  width="30" height="32" fill="#1f8a53"/>
+    <rect x="562" y="58"  width="30" height="62" fill="#1f8a53"/>
+    <rect x="608" y="88"  width="30" height="32" fill="#1f8a53"/>
+    <rect x="654" y="108" width="30" height="12" fill="#1f8a53"/>
+    <text x="595" y="212" text-anchor="middle" font-size="11" fill="#1f8a53">작고 매끄러운 종 모양 — 물리와 맞는다</text>
+  </g>
+</svg>
+<figcaption>같은 데이터, 벌점만 다르다. 왼쪽은 노이즈를 문 것이고 오른쪽은 신호를 문 것이다.</figcaption>
+</figure>
+
+<h3>5.3 실제 코드는 이 한 줄이다</h3>
+
+<pre><span class="c"># model/profile.py — fit_kernel</span>
+<span class="k">return</span> np.linalg.solve(x.T @ x + <span class="hl">alpha * np.eye(width)</span>, x.T @ y)
+<span class="c">#                     └─ XᵀX ─┘   └─── αI ───┘        └ Xᵀy ┘</span></pre>
+
+<p>
+  <span class="mono">XᵀX</span> 의 <strong>대각선에 α 를 더한다.</strong> 그게 릿지의 전부다.
+  왜 이게 통하는지도 직관적이다 — 사과·배가 묶여 있으면 <span class="mono">XᵀX</span> 가
+  거의 <em>납작해져서</em> 역행렬이 폭발한다. 대각선에 살을 조금 붙이면
+  납작함이 사라지고 역행렬이 얌전해진다. "능선(ridge)" 이라는 이름이 여기서 나왔다.
+</p>
+
+<div class="callout warn">
+  <span class="lbl">공짜는 아니다 — 편향·분산 맞바꿈</span>
+  <p>
+    α 를 키우면 <strong>분산은 줄지만 편향이 생긴다.</strong> 계수가 0 쪽으로 눌리므로
+    참값이 0.42 여도 0.35 로 나올 수 있다. 이 프로젝트는 α = 1.0
+    (<span class="mono">COATING_RIDGE_ALPHA</span>) 을 쓰고, <span class="mono">diagnose --alpha</span> 로
+    이번 실행만 바꿔 보며 <em>커널 모양이 α 에 얼마나 민감한가</em> 를 확인할 수 있게 해 뒀다.
+    모양이 α 에 따라 크게 바뀌면 그건 데이터가 모양을 결정하지 못하고 있다는 뜻이다.
+  </p>
+</div>
+
+<p>
+  마지막으로 <span class="mono">fit_kernel</span> 의 미묘한 대목 하나. y 와 X <strong>양쪽에서</strong>
+  이벤트별 평균을 뺀다. 한쪽만 빼면 커널이 통째로 눌린다(주석에 실측 −0.07 이라고 적혀 있다).
+  "레벨은 레벨 모델이 맡고 커널은 모양만 맡는다" 는 분업을 수식 수준에서 강제하는 자리다.
+</p>
+
+<div class="qmemo" data-qid="ridge-kernel" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">커널·릿지에서 더 파고들고 싶은 부분을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ═══════════════════════════════ 6. 폐루프 ═════════════════════════════════ -->
+<h2 id="loop">6. 되먹임 아래의 계수 — 폐루프 함정</h2>
+
+<p>
+  <em>"되먹임 아래 계수는 무슨 말이야?"</em> — 이게 이 문서에서 가장 중요한 개념이고,
+  가장 반직관적인 부분이다.
+</p>
+
+<h3>6.1 개루프와 폐루프</h3>
+
+<div class="callout">
+  <span class="lbl">되먹임 (feedback), 폐루프 (closed loop)</span>
+  <p>
+    <strong>결과가 다시 원인을 바꾸는 고리.</strong><br>
+    작업자는 Wet 이 낮으면 gap 을 연다. 즉 <em>gap 이 Wet 을 바꾸는</em> 동시에
+    <em>Wet 이 gap 을 바꾼다.</em> 화살표가 양방향이면 폐루프다.
+  </p>
+</div>
+
+<figure>
+<svg viewBox="0 0 800 260" role="img" aria-label="개루프와 폐루프 블록도">
+  <defs>
+    <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5f6672"/>
+    </marker>
+    <marker id="ar3r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/>
+    </marker>
+  </defs>
+
+  <!-- open loop -->
+  <text x="24" y="24" font-weight="700" fill="#1f8a53" font-size="12.5">개루프 — 우리가 원하는 상황</text>
+  <g font-size="11.5">
+    <rect x="34" y="46" width="86" height="40" rx="6" fill="#fff" stroke="#c9ced6"/>
+    <text x="77" y="71" text-anchor="middle" fill="#1b1d21">gap (u)</text>
+    <line x1="122" y1="66" x2="164" y2="66" stroke="#5f6672" stroke-width="1.6" marker-end="url(#ar3)"/>
+    <rect x="168" y="46" width="96" height="40" rx="6" fill="#eaf2fa" stroke="#2f6fb0" stroke-width="1.6"/>
+    <text x="216" y="71" text-anchor="middle" fill="#2f6fb0" font-weight="700">설비 G</text>
+    <line x1="266" y1="66" x2="308" y2="66" stroke="#5f6672" stroke-width="1.6" marker-end="url(#ar3)"/>
+    <rect x="312" y="46" width="86" height="40" rx="6" fill="#fff" stroke="#c9ced6"/>
+    <text x="355" y="71" text-anchor="middle" fill="#1b1d21">Wet (y)</text>
+    <text x="34" y="112" fill="#1f8a53" font-size="11.5" font-weight="700">y 를 u 로 회귀하면 → G 가 나온다 ✓</text>
+  </g>
+
+  <!-- closed loop -->
+  <text x="440" y="24" font-weight="700" fill="#c0392b" font-size="12.5">폐루프 — 실제 현장</text>
+  <g font-size="11.5">
+    <rect x="450" y="46" width="86" height="40" rx="6" fill="#fff" stroke="#c9ced6"/>
+    <text x="493" y="71" text-anchor="middle" fill="#1b1d21">gap (u)</text>
+    <line x1="538" y1="66" x2="576" y2="66" stroke="#5f6672" stroke-width="1.6" marker-end="url(#ar3)"/>
+    <rect x="580" y="46" width="90" height="40" rx="6" fill="#eaf2fa" stroke="#2f6fb0" stroke-width="1.6"/>
+    <text x="625" y="71" text-anchor="middle" fill="#2f6fb0" font-weight="700">설비 G</text>
+    <line x1="672" y1="66" x2="706" y2="66" stroke="#5f6672" stroke-width="1.6" marker-end="url(#ar3)"/>
+    <rect x="710" y="46" width="70" height="40" rx="6" fill="#fff" stroke="#c9ced6"/>
+    <text x="745" y="71" text-anchor="middle" fill="#1b1d21">Wet (y)</text>
+
+    <!-- disturbance -->
+    <line x1="625" y1="18" x2="625" y2="44" stroke="#b06f00" stroke-width="1.6" marker-end="url(#ar3)"/>
+    <text x="633" y="26" fill="#b06f00" font-size="10.5">외란 d (점도·속도·코일)</text>
+
+    <!-- feedback path -->
+    <line x1="745" y1="88" x2="745" y2="128" stroke="#c0392b" stroke-width="1.8"/>
+    <line x1="745" y1="128" x2="600" y2="128" stroke="#c0392b" stroke-width="1.8"/>
+    <rect x="504" y="108" width="96" height="40" rx="6" fill="#fdeeec" stroke="#c0392b" stroke-width="1.6"/>
+    <text x="552" y="133" text-anchor="middle" fill="#c0392b" font-weight="700">작업자 C</text>
+    <line x1="504" y1="128" x2="493" y2="128" stroke="#c0392b" stroke-width="1.8"/>
+    <line x1="493" y1="128" x2="493" y2="90" stroke="#c0392b" stroke-width="1.8" marker-end="url(#ar3r)"/>
+
+    <text x="440" y="176" fill="#c0392b" font-size="11.5" font-weight="700">y 를 u 로 회귀하면 → G 가 아니라 −1/C 쪽으로 끌려간다 ✗</text>
+  </g>
+
+  <!-- bottom explanation -->
+  <rect x="24" y="196" width="752" height="52" rx="8" fill="#fdf4e3" stroke="#b06f00"/>
+  <text x="40" y="218" font-size="11.5" fill="#7a4d00">
+    앵커가 0건이라는 것은 작업자가 쉬지 않고 만지고 있다는 뜻이고, 그건 곧 이 빨간 고리가
+  </text>
+  <text x="40" y="238" font-size="11.5" fill="#7a4d00" font-weight="700">
+    아주 꽉 조여 있다는 뜻이다. 폐루프 함정이 가장 심한 조건이 바로 "앵커 0건" 이다.
+  </text>
+</svg>
+<figcaption>왼쪽이 실험실, 오른쪽이 현장이다. 데이터는 오른쪽에서 나오는데 우리가 원하는 것은 파란 상자 G 하나뿐이다.</figcaption>
+</figure>
+
+<h3>6.2 왜 계수가 틀리나 — 극단적인 예로</h3>
+
+<p>
+  작업자가 <strong>완벽한</strong> 제어자라고 하자. 무슨 일이 생기든 Wet 을 정확히 12.0 으로
+  유지한다. 점도가 떨어지면 즉시 gap 을 조여서 되돌린다.
+</p>
+
+<div class="scrollx">
+<table>
+  <thead><tr><th>시각</th><th>외란 d</th><th>작업자가 한 gap 조정</th><th>측정된 Wet</th></tr></thead>
+  <tbody>
+    <tr><td>09:00</td><td>0</td><td class="num">0</td><td class="num">12.0</td></tr>
+    <tr><td>09:20</td><td>점도 ↓</td><td class="num">+0.03</td><td class="num">12.0</td></tr>
+    <tr><td>09:40</td><td>점도 ↑↑</td><td class="num">−0.05</td><td class="num">12.0</td></tr>
+    <tr><td>10:00</td><td>속도 ↑</td><td class="num">+0.02</td><td class="num">12.0</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>
+  이 데이터로 Wet 을 gap 으로 회귀하면 무엇이 나오나? <strong>기울기 0 이다.</strong>
+  gap 이 이리저리 움직였는데 Wet 은 꿈쩍도 안 했으니까. 결론은
+  <em>"gap 은 Wet 에 아무 영향이 없다"</em> — 완전히 틀린 결론이고, 이 데이터만 보면
+  반박할 방법도 없다.
+</p>
+
+<p>
+  작업자가 완벽하지 않고 <strong>과하게 반응</strong>한다면 더 나쁘다. Wet 이 조금 낮아졌을 때
+  gap 을 필요 이상으로 열어서 Wet 이 오히려 높아진다면, 데이터에는
+  <em>"gap 을 열었더니 Wet 이 높아졌다가 낮아졌다"</em> 라는 흔적이 남고,
+  회귀는 <strong>부호가 뒤집힌</strong> 계수를 내놓을 수 있다.
+</p>
+
+<div class="callout no">
+  <span class="lbl">시스템식별의 고전적 결과</span>
+  <p>
+    수식으로는 이렇다. y = G·u + d 이고 u = −C·y 라면, 외부 자극이 없는 극한에서
+    최소제곱 추정치는 G 가 아니라 <strong>−1/C</strong> (제어자의 음의 역수) 로 수렴한다.
+    즉 <strong>배우는 것이 설비가 아니라 작업자다.</strong>
+  </p>
+  <p>
+    이것이 "되먹임 아래의 계수" 라는 말의 뜻이다 — 되먹임 고리 안에서 잰 계수는
+    설비의 계수가 아니라 <em>고리 전체</em>의 계수다.
+  </p>
+</div>
+
+<h3>6.3 그래서 딥러닝이 특히 위험하다</h3>
+
+<p>
+  "패턴이 있을 텐데 딥러닝이면 되지 않나" 라는 직관은 맞다. 패턴은 있다.
+  문제는 <strong>어느 패턴이 더 강하냐</strong>다.
+</p>
+
+<p>
+  폐루프 기록에서 압도적으로 강한 패턴은 <strong>작업자의 습관</strong>이다. 설비의 물리는
+  노이즈와 외란에 가려 희미하고, 작업자의 규칙은 또렷하고 반복적이다. 용량이 큰 모델일수록
+  또렷한 쪽을 더 잘 맞힌다. 그래서 이런 일이 벌어진다.
+</p>
+
+<ol>
+  <li>검증 오차가 예쁘게 떨어진다. <em>"Wet 예측 R² = 0.94!"</em></li>
+  <li>그 모델을 <span class="mono">inverse.recommend_gap</span> 에 넣는다.</li>
+  <li>추천이 나온다 — <strong>작업자가 이미 하던 그것.</strong> 실수까지 포함해서.</li>
+  <li>아무도 이상하다고 느끼지 못한다. 지금 하던 것과 비슷하니까.</li>
+</ol>
+
+<p>
+  릿지+커널 경로에는 이 함정의 <strong>경보기</strong>가 이미 달려 있다.
+  <span class="mono">kernel_diagnostics</span> 의 세 관문 — 중심이 최대인가, 부호가 일관되는가,
+  바깥으로 감소하는가. 폐루프 편향은 정확히 이 셋을 깨뜨리는 방식으로 나타난다.
+  <strong>블랙박스에는 이 경보기를 달 자리가 없다.</strong>
+</p>
+
+<h3>6.4 폐루프를 푸는 법 — 세 가지, 좋은 순서대로</h3>
+
+<div class="scrollx">
+<table>
+  <thead><tr><th>방법</th><th>무엇인가</th><th>이 프로젝트에서</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>① 설계 실험</strong><br><span class="tag ok">최고</span></td>
+      <td>의도적으로 작은 섭동을 넣는다. 작업자의 판단과 <em>무관하게</em> 움직이는
+          gap 변화를 만든다.</td>
+      <td>30분간 zone 3~4개에 서로 다른 조합으로 작은 계단을 넣어 달라고 요청.
+          <strong>랭크 결손과 폐루프를 동시에 푼다.</strong> 폐루프 데이터 몇 달치보다 낫다.</td>
+    </tr>
+    <tr>
+      <td><strong>② 외생 변동 찾기</strong></td>
+      <td>Wet 을 보고 한 조정이 <em>아닌</em> gap 변화. 자연 실험을 데이터에서 발굴한다.</td>
+      <td>제품 전환, 교대 교체, 정비 후 재기동, 레시피 변경. <span class="mono">product</span>
+          열과 lot 경계가 첫 후보다.</td>
+    </tr>
+    <tr>
+      <td><strong>③ 잡음 모델 동시 추정</strong></td>
+      <td>외란 d 의 구조를 같이 모델링한다(ARMAX/Box–Jenkins). 잡음 모델이 충분히 풍부하면
+          폐루프 직접 식별도 일치추정이 된다.</td>
+      <td>lot 고정효과 + 잔차 AR 항. 구현은 되지만 가정이 맞는지 검증이 어렵다.
+          ①②가 없을 때의 차선.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="qmemo" data-qid="loop-feedback" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">폐루프 개념에서 걸리는 부분을 적어보세요. (여기가 가장 헷갈리는 절입니다)</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ═══════════════════════════════ 7. 모델 선택 ═══════════════════════════════ -->
+<h2 id="model">7. 그래서 어떤 모델을 쓰나</h2>
+
+<h3>7.1 먼저: 벽이 셋인데 모델로 넘는 건 하나뿐</h3>
+
+<figure>
+<svg viewBox="0 0 800 230" role="img" aria-label="세 개의 벽">
+  <g font-size="11.5">
+    <rect x="24" y="40" width="238" height="150" rx="9" fill="#e8f5ee" stroke="#1f8a53" stroke-width="1.6"/>
+    <text x="143" y="66" text-anchor="middle" font-weight="700" fill="#1f8a53" font-size="13">벽 1 · 중첩</text>
+    <text x="143" y="90" text-anchor="middle" fill="#20603f">이벤트 응답이 서로 겹친다</text>
+    <text x="143" y="126" text-anchor="middle" font-weight="700" fill="#1f8a53" font-size="12">모델로 풀린다 ✓</text>
+    <text x="143" y="150" text-anchor="middle" fill="#20603f" font-size="11">피하는 대신 합성곱으로</text>
+    <text x="143" y="167" text-anchor="middle" fill="#20603f" font-size="11">모델에 써 넣으면 된다</text>
+
+    <rect x="281" y="40" width="238" height="150" rx="9" fill="#fdeeec" stroke="#c0392b" stroke-width="1.6"/>
+    <text x="400" y="66" text-anchor="middle" font-weight="700" fill="#c0392b" font-size="13">벽 2 · 랭크 결손</text>
+    <text x="400" y="90" text-anchor="middle" fill="#8a2d22">zone 6·7 을 늘 같이 돌렸다</text>
+    <text x="400" y="126" text-anchor="middle" font-weight="700" fill="#c0392b" font-size="12">어떤 모델로도 못 푼다 ✗</text>
+    <text x="400" y="150" text-anchor="middle" fill="#8a2d22" font-size="11">정보가 &lt;없다&gt;. 데이터 요청이</text>
+    <text x="400" y="167" text-anchor="middle" fill="#8a2d22" font-size="11">유일한 해법이다</text>
+
+    <rect x="538" y="40" width="238" height="150" rx="9" fill="#fdeeec" stroke="#c0392b" stroke-width="1.6"/>
+    <text x="657" y="66" text-anchor="middle" font-weight="700" fill="#c0392b" font-size="13">벽 3 · 되먹임</text>
+    <text x="657" y="90" text-anchor="middle" fill="#8a2d22">gap 이 Wet 을 보고 정해진다</text>
+    <text x="657" y="126" text-anchor="middle" font-weight="700" fill="#c0392b" font-size="12">모델을 키우면 더 나쁘다 ✗✗</text>
+    <text x="657" y="150" text-anchor="middle" fill="#8a2d22" font-size="11">용량이 클수록 작업자를</text>
+    <text x="657" y="167" text-anchor="middle" fill="#8a2d22" font-size="11">더 잘 흉내낸다</text>
+
+    <text x="400" y="216" text-anchor="middle" font-size="12" fill="#5f6672">
+      "딥러닝이면 되지 않나" 는 벽 1만 보고 하는 말이다. 벽 2·3 은 알고리즘 문제가 아니다.
+    </text>
+  </g>
+</svg>
+<figcaption>세 벽을 구분하지 못하면, 잘 맞는 모델을 얻고 잘못된 추천을 내게 된다.</figcaption>
+</figure>
+
+<h3>7.2 1단 — 전체 기록 위의 정규화 FIR (공간⊗시간 커널)</h3>
+
+<p>
+  이벤트로 자르는 걸 그만두고 <strong>매 분이 한 행</strong>인 회귀로 간다. 격리 창이 필요 없어진다.
+</p>
+
+<pre>Δwet_i(t) = Σ_l Σ_j  K[j, l] · Δgap_{i+j}(t − l)  +  (제품·lot 고정효과)  +  ε
+                      └────┬────┘
+                    j = 공간 offset (−2..+2)
+                    l = 시간 lag    (0..30분)</pre>
+
+<p>
+  <span class="mono">Δgap</span> 은 조정이 있던 분에만 값이 있는 <strong>희소한 임펄스 열</strong>이다.
+  두 조정이 6분 간격이면 K 의 시프트된 복사본 <strong>둘이 더해질 뿐</strong>이고,
+  회귀가 그걸 알아서 가른다.
+</p>
+
+<figure>
+<svg viewBox="0 0 800 250" role="img" aria-label="중첩 분리">
+  <g font-size="11.5">
+    <text x="24" y="22" font-weight="700" fill="#1b1d21" font-size="12.5">겹침은 오염이 아니라 &lt;덧셈&gt;이다</text>
+
+    <line x1="60" y1="200" x2="760" y2="200" stroke="#c9ced6" stroke-width="1.5"/>
+    <line x1="60" y1="200" x2="60" y2="50" stroke="#c9ced6" stroke-width="1.5"/>
+    <text x="40" y="45" fill="#8d97a5" font-size="10.5">ΔWet</text>
+    <text x="740" y="220" fill="#8d97a5" font-size="10.5">시간 →</text>
+
+    <!-- impulses -->
+    <line x1="140" y1="200" x2="140" y2="176" stroke="#2f6fb0" stroke-width="2.5"/>
+    <path d="M134,176 l6,-10 l6,10 z" fill="#2f6fb0"/>
+    <text x="140" y="216" text-anchor="middle" fill="#2f6fb0" font-size="10.5" font-weight="700">조정 A</text>
+    <line x1="260" y1="200" x2="260" y2="176" stroke="#b06f00" stroke-width="2.5"/>
+    <path d="M254,176 l6,-10 l6,10 z" fill="#b06f00"/>
+    <text x="260" y="216" text-anchor="middle" fill="#b06f00" font-size="10.5" font-weight="700">조정 B (6분 뒤)</text>
+
+    <!-- individual responses (dashed) -->
+    <path d="M140,200 L180,200 Q225,200 260,160 Q300,124 360,118 L500,116"
+          fill="none" stroke="#2f6fb0" stroke-width="1.6" stroke-dasharray="5 4"/>
+    <path d="M260,200 L300,200 Q345,200 380,166 Q420,134 480,128 L620,126"
+          fill="none" stroke="#b06f00" stroke-width="1.6" stroke-dasharray="5 4"/>
+
+    <!-- sum (solid) -->
+    <path d="M140,200 L180,200 Q225,200 260,160 Q290,132 320,110 Q360,80 420,64 Q500,48 620,44 L730,44"
+          fill="none" stroke="#1b1d21" stroke-width="2.6"/>
+
+    <text x="530" y="112" fill="#2f6fb0" font-size="10.5">A 단독 응답</text>
+    <text x="640" y="126" fill="#b06f00" font-size="10.5">B 단독</text>
+    <text x="640" y="34" fill="#1b1d21" font-size="11" font-weight="700">실제 관측 = A + B</text>
+
+    <text x="24" y="243" font-size="11.5" fill="#5f6672">
+      격리는 &lt;검은 선&gt;을 못 읽으니 버린다. FIR 회귀는 검은 선에서 점선 둘을 &lt;복원&gt;한다 — 커널 하나만 알면 되기 때문이다.
+    </text>
+  </g>
+</svg>
+<figcaption>선형시불변 시스템에서 겹친 응답은 단순한 덧셈이다. 덧셈은 되돌릴 수 있다.</figcaption>
+</figure>
+
+<p>핵심은 K 를 <strong>두 단계</strong>로 보는 것이다.</p>
+
+<ol>
+  <li>
+    <strong>K 를 (2k+1)×(M+1) 행렬로 릿지 추정한다.</strong> k=2, M=30 이면 155개 파라미터.
+    방정식은 (분 수 × 유효 zone 수)라 수만~수십만 개다.
+  </li>
+  <li>
+    <strong>K 의 SVD 를 본다.</strong> 물리 가정("퍼짐은 즉각, 지연은 이송")이 맞으면 K 는
+    <strong>rank-1</strong> 이어야 한다. 그러면 K ≈ g·hᵀ 로 분해되고 —
+    <strong>g 가 지금의 종 모양 커널, h 가 임펄스 응답</strong>이다. h 의 첫 유의 탭이 L,
+    63.2% 도달점이 τ 다.
+  </li>
+</ol>
+
+<div class="callout ok">
+  <span class="lbl">이 방법의 진짜 매력 — 진단이 그대로 재사용된다</span>
+  <ul>
+    <li>g 에 <span class="mono">kernel_diagnostics</span> (종 모양 3관문) 그대로.</li>
+    <li>g 에 <span class="mono">kernel_standard_errors</span> + <span class="mono">shape_is_resolvable</span>
+        (SNR 관문) 그대로.</li>
+    <li>h 에서 L·τ·T<sub>s</sub> 를 <span class="mono">response.py</span> 와 <em>같은 정의</em>로 읽는다.</li>
+    <li><strong>rank-1 인지 여부 자체가 새 진단이다.</strong> rank-2 이상이면 "공간 퍼짐과 시간
+        지연이 분리되지 않는다" 는 발견이고, 지금 구조로는 애초에 볼 수 없던 것이다.</li>
+  </ul>
+  <p>
+    그리고 <span class="mono">numpy</span> + <span class="mono">scipy</span> 만으로 구현된다.
+    새 의존성이 <strong>필요 없다</strong> (지금 <span class="mono">.venv</span> 에 statsmodels 도
+    torch 도 없는데, 안 깔아도 된다).
+  </p>
+</div>
+
+<h3>7.3 2단·3단</h3>
+
+<p>
+  <strong>2단은 6.4 의 폐루프 처방</strong>이다. 1단만 하고 2단을 건너뛰면 벽 3 에 그대로 박는다.
+  순서는 설계실험 → 외생변동 → 잡음모델.
+</p>
+<p>
+  <strong>3단은 1·2단이 한계에 닿고 잔차가 구조를 보일 때만</strong>이다. 제품별 gain
+  스케일링(<span class="mono">merge.py</span> docstring 이 이미 예고한 것), Hammerstein 블록,
+  잔차에만 얹는 GP. 여기서도 원칙은 하나다 —
+  <strong>비선형은 잔차에만 허용하고, 역산에 쓰이는 기울기는 선형부가 갖는다.</strong>
+</p>
+
+<h3>7.4 왜 다른 모델은 안 되는가</h3>
+
+<div class="scrollx">
+<table>
+  <thead><tr><th>모델</th><th>안 되는 이유</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>트리 앙상블</strong><br><span class="mono">RF · XGBoost · HistGB</span></td>
+      <td>
+        <span class="mono">level.py</span> 가 이미 적어 둔 이유가 그대로다.
+        예측이 <strong>구간별 계단</strong>이라 <span class="mono">inverse.recommend_gap</span> 의
+        L-BFGS-B 가 먹을 <strong>기울기가 평평한 구간에서 0</strong> 이다 — 최적화가 아무 데서나 멈춘다.
+        관측된 gap 범위 밖으로 <strong>외삽을 못 한다</strong>(추천이 필요한 지점이 정확히 거기다).
+        그리고 "커널은 종 모양이어야 한다" 를 걸 자리가 없다 —
+        포레스트에게 "중심 탭이 0 과 2σ 떨어졌나" 를 물을 수 없다.
+      </td>
+    </tr>
+    <tr>
+      <td><strong>순환·시퀀스 신경망</strong><br><span class="mono">LSTM · GRU · TCN · Transformer</span></td>
+      <td>
+        파라미터 10⁴~10⁶ 대 <strong>유효 독립 실험 10~35건, Δgap 유효 랭크 3~4</strong>.
+        성립하는 영역이 없다. "분이 수만 개니까 샘플이 많다" 는 착시다 — 정보량을 정하는 건
+        분 수가 아니라 <strong>독립적인 조정 임펄스의 수와 공간적 다양성</strong>이다.
+        게다가 납품물이 예측값이 아니라 <strong>L·τ·G 와 그 판정</strong>인데
+        (<span class="mono">report.py</span>: "모델이 얼마나 정확한가보다 이 데이터로 학습이
+        가능한가가 먼저다"), 블랙박스는 Wet 을 잘 맞히면서 야코비안이 물리와 어긋날 수 있고
+        그 야코비안이 곧 추천이다. <strong>틀린 걸 검출할 방법 없이 확신 있게 틀린다.</strong>
+      </td>
+    </tr>
+    <tr>
+      <td><strong>강화학습</strong></td>
+      <td>시뮬레이터가 없다. 오프라인 데이터는 좁은 정책 하나의 궤적뿐이라 분포 이동이 치명적이고,
+          실설비 탐색은 불량을 만든다. 논외다.</td>
+    </tr>
+    <tr>
+      <td><strong>인과 탐색</strong><br><span class="mono">DoWhy · PC · NOTEARS</span></td>
+      <td>인과 <strong>구조는 이미 안다</strong>(gap → wet). 모르는 건 구조가 아니라
+          <strong>되먹임 아래에서의 계수</strong>다. 도구가 푸는 문제와 우리 문제가 다르다.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="qmemo" data-qid="model-choice" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">모델 선택에 대해 반론이나 궁금한 점을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ═══════════════════════════════ 8. 코드 산책 ═══════════════════════════════ -->
+<h2 id="code">8. 코드 산책 — 어디를 손대는가</h2>
+
+<p>지금 코드에서 실제로 바뀌는 자리를 큰 것부터 작은 것 순으로 적는다.</p>
+
+<h3>8.1 지금 당장 (한 줄짜리) — 진단 배선 고치기</h3>
+
+<p>
+  3.2 에서 본 것. <span class="mono">zone_adjustment_diagnostics</span> 가 격리 <em>이전</em>의
+  Δgap 을 보게 하면, 앵커 0건에서도 랭크 진단이 산다.
+</p>
+
+<pre><span class="c"># report.py — 지금</span>
+dg = ds[GAP_DELTA_COLS].to_numpy()        <span class="c"># ds = delta_samples(usable, ...)</span>
+zones = profile.zone_adjustment_diagnostics(dg)
+
+<span class="c"># 이렇게 바꾸면 앵커 0건에서도 산다</span>
+<span class="hl">dg_all = <span class="c">&lt;dl(event_deltas)을 이벤트×zone 행렬로 편 것&gt;</span></span>
+<span class="hl">zones  = profile.zone_adjustment_diagnostics(dg_all)  <span class="c"># 조정의 다양성</span></span>
+rank   = profile.rank_diagnostics(dg)                <span class="c"># 커널을 풀 자격 (격리분)</span></pre>
+
+<p>
+  둘의 질문이 다르다는 걸 분리해서 적는 게 요점이다. <em>"조정 자체가 다양했나"</em> 와
+  <em>"커널을 풀 만한 깨끗한 표본이 있나"</em> 는 다른 사실이고, 앵커 0건일 때 사람이
+  알아야 하는 건 앞쪽이다.
+</p>
+
+<h3>8.2 새 모듈 — <span class="mono">model/dynamics.py</span> (가칭)</h3>
+
+<p>
+  7.2 의 FIR 추정기가 들어갈 자리. 기존 모듈과의 관계는 이렇다.
+</p>
+
+<div class="scrollx">
+<table>
+  <thead><tr><th>기존</th><th>새 경로에서의 운명</th></tr></thead>
+  <tbody>
+    <tr><td><span class="mono">events.build_events</span></td>
+        <td><strong>그대로 쓴다.</strong> 임펄스 열을 만들려면 여전히 "언제 무엇이 얼마나 바뀌었나" 가 필요하다.</td></tr>
+    <tr><td><span class="mono">events.isolation</span></td>
+        <td><strong>선별에서 빠진다.</strong> 진단·보고용으로는 남긴다 — "얼마나 촘촘하게 튜닝하고 있나" 는
+            여전히 알아야 할 현장 사실이다.</td></tr>
+    <tr><td><span class="mono">features.delta_samples</span></td>
+        <td>새 설계행렬 빌더로 대체. 이벤트 단위가 아니라 <strong>(분 × zone)</strong> 단위다.</td></tr>
+    <tr><td><span class="mono">profile.build_design</span></td>
+        <td><strong>확장한다.</strong> 지금은 공간축만 편다. 여기에 시간 lag 축을 하나 더 얹으면
+            그대로 K 의 설계행렬이 된다.</td></tr>
+    <tr><td><span class="mono">profile.fit_kernel</span></td>
+        <td>같은 릿지 정규방정식. y·X 양쪽 평균 제거 관례도 그대로.</td></tr>
+    <tr><td><span class="mono">profile.kernel_diagnostics</span><br>
+            <span class="mono">profile.shape_is_resolvable</span></td>
+        <td><strong>손댈 것 없다.</strong> SVD 로 뽑은 g 를 그냥 넣으면 된다. 이게 이 설계의 가장 좋은 점이다.</td></tr>
+    <tr><td><span class="mono">response.py</span></td>
+        <td>L·τ 를 이벤트 정렬이 아니라 h 에서 읽는 경로가 추가된다. σ 추정과 판정 논리
+            ("숫자를 내기 전에 낼 수 있는지 먼저 판정한다")는 그대로 이식된다.</td></tr>
+    <tr><td><span class="mono">model/level.py</span><br><span class="mono">model/inverse.py</span></td>
+        <td><strong>전혀 안 바뀐다.</strong> 레벨은 원래 격리와 무관했고, 역산은 G 만 받으면 된다.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>8.3 검증은 합성 데이터로 — <span class="mono">CLAUDE.md</span> 규칙 그대로</h3>
+
+<p>
+  실데이터는 사내 PC 에만 있으니, 새 추정기는 <strong>참값을 아는 합성 데이터</strong> 위에서
+  먼저 증명해야 한다. 이 저장소의 기존 테스트 관례
+  (<span class="mono">test_coating_response.py</span> 가 지연 8분을 심고 그걸 회수하는지 보는 식)를
+  그대로 따르면 된다. 최소 세 케이스는 이렇다.
+</p>
+
+<ol>
+  <li><strong>겹친 조정에서 커널 회수</strong> — 참 커널을 심고, 조정을 일부러 3~5분 간격으로 겹쳐
+      배치한다. 격리 통과는 <strong>0건</strong>인데 FIR 은 참값을 회수해야 한다. 이 테스트 하나가
+      이 문서 전체의 주장이다.</li>
+  <li><strong>랭크 결손은 회수 못 해야 한다</strong> — zone 6·7 을 항상 같이 움직이게 심고,
+      추정된 g<sub>6</sub>·g<sub>7</sub> 의 표준오차가 커져
+      <span class="mono">shape_is_resolvable</span> 이 <span class="mono">False</span> 를 내는지 본다.
+      <strong>못 푸는 것을 못 푼다고 말하는지</strong>가 이 코드의 품질이다.</li>
+  <li><strong>폐루프에서 편향이 나타나야 한다</strong> — 가짜 작업자 규칙
+      (<span class="mono">u = −C·y</span>)을 심고 회귀하면 커널이 눌리거나 부호가 뒤집히는 것을
+      <em>재현</em>한다. 그리고 설계 섭동을 조금 섞으면 회복되는 것도 같이 보인다.</li>
+</ol>
+
+<div class="qmemo" data-qid="code-walk" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">구현 계획에 대한 질문을 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ═══════════════════════════════ 9. 다음 행동 ═══════════════════════════════ -->
+<h2 id="next">9. 지금 사내 PC 에서 확인할 것</h2>
+
+<p>
+  새 모듈을 짓기 전에, <strong>"격리 0건" 이 진짜인지</strong>부터 확인한다.
+  10/10 은 빡빡한 기준이라 창을 조금만 줄여도 살아날 수 있고, 그러면 지금 파이프라인을
+  그대로 쓰면 된다.
+</p>
+
+<pre><span class="c"># PowerShell — 셸 리다이렉션(&gt;) 대신 --out 을 쓴다 (한글이 cp949 로 깨진다)</span>
+python -m app.coating.diagnose --preprocess data\coating\raw\merged.parquet --out preprocess.txt</pre>
+
+<p><span class="mono">preprocess.txt</span> 에서 <strong>세 곳</strong>만 보면 다음 행동이 정해진다.</p>
+
+<div class="scrollx">
+<table>
+  <thead>
+    <tr><th>어디를 보나</th><th>보이는 것</th><th>뜻</th><th>다음 행동</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="2"><strong>§5</strong><br>격리 창을 바꿔가며</td>
+      <td>창을 5·10·15분으로 줄이면 몇 건 살아남음</td>
+      <td>앵커가 없는 게 아니라 <strong>창이 셌다</strong></td>
+      <td><span class="tag ok">모델 안 바꿈</span> 살아나는 창으로
+          <span class="mono">COATING_ISOLATION_*_MINUTES</span> 조정.
+          <strong>단, 응답창도 같은 값으로 맞춘다</strong>(불변식 경고가 알려 준다)</td>
+    </tr>
+    <tr>
+      <td>어느 창에서도 계속 0</td>
+      <td>진짜로 <strong>쉬는 틈이 없다</strong></td>
+      <td><span class="tag warn">1단으로</span> 7.2 의 FIR 로 간다</td>
+    </tr>
+    <tr>
+      <td><strong>§7</strong><br>병합창 민감도</td>
+      <td>병합창을 3·5분으로 넓히면 격리 통과가 급증</td>
+      <td>한 번의 손질이 <strong>쪼개져</strong> 서로의 이웃이 되어 함께 탈락 중</td>
+      <td><span class="tag ok">모델 안 바꿈</span>
+          <span class="mono">COATING_EVENT_MERGE_MINUTES</span> 부터 고친다.
+          세는 건 이벤트 수가 아니라 <strong>Δgap 항목 수</strong>다</td>
+    </tr>
+    <tr>
+      <td rowspan="2"><strong>§0</strong><br>깔때기 · zone 진단</td>
+      <td><span class="mono">locked_pairs</span> 가 여럿, <span class="mono">never_adjusted</span> 가 많음</td>
+      <td><strong>벽 2 (랭크 결손)</strong>. 모델을 바꿔도 커널은 안 나온다</td>
+      <td><span class="tag no">모델 논의 중단</span> 6.4-① 설계 실험을 요청한다.
+          이게 유일한 해법이다</td>
+    </tr>
+    <tr>
+      <td><span class="mono">unexplained_shortfall</span> &gt; 0</td>
+      <td>없는 zone·묶인 쌍으로 설명 안 되는 결손이 남음</td>
+      <td>아직 못 본 게 있다. 원장(<span class="mono">12_event_ledger</span>)을 연다</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="lbl">§0 의 zone 진단이 "전부 0" 으로 나온다면</span>
+  <p>
+    그건 데이터가 아니라 <strong>3.2 의 배선 문제</strong>다.
+    <span class="mono">never_adjusted = [1..25]</span> 이면서 이벤트는 존재한다면,
+    "아무 zone 도 안 만졌다" 가 아니라 "격리 통과가 0건이라 진단이 꺼졌다" 는 뜻이다.
+    <strong>이 숫자를 현장 사실로 읽지 마라.</strong> 8.1 을 고치기 전까지는.
+  </p>
+</div>
+
+<p>
+  돌려줄 것은 파일이 아니라 <strong>§5·§7 표 두 개와 §0 의 zone 진단 몇 줄</strong>이면 충분하다.
+  원본 데이터는 필요 없다.
+</p>
+
+<div class="qmemo" data-qid="next-actions" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">실행하다 막히거나, 출력이 이 표의 어디에도 안 맞으면 여기 적어보세요.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<!-- ═══════════════════════════════════ 퀴즈 ═══════════════════════════════════ -->
+<h2 id="quiz">10. 퀴즈</h2>
+
+<p>
+  다섯 문제. 답을 고르면 바로 채점되고 왜 그런지 설명이 붙는다.
+  외우는 문제가 아니라 <strong>구분할 줄 아는지</strong>를 묻는 문제들이다.
+</p>
+
+<div class="quiz" data-answer="1">
+  <p class="q">Q1. 격리(앞10/뒤10) 통과가 0건인데, 레벨 모델은 왜 학습 데이터가 남을 수 있나?</p>
+  <button class="opt">격리 대신 <span class="mono">annotate_settling</span> 의 정착 판정을 쓰기 때문</button>
+  <button class="opt">격리와 <em>다른</em> 관문을 쓴다 — 변경과 변경 사이 구간에서 30분 기다리고 5분 이상 남으면 그 구간 평균을 쓴다</button>
+  <button class="opt">Wet 을 보지 않고 제어값만 보기 때문</button>
+  <button class="opt">lot 하나당 최소 한 건은 보장되도록 코드에 박혀 있기 때문</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q2. 격리 0건일 때 <span class="mono">zone_adjustment_diagnostics</span> 가 "아무 zone 도 조정된 적 없다" 고 보고하는 진짜 이유는?</p>
+  <button class="opt">그 함수가 Wet 을 읽는데 Wet 창이 비었기 때문</button>
+  <button class="opt">랭크 계산은 이벤트가 20건(<span class="mono">_MIN_EVENTS</span>) 넘어야 돌게 돼 있기 때문</button>
+  <button class="opt"><span class="mono">report.py</span> 가 격리 통과분으로 만든 <span class="mono">delta_samples</span> 를 그 함수에 먹이기 때문 — 함수 자체는 Δgap 만 있으면 돈다</button>
+  <button class="opt">Δgap 이 NaN 이라 <span class="mono">nan_to_num</span> 이 전부 0으로 바꾸기 때문</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q">Q3. 작업자가 zone 6·7 을 <strong>항상 같은 비율로 같이</strong> 조정해 왔다. 이벤트를 500건까지 모으면 g<sub>6</sub> 와 g<sub>7</sub> 이 갈라질까?</p>
+  <button class="opt">갈라진다. 표본이 늘면 표준오차가 줄어 결국 분리된다</button>
+  <button class="opt">릿지 대신 딥러닝을 쓰면 비선형 상호작용으로 갈라낼 수 있다</button>
+  <button class="opt">릿지 α 를 충분히 키우면 정규화가 둘을 분리해 준다</button>
+  <button class="opt">안 갈라진다. 둘을 구분하는 정보가 데이터에 <em>존재하지 않는다</em> — 표본 수가 아니라 방향(랭크)의 문제다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="0">
+  <p class="q">Q4. 릿지의 α 를 크게 키우면 커널 추정에 무슨 일이 생기나?</p>
+  <button class="opt">계수가 0 쪽으로 눌린다 — 분산은 줄지만 편향이 생겨, 참값보다 작은 커널이 나올 수 있다</button>
+  <button class="opt">Δgap 행렬의 유효 랭크가 올라가 식별력이 좋아진다</button>
+  <button class="opt">편향이 줄고 분산이 커진다</button>
+  <button class="opt">관측 수가 늘어난 것과 수학적으로 동등해진다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q">Q5. 앵커 0건 상황에서 이벤트 뺄셈을 버리고 전체 기록 위의 FIR(합성곱) 회귀로 갈아탔다. 세 개의 벽 중 몇 개가 풀리나?</p>
+  <button class="opt">셋 다 풀린다. 데이터를 전부 쓰게 되니 랭크도 오르고 편향도 사라진다</button>
+  <button class="opt">되먹임(벽 3)이 풀린다. 시간 lag 을 모델링하면 인과 방향이 확정되기 때문</button>
+  <button class="opt">중첩(벽 1)만 풀린다. 랭크 결손과 되먹임 편향은 그대로 남아 각각 데이터 요청과 폐루프 처방이 따로 필요하다</button>
+  <button class="opt">하나도 안 풀린다. 격리가 없으면 어떤 회귀도 성립하지 않는다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head">
+    <span class="qmemo-label">질문 메모</span>
+    <span class="qmemo-hint">틀린 문제가 있으면 왜 헷갈렸는지 적어두세요. 그게 다음 설명의 재료가 됩니다.</span>
+  </div>
+  <div class="qmemo-question" contenteditable="true"
+       data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+
+<h2 id="tldr">11. 한 장 요약</h2>
+
+<div class="card">
+  <ul>
+    <li><strong>격리 창은 앞10/뒤10 이다.</strong> 30/60 은 §3 대조용 구 규칙과 쓰이지 않는 기본 인자일 뿐이다.</li>
+    <li><strong>앵커 0건이 죽이는 것은 모델이 아니라 추정기 하나</strong>다 — "이벤트별 전후 뺄셈".
+        물리는 여전히 선형시불변이고, 겹침은 오염이 아니라 덧셈이다.</li>
+    <li><strong>레벨 모델은 격리를 안 쓴다</strong>(변경 사이 35분 + lot 꼬리로 산다).
+        <strong><span class="mono">zone_adjustment_diagnostics</span> 는 함수는 살지만 지금 배선이 죽인다</strong> —
+        고칠 수 있고, 고쳐야 한다.</li>
+    <li><strong>랭크</strong>는 줄 수가 아니라 방향 수다. 사과·배를 늘 같이 올리면 500번 재도 못 가른다.</li>
+    <li><strong>커널</strong>은 "볼트 하나 돌리면 퍼지는 종 모양" 이고, <strong>릿지</strong>는
+        "확신 없으면 작게 대답해라" 라는 벌점이다.</li>
+    <li><strong>되먹임 아래의 계수</strong>는 설비의 계수가 아니라 고리 전체의 계수다.
+        극단에서는 작업자 제어법칙의 음의 역수(−1/C)로 수렴해 부호까지 뒤집힌다.</li>
+    <li><strong>추천은 전체 기록 위의 정규화 FIR</strong>(공간⊗시간 커널 → rank-1 분해).
+        기존 진단이 전부 재사용되고 새 의존성이 없다.
+        <strong>딥러닝은 벽 1만 넘고 벽 2·3 에서는 오히려 더 나쁘다.</strong></li>
+    <li><strong>먼저 할 것은 코딩이 아니라 <span class="mono">--preprocess</span> 를 돌려
+        §5·§7·§0 세 곳을 읽는 것</strong>이다. 창 설정 문제라면 모델은 손댈 필요가 없다.</li>
+  </ul>
+</div>
+
+</div><!-- /.wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    // outerHTML captures the *live* DOM, so text typed into the
+    // contenteditable boxes is baked into the saved file as static markup.
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-09-08-02-explanation-coating-no-clean-anchor.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\TestProject\\docs\\understanding\\2026-09-08-02-explanation-coating-no-clean-anchor.html';
+  });
+})();
+
+(function () {
+  var FB = {
+    1: {
+      right: '맞다. absolute_samples 는 changes 전체를 받아 "변경과 변경 사이" 를 구간으로 삼는다. 겹침 여부는 묻지 않는다 — 겹침은 &lt;변화&gt;를 읽을 때만 문제이고 여기는 &lt;수준&gt;을 읽기 때문이다. 다만 관문은 30+5=35분이라 뒤쪽으로는 격리(10분)보다 3.5배 빡빡하다. 실제로 살아남는 건 주로 lot 꼬리(튜닝 종료 후) 구간이다.',
+      wrong: {
+        0: 'annotate_settling 의 정착 판정은 오염 비율 &lt;진단&gt;용으로만 남아 있고 아무것도 선별하지 않는다 (report.py 주석: "선별에는 안 쓴다"). 레벨 모델과는 무관하다.',
+        2: '레벨 모델은 Wet 을 읽는다 — 오히려 wet_mean 이 타깃이다. 격리를 안 쓰는 이유는 Wet 을 안 봐서가 아니라 &lt;구간의 수준&gt;을 재기 때문이다.',
+        3: '그런 보장은 없다. 조정이 아주 촘촘하면 35분 구간이 하나도 없어 그 lot 은 0건이 된다.'
+      }
+    },
+    2: {
+      right: '정확하다. 함수 시그니처는 zone_adjustment_diagnostics(delta_gap) 하나뿐이고 Wet 을 안 받는다. 그런데 report.py 가 dg = delta_samples(usable, ...) 에서 뽑은 배열을 넘긴다. usable 이 0행이면 dg 는 (0,25) 빈 배열 → 함수가 맨 앞 가지로 빠져 never_adjusted=[1..25] 를 돌려준다. event_deltas(dl)를 직접 펴서 넣으면 앵커 0건에서도 랭크·묶인쌍이 계산된다.',
+      wrong: {
+        0: '그 함수는 Wet 을 인자로 받지도 않는다. 오직 Δgap 만 본다 — 그래서 "고칠 수 있는 죽음" 인 것이다.',
+        1: '_MIN_EVENTS = 20 은 report.py 가 커널 추정의 견고성을 &lt;판정&gt;할 때 쓰는 기준이지, 진단 함수의 실행 조건이 아니다.',
+        3: 'nan_to_num 이 부르긴 하지만 원인이 아니다. 애초에 배열이 0행이라 계산할 값 자체가 없다.'
+      }
+    },
+    3: {
+      right: '그렇다. 두 열이 항상 비례하면 Δgap 행렬의 그 두 방향이 하나로 붙어 버린다 — 사과·배를 늘 같이 올린 저울과 같다. 500건이든 5만 건이든 랭크는 안 오른다. zone_adjustment_diagnostics 가 이걸 locked_pairs 로 &lt;이름 붙여&gt; 주는 이유가, "표본을 더 모으세요" 가 아니라 "6·7 을 따로 돌려 주세요" 라고 사업부에 요청하기 위해서다.',
+      wrong: {
+        0: '표준오차는 표본이 늘면 줄지만, 여기서는 &lt;방향&gt;이 하나라 애초에 갈라야 할 두 계수의 &lt;차이&gt;가 데이터에 흔적을 남기지 않는다. 무한히 모아도 못 가른다.',
+        1: '오히려 반대다. 큰 모델은 "못 가른다" 고 말하지 않고 아무 값이나 자신 있게 답한다. 릿지는 최소한 표준오차가 커져 shape_is_resolvable 이 False 를 낸다.',
+        2: 'α 는 계수를 0 쪽으로 미는 것이지 정보를 만들지 않는다. α 를 키우면 g6·g7 이 &lt;둘 다 작게&gt; 나올 뿐, 서로 구별되지는 않는다.'
+      }
+    },
+    4: {
+      right: '그렇다. 릿지는 ‖X·g−y‖² + α‖g‖² 를 최소화하므로 α 가 클수록 g 가 원점으로 끌려간다. 분산(노이즈에 대한 흔들림)은 줄고 편향(참값에서 체계적으로 벗어남)은 는다. 그래서 diagnose --alpha 로 α 를 바꿔 보며 &lt;커널 모양이 α 에 얼마나 민감한가&gt; 를 확인하는 게 중요하다 — 모양이 크게 바뀌면 데이터가 모양을 결정하지 못하고 있다는 뜻이다.',
+      wrong: {
+        1: '릿지는 XᵀX 의 대각선에 α 를 더해 역행렬을 안정화할 뿐, 데이터의 유효 랭크를 올리지 않는다. 랭크는 Δgap 이 정하는 것이고 정규화로 바뀌지 않는다.',
+        2: '거꾸로다. α↑ 는 편향↑·분산↓ 이다. α=0 (최소제곱)이 무편향이지만 공선성 아래에서 분산이 폭발한다.',
+        3: '표본이 늘면 XᵀX 자체가 커져 상대적으로 α 의 영향이 줄지만, α 를 키우는 것은 정보를 더하는 게 아니라 답의 범위를 좁히는 것이다. 방향이 반대다.'
+      }
+    },
+    5: {
+      right: '정확하다. FIR 은 겹친 응답을 &lt;모델링&gt;해서 분리하므로 벽 1을 넘는다. 하지만 (a) 늘 같이 움직인 zone 은 여전히 못 가르고(벽 2 — 설계 실험이 필요), (b) gap 이 Wet 을 보고 정해졌다는 사실은 회귀 형태를 바꿔도 사라지지 않는다(벽 3 — 외생 변동·잡음 모델·설계 섭동이 필요). 이 구분을 못 하면 "데이터를 다 썼으니 이제 믿을 만하다" 는 잘못된 안도에 빠진다.',
+      wrong: {
+        0: '데이터를 더 쓴다고 랭크가 오르지 않는다 — 랭크는 &lt;조정의 다양성&gt;이 정하지 관측 수가 정하지 않는다. 되먹임 편향도 표본 수와 무관하게 남는다(오히려 표본이 늘수록 &lt;틀린 값에&gt; 더 확신을 갖게 된다).',
+        1: '시간 lag 은 "gap 이 먼저, Wet 이 나중" 이라는 순서를 담을 뿐이다. 폐루프에서는 그 Wet 이 다시 다음 gap 을 정하므로 순서만으로는 고리가 끊기지 않는다.',
+        3: '격리는 &lt;특정 추정기&gt;의 전제조건이지 회귀 일반의 조건이 아니다. 이 문서 전체가 그 구분에 관한 것이다.'
+      }
+    }
+  };
+
+  document.querySelectorAll('.quiz').forEach(function (quiz, qi) {
+    var idx = qi + 1;
+    var correct = parseInt(quiz.dataset.answer, 10);
+    var opts = Array.prototype.slice.call(quiz.querySelectorAll('.opt'));
+    var fb = quiz.querySelector('.fb');
+    opts.forEach(function (opt, oi) {
+      opt.addEventListener('click', function () {
+        if (quiz.dataset.done) return;
+        quiz.dataset.done = '1';
+        var ok = oi === correct;
+        opts.forEach(function (o, i) {
+          o.disabled = true;
+          if (i === correct) o.classList.add('right');
+          else if (i === oi) o.classList.add('wrong');
+        });
+        fb.className = 'fb show ' + (ok ? 'right' : 'wrong');
+        fb.innerHTML =
+          '<strong>' + (ok ? '정답 ✓ ' : '아쉽다 ✗ ') + '</strong>' +
+          (ok ? FB[idx].right : (FB[idx].wrong[oi] + '<br><br><strong>정답:</strong> ' + FB[idx].right));
+      });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
