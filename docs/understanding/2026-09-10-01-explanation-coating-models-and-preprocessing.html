@@ -1,0 +1,1839 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>전처리부터 야코비안까지 — 코팅 파이프라인 코드 리뷰</title>
+<style>
+  :root{
+    --ink:#1a1d21; --muted:#5b6470; --faint:#8b95a3;
+    --bg:#fdfdfb; --panel:#f5f5f1; --line:#e2e2dc;
+    --ctrl:#2563eb;      /* 제어값 gap — 사람이 만지는 것 */
+    --wet:#ea580c;       /* Wet — 측정 결과 */
+    --model:#7c3aed;     /* 모델·커널 */
+    --dead:#a8b0bb;      /* 버려진 데이터 */
+    --good:#15803d; --bad:#b91c1c;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif;
+    font-size:17px; line-height:1.75; padding-bottom:90px;
+  }
+  .wrap{max-width:860px; margin:0 auto; padding:0 20px}
+  header.top{padding:56px 0 28px; border-bottom:2px solid var(--ink); margin-bottom:32px}
+  header.top h1{font-size:2.05rem; line-height:1.3; margin:0 0 12px; letter-spacing:-.02em}
+  header.top .sub{color:var(--muted); font-size:1.02rem; margin:0}
+  header.top .meta{color:var(--faint); font-size:.85rem; margin-top:18px; font-variant-numeric:tabular-nums}
+
+  h2{font-size:1.5rem; margin:64px 0 6px; letter-spacing:-.01em; padding-top:8px}
+  h2 .num{color:var(--faint); font-weight:600; margin-right:10px; font-variant-numeric:tabular-nums}
+  h3{font-size:1.16rem; margin:38px 0 4px; letter-spacing:-.01em}
+  h4{font-size:1.02rem; margin:26px 0 4px; color:var(--muted)}
+  p{margin:14px 0}
+  a{color:var(--ctrl)}
+  code{
+    font-family:'JetBrains Mono','Cascadia Mono',Consolas,monospace;
+    font-size:.87em; background:var(--panel); padding:1px 5px; border-radius:3px;
+    border:1px solid var(--line);
+  }
+  pre{
+    white-space:pre; overflow-x:auto; background:#22252a; color:#e6e6e0;
+    padding:16px 18px; border-radius:7px; font-size:.83rem; line-height:1.6;
+    font-family:'JetBrains Mono','Cascadia Mono',Consolas,monospace;
+    margin:18px 0; -webkit-overflow-scrolling:touch;
+  }
+  pre .c{color:#8d9099}          /* 주석 */
+  pre .k{color:#c792ea}          /* 키워드 */
+  pre .s{color:#c3e88d}          /* 문자열 */
+  pre .n{color:#f78c6c}          /* 숫자 */
+  pre .hi{background:#3a4250; display:block; margin:0 -18px; padding:0 18px}
+
+  table{border-collapse:collapse; width:100%; margin:18px 0; font-size:.87rem}
+  th,td{border:1px solid var(--line); padding:7px 10px; text-align:left; vertical-align:top}
+  th{background:var(--panel); font-weight:650}
+  td.num,th.num{text-align:right; font-variant-numeric:tabular-nums;
+    font-family:'JetBrains Mono',Consolas,monospace}
+  tr.dead td{color:var(--dead); text-decoration:line-through}
+  tr.keep td{background:#f0f7ff}
+  .tbl-wrap{overflow-x:auto; -webkit-overflow-scrolling:touch}
+
+  .callout{
+    border-left:4px solid var(--ctrl); background:#f3f7ff;
+    padding:14px 18px; margin:24px 0; border-radius:0 6px 6px 0;
+  }
+  .callout.def{border-color:var(--model); background:#f7f4ff}
+  .callout.warn{border-color:var(--bad); background:#fff4f3}
+  .callout.key{border-color:var(--good); background:#f2fbf4}
+  .callout .lbl{
+    display:block; font-size:.73rem; letter-spacing:.09em; text-transform:uppercase;
+    font-weight:700; color:var(--muted); margin-bottom:5px;
+  }
+  .callout p:first-of-type{margin-top:0}
+  .callout p:last-child{margin-bottom:0}
+
+  figure{margin:28px 0; text-align:center}
+  figure svg{max-width:100%; height:auto}
+  figcaption{font-size:.83rem; color:var(--muted); margin-top:10px; text-align:center; line-height:1.6}
+
+  .toc{background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:20px 24px; margin:28px 0}
+  .toc h2{margin:0 0 10px; font-size:1.05rem; padding:0}
+  .toc ol{margin:0; padding-left:22px}
+  .toc ol ol{padding-left:18px; margin:3px 0}
+  .toc li{margin:3px 0; font-size:.92rem}
+  .toc a{text-decoration:none; color:var(--ink)}
+  .toc a:hover{text-decoration:underline; color:var(--ctrl)}
+
+  /* ── 질문 메모 ── */
+  .qmemo{
+    border:1.5px dashed #bfc6d0; background:#fafaf7; border-radius:7px;
+    padding:12px 16px; margin:26px 0;
+  }
+  .qmemo[data-status="answered"]{border:1.5px solid var(--good); background:#f4fbf6}
+  .qmemo-head{display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; margin-bottom:6px}
+  .qmemo-label{font-size:.75rem; font-weight:700; letter-spacing:.06em; color:var(--muted)}
+  .qmemo[data-status="answered"] .qmemo-label{color:var(--good)}
+  .qmemo-hint{font-size:.75rem; color:var(--faint)}
+  .qmemo-question{
+    min-height:2.1em; padding:7px 10px; background:#fff; border:1px solid var(--line);
+    border-radius:5px; font-size:.9rem; outline:none;
+  }
+  .qmemo-question:focus{border-color:var(--ctrl); box-shadow:0 0 0 2px #dbeafe}
+  .qmemo-question:empty:before{content:attr(data-placeholder); color:#b9bfc8}
+  .qmemo-answer{
+    margin-top:10px; padding:10px 12px; background:#fff;
+    border-left:3px solid var(--good); border-radius:0 5px 5px 0; font-size:.9rem;
+  }
+  #qmemo-bar{
+    position:fixed; left:0; right:0; bottom:0; background:#fff;
+    border-top:1px solid var(--line); padding:10px 20px; display:flex;
+    gap:14px; align-items:center; flex-wrap:wrap; z-index:50;
+    box-shadow:0 -2px 12px rgba(0,0,0,.06);
+  }
+  #qmemo-save-btn{
+    background:var(--ink); color:#fff; border:0; padding:9px 18px; border-radius:6px;
+    font-size:.87rem; font-weight:600; cursor:pointer; font-family:inherit;
+  }
+  #qmemo-save-btn:hover{background:#000}
+  #qmemo-saymsg{font-size:.76rem; color:var(--muted); word-break:break-all; flex:1; min-width:200px}
+
+  /* ── 퀴즈 ── */
+  .quiz{border:1px solid var(--line); border-radius:8px; padding:20px 22px; margin:26px 0; background:#fff}
+  .quiz .q{font-weight:650; margin:0 0 14px}
+  .quiz .q .qn{color:var(--model); margin-right:8px}
+  .opt{
+    display:block; width:100%; text-align:left; background:var(--panel);
+    border:1px solid var(--line); border-radius:6px; padding:10px 14px; margin:7px 0;
+    cursor:pointer; font-size:.91rem; font-family:inherit; line-height:1.55; color:var(--ink);
+    transition:background .12s,border-color .12s;
+  }
+  .opt:hover:not(:disabled){background:#eaeaf2; border-color:#c3c9d4}
+  .opt:disabled{cursor:default}
+  .opt.correct{background:#e8f7ed; border-color:var(--good); color:#14532d}
+  .opt.wrong{background:#fdeceb; border-color:var(--bad); color:#7f1d1d}
+  .fb{margin-top:12px; padding:11px 14px; border-radius:6px; font-size:.88rem; display:none; line-height:1.65}
+  .fb.show{display:block}
+  .fb.ok{background:#e8f7ed; border-left:3px solid var(--good)}
+  .fb.no{background:#fdeceb; border-left:3px solid var(--bad)}
+
+  .legend{display:flex; gap:18px; flex-wrap:wrap; justify-content:center; font-size:.8rem; color:var(--muted); margin:8px 0 0}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .sw{width:13px; height:13px; border-radius:3px; display:inline-block}
+
+  .flow{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:20px 0; font-size:.82rem}
+  .flow .step{
+    background:#fff; border:1px solid var(--line); border-radius:6px; padding:7px 11px;
+    font-family:'JetBrains Mono',Consolas,monospace; font-size:.78rem;
+  }
+  .flow .step.on{border-color:var(--ctrl); background:#f3f7ff; font-weight:600}
+  .flow .arr{color:var(--faint)}
+
+  hr.sep{border:0; border-top:1px solid var(--line); margin:52px 0}
+  .lead{font-size:1.06rem; color:var(--muted)}
+  ul.tight li{margin:6px 0}
+  .footnote{font-size:.85rem; color:var(--muted); border-top:1px solid var(--line); padding-top:18px; margin-top:44px}
+  @media(max-width:640px){
+    body{font-size:16px}
+    header.top h1{font-size:1.55rem}
+    h2{font-size:1.3rem; margin-top:48px}
+    pre{font-size:.76rem}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>전처리부터 야코비안까지<br>— 코팅 파이프라인 코드 리뷰</h1>
+  <p class="sub">스냅샷 로그 한 덩어리가 어떻게 "볼트를 몇 mm 돌려라"로 바뀌는가.
+  그리고 왜 그 길에 XGBoost 를 놓을 수 없는가.</p>
+  <p class="meta">2026-09-10 · <code>app/coating/</code> 전체 · 코드 기준 커밋 <code>607ba03</code></p>
+</header>
+
+<p class="lead">
+이 문서는 다섯 개의 질문에 답한다. 전처리 코드가 실제로 무엇을 하는가(숫자를 따라가며),
+레벨 모델과 커널이 각각 무엇이고 왜 <em>둘 다</em> 필요한가, 야코비안 행렬이 왜 이 프로젝트의
+진짜 납품물인가, 왜 트리 앙상블을 그냥 쓸 수 없는가, 그리고 Ridge 가 무엇인가.
+</p>
+
+<p>
+순서에는 이유가 있다. 전처리를 먼저 보는 이유는, 뒤에 나오는 모델 이야기가 전부
+"전처리가 만들어 준 표의 <em>모양</em>"에서 나오기 때문이다. 표가 왜 그 모양인지 알면
+모델 선택은 거의 자동으로 따라 나온다.
+</p>
+
+<div class="callout">
+  <span class="lbl">읽는 법 — 질문 메모</span>
+  <p>본문 곳곳에 <strong>질문 메모</strong> 상자가 있다. 읽다가 막히는 곳에 바로 적으면 된다.
+  타이핑하는 즉시 이 브라우저에 자동 저장되고(localStorage), 맨 아래
+  <strong>질문 저장</strong> 버튼을 누르면 질문이 <em>파일 안에 박힌 채로</em> 같은 이름의
+  HTML 이 다운로드된다. 그 파일을 원래 자리에 덮어쓴 뒤 Claude 에게 "질문에 답해줘" 라고 하면
+  답이 이 페이지에 채워진다.</p>
+</div>
+
+<nav class="toc">
+  <h2>차례</h2>
+  <ol>
+    <li><a href="#bg">배경 — 이 파이프라인이 풀려는 문제</a>
+      <ol>
+        <li><a href="#bg-what">코팅이라는 공정, 25개의 볼트</a></li>
+        <li><a href="#bg-data">우리가 가진 데이터의 실제 모양</a></li>
+        <li><a href="#bg-goal">목표: 초기조건 도출</a></li>
+      </ol>
+    </li>
+    <li><a href="#pre">전처리 — 코드와 숫자로 따라가기</a>
+      <ol>
+        <li><a href="#pre-parse">① parse — 파일을 표로</a></li>
+        <li><a href="#pre-dedupe">② dedupe_minute — 같은 분의 중복 접기</a></li>
+        <li><a href="#pre-compress">③ compress_runs — 계단에서 변곡점만</a></li>
+        <li><a href="#pre-wide">④ wet_wide — 25 zone 을 옆으로 눕히기</a></li>
+        <li><a href="#pre-events">⑤ build_events — 손질 한 번을 하나로 묶기</a></li>
+        <li><a href="#pre-iso">⑥ isolation — 홀로 선 이벤트 고르기</a></li>
+        <li><a href="#pre-samples">⑦ 두 개의 샘플 표</a></li>
+      </ol>
+    </li>
+    <li><a href="#models">레벨 모델과 커널 — 왜 둘로 쪼개나</a></li>
+    <li><a href="#jac">야코비안 행렬 — 이 프로젝트의 진짜 납품물</a></li>
+    <li><a href="#ridge">Ridge 란 무엇인가</a></li>
+    <li><a href="#trees">왜 GBoost · Random Forest 를 그냥 쓸 수 없나</a></li>
+    <li><a href="#review">코드 리뷰 — 지금 상태와 발견된 것</a></li>
+    <li><a href="#quiz">퀴즈</a></li>
+    <li><a href="#summary">한 장 요약</a></li>
+  </ol>
+</nav>
+
+<hr class="sep">
+
+<!-- ══════════════════ 1. 배경 ══════════════════ -->
+<h2 id="bg"><span class="num">1</span>배경 — 이 파이프라인이 풀려는 문제</h2>
+
+<p>
+이 절은 공정을 처음 보는 사람을 위한 것이다. 이미 코팅 라인을 아는 사람은
+<a href="#bg-data">1.2</a>부터 읽어도 된다.
+</p>
+
+<h3 id="bg-what">1.1 코팅이라는 공정, 25개의 볼트</h3>
+
+<p>
+넓은 필름이 롤에서 풀려 나오고, 그 위에 액체를 얇게 발라 말린다. 이게 코팅이다.
+품질의 핵심은 딱 하나다 — <strong>바른 두께가 폭 방향으로 균일한가.</strong>
+</p>
+
+<p>
+액체는 <em>다이(die)</em>라는 긴 입술 모양 노즐에서 나온다. 이 입술의 벌어진 틈을
+폭 방향으로 25개 구역(zone)으로 나눠, 각 구역마다 볼트로 미세하게 조인다.
+볼트를 조이면 그 자리 틈이 좁아지고 → 액체가 덜 나오고 → 그 자리가 얇아진다.
+</p>
+
+<figure>
+<svg viewBox="0 0 700 250" role="img" aria-label="다이 노즐과 25 zone, 그리고 측정된 Wet 두께 프로파일">
+  <text x="20" y="22" font-size="13" font-weight="700" fill="#1a1d21">다이 (위에서 본 단면)</text>
+  <!-- die body -->
+  <rect x="60" y="34" width="580" height="34" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5" rx="3"/>
+  <!-- bolts -->
+  <g>
+    <!-- 볼트 25개를 간격 있게 -->
+    <g fill="#2563eb" font-size="9">
+      <circle cx="72" cy="51" r="5"/><circle cx="95" cy="51" r="5"/><circle cx="118" cy="51" r="5"/>
+      <circle cx="141" cy="51" r="5"/><circle cx="164" cy="51" r="5"/><circle cx="187" cy="51" r="5"/>
+      <circle cx="210" cy="51" r="5"/><circle cx="233" cy="51" r="5"/><circle cx="256" cy="51" r="5"/>
+      <circle cx="279" cy="51" r="5"/><circle cx="302" cy="51" r="5"/><circle cx="325" cy="51" r="5"/>
+      <circle cx="348" cy="51" r="7" fill="#1d4ed8"/>
+      <circle cx="371" cy="51" r="5"/><circle cx="394" cy="51" r="5"/><circle cx="417" cy="51" r="5"/>
+      <circle cx="440" cy="51" r="5"/><circle cx="463" cy="51" r="5"/><circle cx="486" cy="51" r="5"/>
+      <circle cx="509" cy="51" r="5"/><circle cx="532" cy="51" r="5"/><circle cx="555" cy="51" r="5"/>
+      <circle cx="578" cy="51" r="5"/><circle cx="601" cy="51" r="5"/><circle cx="624" cy="51" r="5"/>
+    </g>
+  </g>
+  <text x="60" y="84" font-size="10" fill="#5b6470">zone 1</text>
+  <text x="330" y="84" font-size="10" fill="#1d4ed8" font-weight="700">zone 13 ← 이 볼트를 조이면</text>
+  <text x="596" y="84" font-size="10" fill="#5b6470">zone 25</text>
+
+  <!-- 화살표 -->
+  <path d="M348 92 L348 112" stroke="#5b6470" stroke-width="1.5" marker-end="url(#ar1)"/>
+  <defs><marker id="ar1" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 z" fill="#5b6470"/></marker></defs>
+
+  <!-- Wet 프로파일 -->
+  <text x="20" y="134" font-size="13" font-weight="700" fill="#1a1d21">측정된 Wet 두께 (25 zone)</text>
+  <line x1="60" y1="226" x2="640" y2="226" stroke="#8b95a3" stroke-width="1"/>
+  <g fill="#ea580c">
+    <rect x="68" y="160" width="16" height="66"/><rect x="91" y="157" width="16" height="69"/>
+    <rect x="114" y="159" width="16" height="67"/><rect x="137" y="156" width="16" height="70"/>
+    <rect x="160" y="158" width="16" height="68"/><rect x="183" y="155" width="16" height="71"/>
+    <rect x="206" y="158" width="16" height="68"/><rect x="229" y="157" width="16" height="69"/>
+    <rect x="252" y="159" width="16" height="67"/><rect x="275" y="156" width="16" height="70"/>
+    <rect x="298" y="162" width="16" height="64"/><rect x="321" y="170" width="16" height="56"/>
+    <rect x="344" y="180" width="16" height="46" fill="#c2410c"/>
+    <rect x="367" y="170" width="16" height="56"/><rect x="390" y="162" width="16" height="64"/>
+    <rect x="413" y="157" width="16" height="69"/><rect x="436" y="158" width="16" height="68"/>
+    <rect x="459" y="156" width="16" height="70"/><rect x="482" y="159" width="16" height="67"/>
+    <rect x="505" y="157" width="16" height="69"/><rect x="528" y="158" width="16" height="68"/>
+    <rect x="551" y="160" width="16" height="66"/><rect x="574" y="157" width="16" height="69"/>
+    <rect x="597" y="159" width="16" height="67"/><rect x="620" y="161" width="16" height="65"/>
+  </g>
+  <line x1="60" y1="157" x2="640" y2="157" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5,4"/>
+  <text x="644" y="161" font-size="10" fill="#7c3aed">목표</text>
+  <text x="300" y="245" font-size="10.5" fill="#5b6470">13번만 조였는데 12·14번도 같이 얇아진다 — 이 "퍼짐"이 커널이다</text>
+</svg>
+<figcaption>다이 볼트 하나가 만드는 것은 한 지점의 변화가 아니라 <strong>주변으로 퍼지는 종 모양</strong>이다.
+이 그림의 색 규칙 — <strong style="color:#2563eb">파랑 = 제어값(사람이 만지는 것)</strong>,
+<strong style="color:#ea580c">주황 = Wet(측정 결과)</strong>,
+<strong style="color:#7c3aed">보라 = 모델·목표</strong> — 은 이 문서 전체에서 같다.</figcaption>
+</figure>
+
+<p>
+볼트 25개 말고도 <strong>폭 전체에 한꺼번에 작용하는 손잡이</strong>가 넷 더 있다.
+펌프 회전수(<code>pump_rpm</code>, 액체를 얼마나 밀어내나), 백프레셔 밸브 개도
+(<code>bp_open_rate</code>), 그리고 다이 양쪽 끝 간격(<code>os_gap</code>, <code>ds_gap</code>)이다.
+이 넷은 전체를 <em>통째로</em> 올리거나 내린다.
+</p>
+
+<div class="callout key">
+  <span class="lbl">여기서 이미 모델이 둘로 갈린다</span>
+  <p>제어 손잡이가 두 종류다. <strong>전체를 통째로 올리는 것 4개</strong>(스칼라)와
+  <strong>한 자리를 국소적으로 바꾸는 것 25개</strong>(zone별 gap). 물리적으로 하는 일이 다르니,
+  이 둘을 하나의 모델에 뭉뚱그리면 서로를 방해한다. 이것이 <a href="#models">레벨 모델과 커널</a>이
+  따로 존재하는 이유의 전부다.</p>
+</div>
+
+<div class="qmemo" data-qid="bg-what-basics" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">공정 자체가 낯설다면 여기 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="bg-data">1.2 우리가 가진 데이터의 실제 모양</h3>
+
+<p>
+사내 MES 가 뱉는 것은 <strong>long 형식 스냅샷 로그</strong>다. 한 행이 "언제, 어느 lot 에서,
+어떤 항목이, 얼마였다" 하나를 말한다. 항목이 몇백 개고 매 분 전부 다시 찍히므로,
+5시간짜리 lot 하나가 수만~수십만 행이 된다.
+</p>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>lot_id</th><th>worked_at</th><th>product</th><th>item_id</th><th class="num">value</th><th>(사전이 알려주는 뜻)</th></tr></thead>
+<tbody>
+<tr><td>L-2409-001</td><td>08:00:00</td><td>PROD-A</td><td>30030838</td><td class="num">12.0</td><td style="color:#2563eb">Gap Offset Zone 1</td></tr>
+<tr><td>L-2409-001</td><td>08:00:00</td><td>PROD-A</td><td>30030839</td><td class="num">12.0</td><td style="color:#2563eb">Gap Offset Zone 2</td></tr>
+<tr><td>L-2409-001</td><td>08:00:00</td><td>PROD-A</td><td>50030111</td><td class="num">840.0</td><td style="color:#2563eb">Pump RPM</td></tr>
+<tr><td>L-2409-001</td><td>08:00:00</td><td>PROD-A</td><td>90030611</td><td class="num">18.21</td><td style="color:#ea580c">Wet Zone 1</td></tr>
+<tr><td>L-2409-001</td><td>08:00:00</td><td>PROD-A</td><td>90030612</td><td class="num">18.19</td><td style="color:#ea580c">Wet Zone 2</td></tr>
+<tr><td colspan="6" style="text-align:center;color:#8b95a3">⋮ (같은 시각에 항목 수백 개, 그리고 매 분 반복)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+항목 ID 는 <code>schemas.py</code> 가 규칙으로 고정한다 — gap 은
+<code>30030838</code>부터 25개, Wet 은 <code>90030611</code>부터 25개:
+</p>
+
+<pre><span class="c"># app/coating/schemas.py:193-206</span>
+GAP_ITEM_IDS = [<span class="k">str</span>(<span class="n">30030837</span> + z) <span class="k">for</span> z <span class="k">in</span> <span class="k">range</span>(<span class="n">1</span>, N_ZONES + <span class="n">1</span>)]   <span class="c"># 30030838 … 30030862</span>
+WET_ITEM_IDS = [<span class="k">str</span>(<span class="n">90030610</span> + z) <span class="k">for</span> z <span class="k">in</span> <span class="k">range</span>(<span class="n">1</span>, N_ZONES + <span class="n">1</span>)]   <span class="c"># 90030611 … 90030635</span>
+
+CONTROL_SCALARS = {                    <span class="c"># zone 이 없는 전역 손잡이 4개</span>
+    <span class="s">"10030009"</span>: <span class="s">"bp_open_rate"</span>,
+    <span class="s">"50030111"</span>: <span class="s">"pump_rpm"</span>,
+    <span class="s">"10030271"</span>: <span class="s">"os_gap"</span>,
+    <span class="s">"10030272"</span>: <span class="s">"ds_gap"</span>,
+}
+CONTROL_ITEM_IDS = <span class="k">list</span>(CONTROL_SCALARS) + GAP_ITEM_IDS    <span class="c"># 4 + 25 = 29개</span></pre>
+
+<h3 id="bg-goal">1.3 목표: 초기조건 도출</h3>
+
+<p>
+새 제품 lot 을 시작할 때, 작업자는 제어값을 대충 잡고 시작해서 Wet 을 보며 몇십 분간
+볼트를 조여 나간다. 그 튜닝 시간 동안 나오는 필름은 전부 <strong>로스</strong>다.
+</p>
+
+<p>
+이 프로젝트가 없애려는 것이 그 로스다. <em>"이 제품이면 처음부터 이 조건으로 시작해라"</em>를
+과거 기록에서 배워 내는 것. 그러려면 <strong>제어값을 이만큼 바꾸면 두께가 이만큼 변한다</strong>는
+관계를 알아야 하고, 그 관계를 데이터에서 뽑아내는 것이 이 파이프라인 전체의 일이다.
+</p>
+
+<div class="callout warn">
+  <span class="lbl">이 프로젝트의 고정 조건</span>
+  <p>우리는 실험을 할 수 없다. 라인을 세우고 "볼트 13번만 5단위 돌려 보자"를 못 한다 —
+  그 필름이 전부 불량이 되기 때문이다. 그래서 <strong>작업자가 평소에 한 조정을 실험으로 삼는다.</strong>
+  전처리의 거의 모든 복잡함이 여기서 나온다. 통제된 실험이 아닌 기록에서 실험을 <em>발굴</em>해야 하니까.</p>
+</div>
+
+<div class="qmemo" data-qid="bg-goal-scope" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">문제 설정에 대해 궁금한 점을 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<!-- ══════════════════ 2. 전처리 ══════════════════ -->
+<h2 id="pre"><span class="num">2</span>전처리 — 코드와 숫자로 따라가기</h2>
+
+<p>
+전처리의 목표를 한 문장으로 쓰면 이렇다:
+<strong>수십만 행의 스냅샷 로그 → "무엇을 바꿨더니 얼마나 변했나" 몇십 행.</strong>
+</p>
+
+<div class="flow">
+  <span class="step on">원본 CSV</span><span class="arr">→</span>
+  <span class="step">parse</span><span class="arr">→</span>
+  <span class="step">dedupe_minute</span><span class="arr">→</span>
+  <span class="step">compress_runs</span><span class="arr">→</span>
+  <span class="step">build_events</span><span class="arr">→</span>
+  <span class="step">isolation</span><span class="arr">→</span>
+  <span class="step on">delta_samples<br>absolute_samples</span>
+</div>
+
+<p>
+아래에서는 <strong>lot 하나, zone 하나</strong>를 끝까지 따라간다. 실제 코드가 쓰는
+기본 설정값(<code>app/config.py</code>)을 그대로 쓰므로, 여기 나오는 숫자는 실제 동작이다.
+</p>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>설정</th><th class="num">기본값</th><th>뜻</th></tr></thead>
+<tbody>
+<tr><td><code>coating_event_merge_minutes</code></td><td class="num">2</td><td>이 안에 일어난 변경은 "한 번의 손질"</td></tr>
+<tr><td><code>coating_isolation_pre/post_minutes</code></td><td class="num">10 / 10</td><td>앞뒤로 이만큼 조용해야 "홀로 선" 이벤트</td></tr>
+<tr><td><code>coating_delta_window_minutes</code></td><td class="num">3</td><td>ΔWet 을 잴 때 평균 낼 창 폭</td></tr>
+<tr><td><code>coating_response_post_minutes</code></td><td class="num">10</td><td>조정 후 이만큼 기다린 뒤 결과를 읽는다</td></tr>
+<tr><td><code>coating_absolute_wait_minutes</code></td><td class="num">30</td><td>레벨 샘플: 조정 후 이만큼 기다림</td></tr>
+<tr><td><code>coating_kernel_half_width</code> (k)</td><td class="num">2</td><td>커널이 좌우 2 zone 까지 퍼진다고 본다</td></tr>
+<tr><td><code>coating_ridge_alpha</code></td><td class="num">1.0</td><td>Ridge 벌점 세기 — <a href="#ridge">5절</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="pre-parse">2.1 ① <code>parse.py</code> — 파일을 표로</h3>
+
+<p>
+이 모듈만 파일을 만진다. 나머지는 전부 DataFrame 만 받는 순수 함수다. 하는 일은 셋:
+</p>
+
+<ul class="tight">
+  <li><strong>인코딩 판별.</strong> BOM 을 먼저 보고(파일이 스스로 밝힌 정답), 없으면
+  <code>utf-8-sig → cp949</code> 순서로 시도한다. 순서가 중요한 이유가 주석에 적혀 있다 —
+  utf-8 한글을 cp949 로 읽으면 <em>예외 없이 조용히</em> 깨진 글자가 되어 끝까지 흘러간다.
+  반대 방향은 거의 항상 즉시 예외라 복구된다.</li>
+  <li><strong>바이너리 시그니처 감지.</strong> 엑셀을 이름만 <code>.csv</code> 로 바꿔 넣는 일이
+  잦아서, <code>PK\x03\x04</code>(xlsx), <code>%PDF</code>, 사내 DRM 헤더를 직접 알아보고
+  "인코딩 문제"가 아니라 진짜 원인을 말해 준다.</li>
+  <li><strong><code>item_id</code> 를 문자열로 고정.</strong> 이게 이 파일이 존재하는 거의 유일한 이유다.</li>
+</ul>
+
+<div class="callout warn">
+  <span class="lbl">조용한 실패 — 이 파일의 존재 이유</span>
+  <p>pandas 는 <code>30030838</code> 처럼 숫자로 보이는 열을 <code>int64</code> 로 읽는다.
+  그런데 항목 사전의 키는 문자열 <code>"30030838"</code> 이다. 그대로 조인하면
+  <strong>예외가 안 나고 전부 미매칭</strong>이 되어 빈 결과가 나온다.
+  그래서 원본은 전부 문자열로 읽고, 숫자·시각 변환은 <code>_finalize</code> 가
+  표준 컬럼명 위에서 한 번에 한다.</p>
+</div>
+
+<pre><span class="c"># app/coating/parse.py:249-264</span>
+<span class="k">def</span> _finalize(raw, dict_path, encodings, path=<span class="k">None</span>):
+    raw = normalize(raw, path)              <span class="c"># 컬럼 별칭 → 표준 이름, 타입 변환</span>
+<span class="hi">    raw[S.ROW_NO] = <span class="k">range</span>(<span class="k">len</span>(raw))       <span class="c"># ← 파일에 적힌 순서를 열로 박는다</span></span>
+    <span class="k">return</span> raw.merge(load_item_dictionary(dict_path, encodings),
+                     on=S.ITEM, how=<span class="s">"left"</span>)</pre>
+
+<p>
+강조한 <code>row_no</code> 한 줄이 다음 단계의 전제다. 정렬·<code>groupby</code> 를 여러 번 거쳐도
+"파일에 나중에 적힌 것"이 무엇인지 잃지 않기 위해서다.
+</p>
+
+<div class="qmemo" data-qid="pre-parse" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">인코딩·타입 관련해 궁금한 점.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="pre-dedupe">2.2 ② <code>dedupe_minute</code> — 같은 분의 중복 접기</h3>
+
+<p>
+같은 <code>(lot, 분, 항목)</code> 이 두 번 이상 찍히는 일이 있다. 어느 쪽이 그 분의 상태인가?
+값이 <strong>계단형 유지값</strong>이므로 — 사람이 바꾼 순간부터 새 값이 계속 찍힌다 —
+답은 "파일에 나중에 적힌 것"이다.
+</p>
+
+<h4>숫자로</h4>
+<div class="tbl-wrap">
+<table>
+<thead><tr><th class="num">row_no</th><th>worked_at</th><th>item_id</th><th class="num">value</th><th>결과</th></tr></thead>
+<tbody>
+<tr class="keep"><td class="num">41</td><td>08:03</td><td>30030838</td><td class="num">12.0</td><td></td></tr>
+<tr class="dead"><td class="num">41</td><td>08:03</td><td>30030838</td><td class="num">12.0</td><td>버림</td></tr>
+<tr class="keep"><td class="num">57</td><td>08:03</td><td>30030838</td><td class="num">13.0</td><td>← <strong>남는다</strong> (row_no 가 더 큼)</td></tr>
+</tbody>
+</table>
+</div>
+
+<pre><span class="c"># app/coating/pivot.py:14-26</span>
+<span class="k">def</span> dedupe_minute(readings):
+    ordered = readings.sort_values(S.ROW_NO)          <span class="c"># 파일 순서로 세운다</span>
+    <span class="k">return</span> (ordered
+        .groupby([S.LOT, S.AT, S.ITEM], as_index=<span class="k">False</span>, sort=<span class="k">False</span>)
+        .tail(<span class="n">1</span>)                                    <span class="c"># ← 각 그룹의 마지막 = 그 분의 상태</span>
+        .sort_values([S.LOT, S.AT, S.ITEM])
+        .reset_index(drop=<span class="k">True</span>))</pre>
+
+<h3 id="pre-compress">2.3 ③ <code>compress_runs</code> — 계단에서 변곡점만</h3>
+
+<p>
+여기가 전처리에서 <strong>가장 많은 행을 없애는</strong> 곳이자, 동시에
+<strong>조정 이벤트가 처음으로 눈에 보이게 되는</strong> 곳이다.
+</p>
+
+<p>
+값이 계단형이므로 "바뀐 시점"만 남기면 <em>정보 손실 없이</em> 데이터가 수십 분의 일로 준다.
+zone 1 의 gap 을 예로 들면:
+</p>
+
+<figure>
+<svg viewBox="0 0 700 190" role="img" aria-label="계단형 시계열에서 변경 시점만 남기는 압축">
+  <text x="14" y="18" font-size="12" font-weight="700" fill="#1a1d21">Gap Zone 1 — 원본 (매 분 기록)</text>
+  <line x1="60" y1="80" x2="660" y2="80" stroke="#c8ced8" stroke-width="1"/>
+  <!-- 값 12 -->
+  <g font-size="10.5" fill="#5b6470" text-anchor="middle" font-family="monospace">
+    <text x="80" y="98">12.0</text><text x="150" y="98">12.0</text><text x="220" y="98">12.0</text>
+    <text x="290" y="98">13.0</text><text x="360" y="98">13.0</text><text x="430" y="98">13.0</text>
+    <text x="500" y="98">13.0</text><text x="570" y="98">15.0</text><text x="640" y="98">15.0</text>
+  </g>
+  <g font-size="9.5" fill="#8b95a3" text-anchor="middle">
+    <text x="80" y="114">08:00</text><text x="150" y="114">08:01</text><text x="220" y="114">08:02</text>
+    <text x="290" y="114">08:03</text><text x="360" y="114">08:04</text><text x="430" y="114">08:05</text>
+    <text x="500" y="114">08:06</text><text x="570" y="114">08:07</text><text x="640" y="114">08:08</text>
+  </g>
+  <!-- 계단선 -->
+  <polyline points="80,72 220,72 290,58 500,58 570,44 660,44" fill="none" stroke="#2563eb" stroke-width="2.2"/>
+  <g fill="#2563eb">
+    <circle cx="80" cy="72" r="4"/><circle cx="150" cy="72" r="2.5" opacity=".35"/><circle cx="220" cy="72" r="2.5" opacity=".35"/>
+    <circle cx="290" cy="58" r="4"/><circle cx="360" cy="58" r="2.5" opacity=".35"/><circle cx="430" cy="58" r="2.5" opacity=".35"/><circle cx="500" cy="58" r="2.5" opacity=".35"/>
+    <circle cx="570" cy="44" r="4"/><circle cx="640" cy="44" r="2.5" opacity=".35"/>
+  </g>
+  <text x="14" y="150" font-size="12" font-weight="700" fill="#1a1d21">압축 후 — 남는 행 3개</text>
+  <g font-size="10" font-family="monospace">
+    <rect x="60" y="158" width="180" height="22" fill="#f3f7ff" stroke="#2563eb" rx="3"/>
+    <text x="68" y="173" fill="#1a1d21">08:00  v=12.0  prev=NaN</text>
+    <rect x="250" y="158" width="185" height="22" fill="#f3f7ff" stroke="#2563eb" rx="3"/>
+    <text x="258" y="173" fill="#1a1d21">08:03  v=13.0  prev=12.0</text>
+    <rect x="445" y="158" width="185" height="22" fill="#f3f7ff" stroke="#2563eb" rx="3"/>
+    <text x="453" y="173" fill="#1a1d21">08:07  v=15.0  prev=13.0</text>
+  </g>
+  <text x="150" y="140" font-size="9.5" fill="#b91c1c">↑ prev=NaN → 시작값, 이벤트 아님</text>
+</svg>
+<figcaption>9행 → 3행. 그리고 <code>prev_value</code> 가 <code>NaN</code> 인지 아닌지가
+"사람이 손댄 것인가"를 가른다.</figcaption>
+</figure>
+
+<pre><span class="c"># app/coating/pivot.py:29-38</span>
+<span class="k">def</span> compress_runs(deduped):
+    d = deduped.sort_values([S.LOT, S.ITEM, S.AT])
+    prev = d.groupby([S.LOT, S.ITEM])[S.VALUE].shift()      <span class="c"># 한 칸 뒤로 민 값</span>
+<span class="hi">    changed = prev.isna() | (d[S.VALUE] != prev)            <span class="c"># NaN=lot 첫 관측, 또는 값이 변함</span></span>
+    out = d.loc[changed, [S.LOT, S.ITEM, S.AT, S.VALUE]].copy()
+<span class="hi">    out[S.PREV_VALUE] = prev.loc[changed].to_numpy()        <span class="c"># ← 이 열이 다음 단계의 열쇠</span></span>
+    <span class="k">return</span> out.sort_values([S.LOT, S.AT, S.ITEM]).reset_index(drop=<span class="k">True</span>)</pre>
+
+<div class="callout def">
+  <span class="lbl">핵심 구분 — 시작값 vs 변경</span>
+  <p><code>prev_value</code> 가 <strong><code>NaN</code></strong> 이면 그건 lot 안에서 그 항목의
+  <em>첫 관측</em>이다. 사람이 바꾼 게 아니라 <strong>원래 그랬던 값</strong>이다.
+  <code>prev_value</code> 에 숫자가 있으면 그때가 <em>진짜 조정</em>이다.</p>
+  <p>이 구분이 파이프라인 전체에서 반복해서 쓰인다 —
+  <code>build_events</code>, <code>tuning_end_last_change</code>,
+  <code>_control_change_times</code> 가 전부 <code>prev_value.notna()</code> 로 시작값을 걸러낸다.</p>
+</div>
+
+<div class="qmemo" data-qid="pre-compress" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">압축 로직이나 prev_value 에 대해 궁금한 점.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="pre-wide">2.4 ④ <code>wet_wide</code> — 25 zone 을 옆으로 눕히기</h3>
+
+<p>
+Wet 은 long 으로 있으면 다루기 힘들다. 한 시점의 두께 <em>프로파일</em>을 통째로 보려면
+25개가 한 행에 있어야 한다. <code>features.wet_wide</code> 가 그 변환을 한다.
+</p>
+
+<pre><span class="c"># app/coating/features.py:22-31</span>
+<span class="k">def</span> wet_wide(deduped):
+    w = deduped[deduped[S.ITEM].isin(S.WET_ITEM_IDS)].copy()
+    w[S.ZONE] = w[S.ITEM].map(<span class="k">lambda</span> i: S.WET_ITEM_IDS.index(i) + <span class="n">1</span>)   <span class="c"># 90030613 → 3</span>
+<span class="hi">    w.loc[w[S.VALUE] == <span class="n">0</span>, S.VALUE] = np.nan     <span class="c"># ← 0 은 "미사용/미측정" 이지 두께 0 이 아니다</span></span>
+    wide = w.pivot_table(index=[S.LOT, S.AT], columns=S.ZONE,
+                         values=S.VALUE, aggfunc=<span class="s">"last"</span>)
+    wide = wide.reindex(columns=<span class="k">range</span>(<span class="n">1</span>, S.N_ZONES + <span class="n">1</span>))   <span class="c"># 없는 zone 도 열은 만든다</span>
+    ...</pre>
+
+<p>
+강조한 줄이 중요하다. 실데이터에서 <strong>0 은 두께가 0 이라는 뜻이 아니라 "그 zone 은
+안 쓴다/못 쟀다"</strong>는 뜻이다. NaN 으로 바꾸지 않으면 평균이 통째로 끌려 내려간다.
+</p>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>lot_id</th><th>worked_at</th><th class="num">z1</th><th class="num">z2</th><th class="num">z3</th><th class="num">…</th><th class="num">z24</th><th class="num">z25</th></tr></thead>
+<tbody>
+<tr><td>L-2409-001</td><td>08:00</td><td class="num">18.21</td><td class="num">18.19</td><td class="num">18.25</td><td class="num">…</td><td class="num">18.20</td><td class="num" style="color:#a8b0bb">NaN</td></tr>
+<tr><td>L-2409-001</td><td>08:01</td><td class="num">18.23</td><td class="num">18.18</td><td class="num">18.22</td><td class="num">…</td><td class="num">18.24</td><td class="num" style="color:#a8b0bb">NaN</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+이어서 <code>valid_zones</code> 가 "한 번이라도 값이 관측된 zone" 만 골라내고
+(위 예에서 z25 는 탈락), <code>wet_mean_series</code> 가 그 zone 들의 평균을 내
+<strong>시점별 대표 두께 한 숫자</strong>를 만든다. 이 <code>wet_mean</code> 이 뒤에서
+<a href="#models">레벨 모델</a>의 정답(target)이 된다.
+</p>
+
+<h3 id="pre-events">2.5 ⑤ <code>build_events</code> — 손질 한 번을 하나로 묶기</h3>
+
+<p>
+작업자는 볼트를 하나만 돌리지 않는다. 12·13·14번을 몇십 초 사이에 연달아 만진다.
+이건 <em>세 번의 조정</em>이 아니라 <strong>한 번의 손질</strong>이다. 묶어야 한다.
+</p>
+
+<p>
+문제는 <strong>어떻게 묶느냐</strong>다. 코드에는 두 가지 규칙이 나란히 구현돼 있고,
+그 차이가 이 파이프라인의 중요한 교훈 하나를 담고 있다.
+</p>
+
+<h4>규칙 A — 앵커 묶음 (<code>_anchor_groups</code>, 현재 규칙)</h4>
+<pre><span class="c"># app/coating/events.py:12-27</span>
+<span class="k">def</span> _anchor_groups(times, merge_minutes):
+    w = pd.Timedelta(minutes=merge_minutes)
+    out = np.empty(<span class="k">len</span>(times), dtype=<span class="k">int</span>)
+    g, anchor = <span class="n">0</span>, <span class="k">None</span>
+    <span class="k">for</span> i, t <span class="k">in</span> <span class="k">enumerate</span>(times):
+<span class="hi">        <span class="k">if</span> anchor <span class="k">is</span> <span class="k">None</span> <span class="k">or</span> t - anchor > w:    <span class="c"># ← 직전 값이 아니라 '앵커'와 비교</span></span>
+            g += <span class="n">1</span>; anchor = t
+        out[i] = g
+    <span class="k">return</span> out</pre>
+
+<h4>규칙 B — 연쇄 묶음 (<code>_run_groups</code>, 옛 규칙)</h4>
+<pre><span class="c"># app/coating/events.py:30-37</span>
+<span class="k">def</span> _run_groups(times, merge_minutes):
+    gap = times.diff()                                   <span class="c"># ← 직전 변경과의 간격</span>
+    <span class="k">return</span> (gap.isna() | (gap > pd.Timedelta(minutes=merge_minutes))).cumsum().to_numpy()</pre>
+
+<h4>같은 데이터, 다른 결과 — <code>merge_minutes = 2</code></h4>
+
+<figure>
+<svg viewBox="0 0 700 260" role="img" aria-label="앵커 묶음과 연쇄 묶음의 비교">
+  <!-- 시간축 -->
+  <line x1="60" y1="60" x2="660" y2="60" stroke="#8b95a3" stroke-width="1.2"/>
+  <g font-size="10" fill="#5b6470" text-anchor="middle">
+    <text x="90" y="80">08:03</text><text x="150" y="80">08:04</text><text x="270" y="80">08:06</text>
+    <text x="570" y="80">08:11</text><text x="630" y="80">08:12</text>
+  </g>
+  <!-- 조정 마크 -->
+  <g fill="#2563eb">
+    <path d="M90,60 l-7,-16 l14,0 z"/><path d="M150,60 l-7,-16 l14,0 z"/>
+    <path d="M270,60 l-7,-16 l14,0 z"/>
+    <path d="M570,60 l-7,-16 l14,0 z"/><path d="M630,60 l-7,-16 l14,0 z"/>
+  </g>
+  <text x="14" y="40" font-size="11.5" font-weight="700" fill="#1a1d21">제어값 변경 시각</text>
+
+  <!-- 앵커 규칙 -->
+  <text x="14" y="116" font-size="11.5" font-weight="700" fill="#15803d">앵커 규칙 (현재)</text>
+  <rect x="74" y="126" width="92" height="26" fill="#e8f7ed" stroke="#15803d" rx="4"/>
+  <text x="120" y="143" font-size="10" fill="#14532d" text-anchor="middle" font-weight="600">이벤트 #1</text>
+  <rect x="254" y="126" width="32" height="26" fill="#e8f7ed" stroke="#15803d" rx="4"/>
+  <text x="270" y="143" font-size="10" fill="#14532d" text-anchor="middle" font-weight="600">#2</text>
+  <rect x="554" y="126" width="92" height="26" fill="#e8f7ed" stroke="#15803d" rx="4"/>
+  <text x="600" y="143" font-size="10" fill="#14532d" text-anchor="middle" font-weight="600">이벤트 #3</text>
+  <text x="180" y="167" font-size="9.5" fill="#5b6470">08:06 은 앵커 08:03 에서 3분 &gt; 2분 → 새 이벤트</text>
+  <text x="180" y="181" font-size="9.5" fill="#15803d" font-weight="600">span 이 절대 2분을 못 넘는다 ✓</text>
+
+  <!-- 연쇄 규칙 -->
+  <text x="14" y="212" font-size="11.5" font-weight="700" fill="#b91c1c">연쇄 규칙 (옛)</text>
+  <rect x="74" y="222" width="212" height="26" fill="#fdeceb" stroke="#b91c1c" rx="4"/>
+  <text x="180" y="239" font-size="10" fill="#7f1d1d" text-anchor="middle" font-weight="600">run #1 — span 3분</text>
+  <rect x="554" y="222" width="92" height="26" fill="#fdeceb" stroke="#b91c1c" rx="4"/>
+  <text x="600" y="239" font-size="10" fill="#7f1d1d" text-anchor="middle" font-weight="600">run #2</text>
+  <text x="300" y="212" font-size="9.5" fill="#b91c1c">08:06 은 직전(08:04)에서 2분 ≤ 2분 → 이어붙는다</text>
+</svg>
+<figcaption>2분씩 계속 이어지면 연쇄 규칙에서는 묶음이 <strong>무한히 자란다</strong>.
+8분에 걸친 여섯 번의 손질이 "08:03 의 한 번의 계단 입력"이 되어 버리고,
+그 상태로 지연 시간을 재면 span 만큼 통째로 오염된다. 앵커 규칙은 이 사고를 구조적으로 막는다.</figcaption>
+</figure>
+
+<p>
+이벤트가 만들어지면 <code>event_id</code> 가 <code>"L-2409-001#1"</code> 처럼 붙고,
+각 이벤트마다 <code>delta = value − prev_value</code> 가 항목별로 계산된다:
+</p>
+
+<pre><span class="c"># app/coating/events.py:73-92</span>
+ctrl[S.EVENT] = ctrl[S.LOT] + <span class="s">"#"</span> + ctrl[<span class="s">"_g"</span>].astype(<span class="k">int</span>).astype(<span class="k">str</span>)
+ctrl[S.DELTA] = ctrl[S.VALUE] - ctrl[S.PREV_VALUE]      <span class="c"># 13.0 - 12.0 = +1.0</span>
+ctrl[S.ZONE]  = ctrl[S.ITEM].map(_zone_of)              <span class="c"># gap 항목만 1..25, 스칼라는 NaN</span>
+
+ev = ctrl.groupby([S.LOT, S.EVENT]).agg(
+    worked_at=(S.AT, <span class="s">"min"</span>),      <span class="c"># t0 = 묶음의 첫 변경</span>
+    last_at  =(S.AT, <span class="s">"max"</span>),      <span class="c"># t1 = 묶음의 마지막 변경</span>
+    n_items  =(S.ITEM, <span class="s">"nunique"</span>))
+ev[S.SPAN] = (ev[S.LAST_AT] - ev[S.AT]) / pd.Timedelta(minutes=<span class="n">1</span>)</pre>
+
+<div class="qmemo" data-qid="pre-events-anchor" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">앵커 vs 연쇄 묶음 다이어그램이 헷갈리면 여기 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="pre-iso">2.6 ⑥ <code>isolation</code> — 홀로 선 이벤트 고르기</h3>
+
+<p>
+이제 핵심 질문. "13번 볼트를 조였더니 두께가 0.3 줄었다"고 말하려면,
+그 사이에 <strong>다른 조정이 없었어야</strong> 한다. 있었다면 그 0.3 이 누구 탓인지 모른다.
+</p>
+
+<pre><span class="c"># app/coating/events.py:307-316</span>
+out = events_df.sort_values([S.LOT, S.AT]).reset_index(drop=<span class="k">True</span>).copy()
+<span class="hi">end = out[S.LAST_AT] <span class="k">if</span> S.LAST_AT <span class="k">in</span> out.columns <span class="k">else</span> out[S.AT]   <span class="c"># ← 간격은 '끝'에서 잰다</span></span>
+prev_end = end.groupby(out[S.LOT]).shift(<span class="n">1</span>)      <span class="c"># 이전 이벤트가 끝난 시각</span>
+next_at  = out.groupby(S.LOT)[S.AT].shift(-<span class="n">1</span>)     <span class="c"># 다음 이벤트가 시작한 시각</span>
+
+<span class="k">if</span> bounds <span class="k">is</span> <span class="k">not</span> <span class="k">None</span>:                        <span class="c"># 이웃이 없는 쪽은 lot 경계가 벽</span>
+    prev_end = prev_end.fillna(out[S.LOT].map(b[<span class="s">"start"</span>]))
+    next_at  = next_at.fillna(out[S.LOT].map(b[<span class="s">"end"</span>]))</pre>
+
+<h4>숫자로 — <code>pre = post = 10분</code></h4>
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>이벤트</th><th>t0</th><th>t1(last_at)</th><th class="num">gap_before</th><th class="num">gap_after</th><th>판정</th></tr></thead>
+<tbody>
+<tr><td>#1</td><td>08:03</td><td>08:04</td><td class="num">08:03−08:00<br>= 3분</td><td class="num">08:06−08:04<br>= 2분</td><td style="color:#b91c1c">탈락 (양쪽 다 &lt;10)</td></tr>
+<tr><td>#2</td><td>08:06</td><td>08:06</td><td class="num">08:06−08:04<br>= 2분</td><td class="num">08:11−08:06<br>= 5분</td><td style="color:#b91c1c">탈락</td></tr>
+<tr><td>#3</td><td>08:11</td><td>08:12</td><td class="num">08:11−08:06<br>= 5분</td><td class="num">(lot 끝까지)<br>= 4시간+</td><td style="color:#b91c1c">탈락 (before &lt;10)</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout key">
+  <span class="lbl">왜 "정착했나"가 아니라 "조용했나"로 가르나</span>
+  <p>직관적으로는 "Wet 이 안정됐으면 깨끗한 이벤트"라고 하고 싶다. 그런데 그러면
+  <strong>순환</strong>에 빠진다 — 정착 시점을 제대로 잡으려면 순수 지연 L 을 알아야 하는데,
+  L 을 재려면 깨끗한 이벤트가 먼저 있어야 한다.</p>
+  <p>반면 "앞뒤로 다른 조정이 없었다"는 <strong>Wet 을 한 번도 보지 않고</strong> 판정된다.
+  원인 쪽은 우리가 직접 관측하는데, 굳이 결과 쪽에서 추론할 이유가 없다.
+  그래서 이 함수의 결과로 L 을 잴 수 있고, 잰 L 로 다시 이 함수의 창을 정할 수 있다.</p>
+</div>
+
+<div class="callout warn">
+  <span class="lbl">그리고 실데이터에서 이 관문이 0건을 냈다</span>
+  <p>사용자가 실행한 리포트가 <code>insufficient</code> 를 낸 이유가 정확히 이것이다.
+  가장 관대한 5분 기준에서도 살아남은 이벤트가 없다 = <strong>조정이 5분마다 온다</strong>.
+  이게 무슨 뜻이고 그래서 무엇을 해야 하는지는 별도 문서 두 편이 다룬다 —
+  <a href="2026-09-08-02-explanation-coating-no-clean-anchor.html">깨끗한 앵커가 없다면</a>,
+  <a href="2026-09-09-01-explanation-coating-model-without-anchors.html">그럼 어떤 모델을 쓰나</a>.</p>
+</div>
+
+<div class="qmemo" data-qid="pre-iso" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">격리 판정 로직에 대해 궁금한 점.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<h3 id="pre-samples">2.7 ⑦ 두 개의 샘플 표 — 여기서 길이 갈린다</h3>
+
+<p>
+전처리의 종착지는 표 <strong>두 개</strong>다. 그리고 이 둘이 뒤에 나오는
+두 모델에 각각 대응한다.
+</p>
+
+<figure>
+<svg viewBox="0 0 700 300" role="img" aria-label="델타 샘플과 절대 샘플이 만들어지는 방식">
+  <!-- 공통 타임라인 -->
+  <text x="14" y="20" font-size="11.5" font-weight="700" fill="#1a1d21">한 lot 의 시간축</text>
+  <line x1="60" y1="46" x2="660" y2="46" stroke="#8b95a3" stroke-width="1.2"/>
+  <g fill="#2563eb">
+    <path d="M200,46 l-7,-15 l14,0 z"/><path d="M330,46 l-7,-15 l14,0 z"/>
+  </g>
+  <g font-size="9.5" fill="#5b6470" text-anchor="middle">
+    <text x="65" y="66">08:00</text><text x="200" y="66">08:06</text>
+    <text x="330" y="66">08:11</text><text x="655" y="66">13:00</text>
+  </g>
+  <text x="200" y="26" font-size="9" fill="#2563eb" text-anchor="middle">조정</text>
+  <text x="330" y="26" font-size="9" fill="#2563eb" text-anchor="middle">조정</text>
+
+  <!-- 델타 샘플 -->
+  <text x="14" y="106" font-size="11.5" font-weight="700" fill="#ea580c">델타 샘플 — "무엇을 바꿨더니 얼마나 변했나"</text>
+  <rect x="140" y="118" width="60" height="24" fill="#fff1e6" stroke="#ea580c" rx="3"/>
+  <text x="170" y="134" font-size="9" fill="#9a3412" text-anchor="middle">before</text>
+  <rect x="278" y="118" width="60" height="24" fill="#fff1e6" stroke="#ea580c" rx="3"/>
+  <text x="308" y="134" font-size="9" fill="#9a3412" text-anchor="middle">after</text>
+  <line x1="200" y1="118" x2="200" y2="150" stroke="#2563eb" stroke-dasharray="3,3"/>
+  <path d="M200 156 L278 156" stroke="#5b6470" stroke-width="1.2" marker-end="url(#ar2)"/>
+  <defs><marker id="ar2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 z" fill="#5b6470"/></marker></defs>
+  <text x="239" y="170" font-size="9" fill="#5b6470" text-anchor="middle">post = 10분 대기</text>
+  <text x="170" y="112" font-size="8.5" fill="#9a3412" text-anchor="middle">폭 3분</text>
+  <text x="308" y="112" font-size="8.5" fill="#9a3412" text-anchor="middle">폭 3분</text>
+  <text x="360" y="134" font-size="10" fill="#1a1d21">ΔWet = after − before</text>
+
+  <!-- 절대 샘플 -->
+  <text x="14" y="212" font-size="11.5" font-weight="700" fill="#7c3aed">절대 샘플 — "이 상태에서 얼마였나"</text>
+  <rect x="65" y="224" width="135" height="24" fill="#f0ebff" stroke="#7c3aed" rx="3" opacity=".35"/>
+  <text x="132" y="240" font-size="8.5" fill="#7c3aed" text-anchor="middle">구간 짧음 → 버림</text>
+  <rect x="200" y="224" width="130" height="24" fill="#f0ebff" stroke="#7c3aed" rx="3" opacity=".35"/>
+  <text x="265" y="240" font-size="8.5" fill="#7c3aed" text-anchor="middle">5분 &lt; 30+5 → 버림</text>
+  <rect x="450" y="224" width="205" height="24" fill="#f0ebff" stroke="#7c3aed" rx="3"/>
+  <text x="552" y="240" font-size="9" fill="#5b21b6" text-anchor="middle" font-weight="600">채택 — 이 구간 Wet 평균 1행</text>
+  <path d="M330 262 L450 262" stroke="#7c3aed" stroke-width="1.2" stroke-dasharray="3,3"/>
+  <text x="390" y="277" font-size="9" fill="#7c3aed" text-anchor="middle">wait = 30분</text>
+  <text x="14" y="292" font-size="9.5" fill="#5b6470">※ 절대 샘플은 격리를 보지 않는다 — 제어 변경 사이 구간이면 된다</text>
+</svg>
+<figcaption>같은 타임라인에서 두 개의 다른 표가 나온다. 위는 <em>변화</em>를, 아래는 <em>상태</em>를 담는다.</figcaption>
+</figure>
+
+<h4>델타 샘플 (<code>delta_samples</code>) — 커널의 재료</h4>
+
+<pre><span class="c"># app/coating/features.py:70-84</span>
+t0 = e[S.AT]                                   <span class="c"># 묶음의 첫 변경 = 08:06</span>
+t1 = e[S.LAST_AT]                              <span class="c"># 묶음의 마지막 변경 = 08:06</span>
+<span class="hi">before = _window_mean(wet, lot, t0 - win, t0, cols, end_open=<span class="k">True</span>)   <span class="c"># [08:03, 08:06)</span></span>
+after  = _window_mean(wet, lot, t1 + post - win, t1 + post, cols)     <span class="c"># [08:13, 08:16]</span>
+...
+row[<span class="s">"dw"</span>+z] = after[col] - before[col]      <span class="c"># ΔWet — zone 25개</span>
+row[<span class="s">"dg"</span>+z] = <span class="n">0.0</span>                             <span class="c"># Δgap — 아래에서 채운다</span></pre>
+
+<p>
+두 군데를 눈여겨보자.
+</p>
+<ul class="tight">
+<li><strong><code>end_open=True</code></strong> — 기준선 창이 <em>조정이 일어난 분 자체를 제외</em>한다.
+그 분의 값에는 이미 조정의 영향이 섞여 있을 수 있기 때문이다.</li>
+<li><strong>한 시점이 아니라 3분 평균</strong> — 한 점끼리 빼면 측정 노이즈가 그대로 신호에 섞인다.</li>
+</ul>
+
+<p>그리고 Δgap 을 채울 때 조용한 함정이 하나 있다:</p>
+
+<pre><span class="c"># app/coating/features.py:104-110</span>
+zoned = (event_deltas[event_deltas[S.ZONE].notna()]
+    .groupby([S.EVENT, S.ZONE], as_index=<span class="k">False</span>)[S.DELTA]
+<span class="hi">    .sum(min_count=<span class="n">1</span>))     <span class="c"># ← 합친다. 그리고 전부-NaN 그룹은 NaN 으로 남긴다</span></span></pre>
+
+<p>
+한 이벤트 안에서 <strong>같은 zone 을 두 번</strong> 만지면 행이 두 개 온다.
+합치지 않으면 마지막 것만 남아서 Δgap 만 작아지고, ΔWet 은 두 번의 결과를 다 담고 있으니
+<strong>그 비율만큼 게인이 부풀려진다.</strong> <code>min_count=1</code> 은 또 다른 구분을 지킨다 —
+"만졌는데 변화가 0" 과 "델타를 못 읽었다(NaN)" 는 다른 사실이다.
+</p>
+
+<h4>절대 샘플 (<code>absolute_samples</code>) — 레벨 모델의 재료</h4>
+
+<pre><span class="c"># app/coating/features.py:174-188</span>
+<span class="k">for</span> b <span class="k">in</span> bounds.itertuples():
+    edges = [b.start] + _control_change_times(changes, lot) + [b.end]
+    <span class="k">for</span> a, z <span class="k">in</span> <span class="k">zip</span>(edges[:-<span class="n">1</span>], edges[<span class="n">1</span>:]):        <span class="c"># 변경과 변경 사이 구간마다</span>
+<span class="hi">        settled = pd.Timestamp(a) + wait               <span class="c"># wait = 30분</span></span>
+<span class="hi">        <span class="k">if</span> pd.Timestamp(z) - settled &lt; least:          <span class="c"># least = 5분. 남는 창이 짧으면</span></span>
+            <span class="k">continue</span>                                   <span class="c">#   버린다 — 반영이 끝났다고 볼 근거가 없다</span>
+        w = wet_mean[(lot 일치) & (settled &lt;= at &lt;= z)]
+        level = <span class="k">float</span>(w[S.WET_MEAN].mean(skipna=<span class="k">True</span>))
+        <span class="k">if</span> <span class="k">not</span> np.isfinite(level): <span class="k">continue</span>            <span class="c"># Wet 이 통째로 없는 구간도 버린다</span></pre>
+
+<div class="callout key">
+  <span class="lbl">이 코드가 답하는 실무적 질문</span>
+  <p><code>absolute_samples</code> 의 인자에 <strong><code>usable</code>(격리 통과분)이 없다.</strong>
+  즉 <strong>레벨 모델은 격리 관문과 무관하게 돌아간다.</strong> 리포트가
+  <code>verdict: insufficient</code> 를 내도 <code>## 레벨 모델</code> 절은 채워진다 —
+  <code>_verdict()</code> 는 파이프라인 <em>맨 마지막</em>에 라벨만 붙이는 함수이기 때문이다
+  (<code>report.py:182-185</code>).</p>
+</div>
+
+<div class="qmemo" data-qid="pre-samples" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">두 샘플 표의 차이가 헷갈리면 여기 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<!-- ══════════════════ 3. 레벨/커널 ══════════════════ -->
+<h2 id="models"><span class="num">3</span>레벨 모델과 커널 — 왜 둘로 쪼개나</h2>
+
+<p>
+25개 숫자로 된 두께 프로파일을 보자. 이걸 <strong>두 부분으로 쪼갤 수 있다.</strong>
+</p>
+
+<figure>
+<svg viewBox="0 0 700 240" role="img" aria-label="두께 프로파일이 레벨과 모양으로 분해되는 그림">
+  <!-- 원본 -->
+  <text x="18" y="18" font-size="11.5" font-weight="700" fill="#1a1d21">실제 프로파일</text>
+  <g fill="#ea580c">
+    <rect x="24" y="72" width="12" height="88"/><rect x="40" y="66" width="12" height="94"/>
+    <rect x="56" y="60" width="12" height="100"/><rect x="72" y="56" width="12" height="104"/>
+    <rect x="88" y="58" width="12" height="102"/><rect x="104" y="64" width="12" height="96"/>
+    <rect x="120" y="70" width="12" height="90"/><rect x="136" y="76" width="12" height="84"/>
+  </g>
+  <line x1="20" y1="160" x2="152" y2="160" stroke="#8b95a3"/>
+  <text x="176" y="112" font-size="20" fill="#5b6470">=</text>
+
+  <!-- 레벨 -->
+  <text x="206" y="18" font-size="11.5" font-weight="700" fill="#7c3aed">레벨 (평균 높이)</text>
+  <g fill="#c4b5fd">
+    <rect x="212" y="80" width="12" height="80"/><rect x="228" y="80" width="12" height="80"/>
+    <rect x="244" y="80" width="12" height="80"/><rect x="260" y="80" width="12" height="80"/>
+    <rect x="276" y="80" width="12" height="80"/><rect x="292" y="80" width="12" height="80"/>
+    <rect x="308" y="80" width="12" height="80"/><rect x="324" y="80" width="12" height="80"/>
+  </g>
+  <line x1="208" y1="160" x2="340" y2="160" stroke="#8b95a3"/>
+  <line x1="208" y1="80" x2="340" y2="80" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="4,3"/>
+  <text x="274" y="180" font-size="9.5" fill="#7c3aed" text-anchor="middle">숫자 하나 = wet_mean</text>
+  <text x="274" y="196" font-size="9" fill="#5b6470" text-anchor="middle">펌프 RPM·밸브가 통째로 올린다</text>
+  <text x="360" y="112" font-size="20" fill="#5b6470">+</text>
+
+  <!-- 프로파일 -->
+  <text x="392" y="18" font-size="11.5" font-weight="700" fill="#2563eb">모양 (레벨을 뺀 나머지)</text>
+  <line x1="392" y1="112" x2="524" y2="112" stroke="#8b95a3"/>
+  <g fill="#2563eb">
+    <rect x="396" y="112" width="12" height="12"/><rect x="412" y="112" width="12" height="6"/>
+    <rect x="428" y="104" width="12" height="8"/><rect x="444" y="98" width="12" height="14"/>
+    <rect x="460" y="100" width="12" height="12"/><rect x="476" y="108" width="12" height="4"/>
+    <rect x="492" y="112" width="12" height="6"/><rect x="508" y="112" width="12" height="12"/>
+  </g>
+  <text x="458" y="180" font-size="9.5" fill="#2563eb" text-anchor="middle">25개 숫자, 평균은 0</text>
+  <text x="458" y="196" font-size="9" fill="#5b6470" text-anchor="middle">볼트 25개가 국소적으로 만든다</text>
+
+  <text x="18" y="228" font-size="10" fill="#5b6470">두 부분을 만드는 물리적 원인이 다르다 → 두 개의 모델로 나눠 배운다</text>
+</svg>
+<figcaption>같은 25개 숫자를 "전체 높이"와 "높이를 뺀 모양"으로 분해한다.
+전자를 움직이는 손잡이와 후자를 움직이는 손잡이가 물리적으로 다르다.</figcaption>
+</figure>
+
+<h3>3.1 레벨 모델 — "이 조건이면 평균 두께가 얼마나 되나"</h3>
+
+<div class="callout def">
+  <span class="lbl">정의 — 레벨 모델</span>
+  <p>전역 제어값 4개(<code>bp_open_rate</code>, <code>pump_rpm</code>, <code>os_gap</code>,
+  <code>ds_gap</code>) + 제품 코드 → <strong>평균 Wet 한 숫자</strong>를 예측하는 회귀 모델.
+  <br>입력 표: <code>absolute_samples</code>. 구현: <code>model/level.py</code>.</p>
+</div>
+
+<pre><span class="c"># app/coating/model/level.py:16-36</span>
+LEVEL_FEATURES = [<span class="s">"bp_open_rate"</span>, <span class="s">"pump_rpm"</span>, <span class="s">"os_gap"</span>, <span class="s">"ds_gap"</span>]
+TARGET_COL = <span class="s">"wet_mean"</span>
+
+<span class="k">def</span> build_level_model(alpha, numeric):
+    pre = ColumnTransformer([
+        (<span class="s">"num"</span>,  make_pipeline(SimpleImputer(strategy=<span class="s">"median"</span>), StandardScaler()), numeric),
+        (<span class="s">"prod"</span>, OneHotEncoder(handle_unknown=<span class="s">"ignore"</span>), [PRODUCT_COL]),
+    ])
+    <span class="k">return</span> Pipeline([(<span class="s">"pre"</span>, pre), (<span class="s">"ridge"</span>, Ridge(alpha=alpha))])</pre>
+
+<p>
+읽는 법: 숫자 피처는 <em>결측을 중앙값으로 채우고 → 표준화</em>, 제품 코드는 <em>원-핫</em>,
+그다음 <a href="#ridge">Ridge</a> 회귀. 딱 이게 전부다.
+</p>
+
+<p>
+그리고 <code>available_features</code> 라는 작은 함수가 하나 더 있는데, 설계 의도가 좋다:
+</p>
+
+<pre><span class="c"># app/coating/model/level.py:20-27</span>
+<span class="k">def</span> available_features(df):
+    <span class="s">"""실제로 값이 있는 피처만 남긴다.
+
+    RPM·BP open rate 가 로깅되지 않는 경우가 설계상 가장 위험한 가정이라,
+    그때도 파이프라인이 죽지 않고 '남은 변수로 최선' 을 하도록 만든다."""</span>
+    <span class="k">return</span> [c <span class="k">for</span> c <span class="k">in</span> LEVEL_FEATURES <span class="k">if</span> c <span class="k">in</span> df.columns <span class="k">and</span> df[c].notna().any()]</pre>
+
+<h3>3.2 커널 — "볼트 하나가 만드는 퍼짐 모양"</h3>
+
+<div class="callout def">
+  <span class="lbl">정의 — 커널 (kernel)</span>
+  <p><strong>zone 하나의 gap 을 1단위 바꿨을 때, 주변 zone 들의 Wet 이 각각 얼마나 변하는지를
+  적은 짧은 숫자 벡터.</strong> <code>k=2</code> 면 길이 5:
+  <code>[g₋₂, g₋₁, g₀, g₊₁, g₊₂]</code> — 왼쪽 2칸, 자기 자리, 오른쪽 2칸.</p>
+  <p>모델식: &nbsp;<code>Δwet<sub>i</sub> = Σ<sub>j=−k..k</sub> g<sub>j</sub> · Δgap<sub>i+j</sub></code></p>
+</div>
+
+<figure>
+<svg viewBox="0 0 700 200" role="img" aria-label="커널의 종 모양과 Toeplitz 가정">
+  <text x="18" y="18" font-size="11.5" font-weight="700" fill="#7c3aed">커널 g — 길이 5 (k=2)</text>
+  <line x1="40" y1="130" x2="300" y2="130" stroke="#8b95a3"/>
+  <g fill="#7c3aed">
+    <rect x="56" y="118" width="34" height="12"/>
+    <rect x="98" y="88" width="34" height="42"/>
+    <rect x="140" y="46" width="34" height="84"/>
+    <rect x="182" y="88" width="34" height="42"/>
+    <rect x="224" y="118" width="34" height="12"/>
+  </g>
+  <g font-size="9.5" fill="#5b6470" text-anchor="middle" font-family="monospace">
+    <text x="73" y="146">−2</text><text x="115" y="146">−1</text>
+    <text x="157" y="146">0</text><text x="199" y="146">+1</text><text x="241" y="146">+2</text>
+  </g>
+  <g font-size="9" fill="#7c3aed" text-anchor="middle" font-family="monospace">
+    <text x="73" y="112">0.02</text><text x="115" y="82">0.09</text>
+    <text x="157" y="40">0.31</text><text x="199" y="82">0.09</text><text x="241" y="112">0.02</text>
+  </g>
+  <text x="157" y="170" font-size="9.5" fill="#5b6470" text-anchor="middle">중심이 최대 · 부호 일관 · 바깥으로 감소</text>
+
+  <!-- Toeplitz -->
+  <text x="360" y="18" font-size="11.5" font-weight="700" fill="#1a1d21">Toeplitz — 같은 모양을 밀어 쓴다</text>
+  <g font-size="8.5" font-family="monospace">
+    <text x="360" y="42" fill="#5b6470">zone 10 을 조이면:</text>
+    <g fill="#c4b5fd"><rect x="378" y="50" width="14" height="7"/><rect x="396" y="50" width="14" height="7"/></g>
+    <rect x="414" y="46" width="14" height="14" fill="#7c3aed"/>
+    <g fill="#c4b5fd"><rect x="432" y="50" width="14" height="7"/><rect x="450" y="50" width="14" height="7"/></g>
+    <text x="360" y="86" fill="#5b6470">zone 18 을 조이면:</text>
+    <g fill="#c4b5fd"><rect x="504" y="94" width="14" height="7"/><rect x="522" y="94" width="14" height="7"/></g>
+    <rect x="540" y="90" width="14" height="14" fill="#7c3aed"/>
+    <g fill="#c4b5fd"><rect x="558" y="94" width="14" height="7"/><rect x="576" y="94" width="14" height="7"/></g>
+  </g>
+  <text x="360" y="128" font-size="9.5" fill="#1a1d21">모양은 같고 <tspan font-weight="700">위치만</tspan> 다르다</text>
+  <text x="360" y="150" font-size="9.5" fill="#15803d" font-weight="600">→ 파라미터 625개 → 5개</text>
+  <text x="360" y="170" font-size="9" fill="#5b6470">이게 소수 이벤트로도 배울 수 있는 이유</text>
+</svg>
+<figcaption>다이 볼트의 물리적 성질 — "퍼짐 모양은 폭 방향 위치와 거의 무관하다" — 을
+<strong>Toeplitz(공간 불변) 가정</strong>으로 못 박으면 배워야 할 숫자가 625개에서 5개로 준다.</figcaption>
+</figure>
+
+<pre><span class="c"># app/coating/model/profile.py:33-60 (요약)</span>
+<span class="k">def</span> fit_kernel(delta_gap, delta_wet, k, alpha):
+<span class="hi">    y = delta_wet - np.nanmean(delta_wet, axis=<span class="n">1</span>, keepdims=<span class="k">True</span>)   <span class="c"># ← 레벨 성분 제거</span></span>
+    y = y.reshape(-<span class="n">1</span>)
+    x = build_design(delta_gap, k).reshape(n_events, n_zones, width)
+<span class="hi">    x = x - np.nanmean(x, axis=<span class="n">1</span>, keepdims=<span class="k">True</span>)                  <span class="c"># ← 설계행렬에도 같은 제거</span></span>
+    x = x.reshape(-<span class="n">1</span>, width)
+    ok = np.isfinite(y) & np.isfinite(x).all(axis=<span class="n">1</span>)
+    x, y = x[ok], y[ok]
+    <span class="k">return</span> np.linalg.solve(x.T @ x + alpha * np.eye(width), x.T @ y)   <span class="c"># 릿지 정규방정식</span></pre>
+
+<div class="callout warn">
+  <span class="lbl">양쪽에 같은 변환을 걸어야 한다 — 실측으로 확인된 함정</span>
+  <p><code>y</code> 에서 이벤트 평균을 뺐으면 <strong><code>x</code> 에서도 빼야 한다.</strong>
+  한쪽만 빼면 추정이 편향된다. docstring 이 실측값까지 적어 놨다 —
+  <em>참값 대비 전 성분 약 −0.07</em>. 이유는 <code>y</code> 에서 뺀 이벤트 평균
+  <code>m_e = Σ g_j·mean(Δgap)</code> 자체가 Δgap 과 상관돼 있어서, 설계행렬을 그대로 두면
+  그 상관만큼 커널이 통째로 눌리기 때문이다.</p>
+</div>
+
+<h3>3.3 그래서 왜 둘 다 필요한가</h3>
+
+<p>세 가지 이유가 겹친다.</p>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th style="width:22%">이유</th><th>설명</th></tr></thead>
+<tbody>
+<tr><td><strong>물리적 원인이 다르다</strong></td>
+<td>펌프 RPM 을 올리면 25개가 <em>다 같이</em> 올라간다. 볼트 13번을 조이면 12~14번만 움직인다.
+하나의 모델에 넣으면 서로의 효과를 흡수해 버린다.</td></tr>
+<tr><td><strong>데이터 소스가 다르다</strong></td>
+<td>레벨은 <code>absolute_samples</code>(상태), 커널은 <code>delta_samples</code>(변화)를 쓴다.
+전처리 <a href="#pre-samples">2.7절</a>에서 표가 갈리는 이유가 정확히 이것이다.</td></tr>
+<tr><td><strong>안 나누면 커널이 망가진다</strong></td>
+<td><code>fit_kernel</code> 이 평균을 빼는 이유. 레벨 변화가 섞여 들어오면
+<strong>커널이 상수항을 흡수</strong>해서 모양이 뭉개진다.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout key">
+  <span class="lbl">한 문장으로</span>
+  <p><strong>레벨 모델은 "얼마나 두껍게"를 맞히고, 커널은 "얼마나 고르게"를 맞힌다.</strong>
+  현장에서 불량이 나는 이유가 둘 다이기 때문에 둘 다 필요하다.</p>
+</div>
+
+<div class="qmemo" data-qid="models-why-two" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">레벨/커널 분리에 대해 궁금한 점.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<!-- ══════════════════ 4. 야코비안 ══════════════════ -->
+<h2 id="jac"><span class="num">4</span>야코비안 행렬 — 이 프로젝트의 진짜 납품물</h2>
+
+<h3>4.1 정의부터, 아주 천천히</h3>
+
+<p>
+고등학교에서 배운 <strong>기울기</strong>를 떠올리자. <code>y = 3x</code> 에서 기울기는 3이다.
+"x 를 1 올리면 y 가 3 오른다"는 뜻이다.
+</p>
+
+<p>
+그런데 우리 문제는 입력도 25개(gap), 출력도 25개(Wet)다. 그러면 기울기가 하나로는 부족하다.
+<strong>"입력 j 를 1 올리면 출력 i 가 얼마나 오르나"</strong>를 모든 (i, j) 쌍에 대해 적어야 한다.
+25×25 = 625개의 숫자가 나오고, 이걸 표로 적은 것이 <strong>야코비안 행렬</strong>이다.
+</p>
+
+<div class="callout def">
+  <span class="lbl">정의 — 야코비안 행렬 (Jacobian)</span>
+  <p>출력이 여러 개, 입력이 여러 개일 때의 <strong>기울기 표</strong>.
+  <code>i</code>행 <code>j</code>열 칸의 값은 <code>∂Wet<sub>i</sub> / ∂gap<sub>j</sub></code> —
+  "<em>j번 볼트를 1단위 조이면 i번 zone 의 두께가 얼마나 변하나</em>".</p>
+  <p>이 저장소에서는 이걸 <strong>영향행렬 G</strong> 라고 부른다.</p>
+</div>
+
+<h3>4.2 커널과 야코비안의 관계</h3>
+
+<p>
+좋은 소식: 우리는 이미 커널을 배웠고, <strong>커널을 펼치면 그게 곧 야코비안이다.</strong>
+Toeplitz 가정 덕분에 5개 숫자가 625칸을 다 채운다.
+</p>
+
+<pre><span class="c"># app/coating/model/profile.py:62-71</span>
+<span class="k">def</span> kernel_to_matrix(kernel, n_zones=<span class="n">25</span>):
+    <span class="s">"""커널을 25×25 영향행렬로 펼친다. 가장자리는 잘린다."""</span>
+    k = (<span class="k">len</span>(kernel) - <span class="n">1</span>) // <span class="n">2</span>
+    g = np.zeros((n_zones, n_zones))
+    <span class="k">for</span> i <span class="k">in</span> <span class="k">range</span>(n_zones):
+        <span class="k">for</span> j, off <span class="k">in</span> <span class="k">enumerate</span>(<span class="k">range</span>(-k, k + <span class="n">1</span>)):
+            src = i + off
+            <span class="k">if</span> <span class="n">0</span> &lt;= src &lt; n_zones:            <span class="c"># zone 1 의 왼쪽 이웃은 없다 → 0</span>
+                g[i, src] = kernel[j]</pre>
+
+<figure>
+<svg viewBox="0 0 700 210" role="img" aria-label="커널 5개 숫자가 25x25 밴드 행렬로 펼쳐지는 모습">
+  <text x="18" y="18" font-size="11.5" font-weight="700" fill="#7c3aed">커널 (5개)</text>
+  <g font-family="monospace" font-size="9.5">
+    <rect x="20" y="30" width="150" height="24" fill="#f0ebff" stroke="#7c3aed" rx="3"/>
+    <text x="95" y="46" fill="#5b21b6" text-anchor="middle">[.02 .09 .31 .09 .02]</text>
+  </g>
+  <path d="M95 62 L95 88" stroke="#5b6470" stroke-width="1.4" marker-end="url(#ar3)"/>
+  <defs><marker id="ar3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 z" fill="#5b6470"/></marker></defs>
+  <text x="105" y="80" font-size="9" fill="#5b6470">kernel_to_matrix</text>
+
+  <text x="18" y="106" font-size="11.5" font-weight="700" fill="#1a1d21">영향행렬 G (25×25, 밴드 구조)</text>
+  <g>
+    <rect x="20" y="116" width="180" height="80" fill="#fafaf7" stroke="#c8ced8"/>
+    <!-- 밴드 -->
+    <g fill="#7c3aed">
+      <rect x="20" y="116" width="21" height="8"/>
+      <rect x="27" y="124" width="28" height="8"/>
+      <rect x="34" y="132" width="28" height="8"/>
+      <rect x="48" y="140" width="28" height="8"/>
+      <rect x="62" y="148" width="28" height="8"/>
+      <rect x="76" y="156" width="28" height="8"/>
+      <rect x="90" y="164" width="28" height="8"/>
+      <rect x="104" y="172" width="28" height="8"/>
+      <rect x="118" y="180" width="28" height="8"/>
+      <rect x="132" y="188" width="28" height="8"/>
+    </g>
+    <text x="210" y="140" font-size="9.5" fill="#5b6470">대각선 근처만 값이 있다</text>
+    <text x="210" y="156" font-size="9.5" fill="#5b6470">(멀리 있는 zone 은 서로 영향 없음)</text>
+    <text x="210" y="176" font-size="9.5" fill="#b91c1c">가장자리는 잘린다 — zone 1 의</text>
+    <text x="210" y="190" font-size="9.5" fill="#b91c1c">왼쪽 이웃은 존재하지 않으므로</text>
+  </g>
+
+  <!-- 사용 -->
+  <g font-family="monospace" font-size="10">
+    <rect x="452" y="30" width="230" height="60" fill="#e8f7ed" stroke="#15803d" rx="4"/>
+    <text x="464" y="50" fill="#14532d">Δwet = G · Δgap</text>
+    <text x="464" y="70" fill="#14532d" font-size="9">아는 것: G, 원하는 Δwet</text>
+    <text x="464" y="84" fill="#14532d" font-size="9">구할 것: Δgap  ← 이게 "추천"</text>
+  </g>
+</svg>
+<figcaption>커널 5개 → 25×25 밴드 행렬. 그리고 이 행렬이 있으면
+"원하는 두께 변화를 만들려면 볼트를 얼마나 돌려야 하나"를 <em>거꾸로 풀 수</em> 있다.</figcaption>
+</figure>
+
+<h3>4.3 왜 이게 납품물인가 — 예측이 아니라 개입</h3>
+
+<p>
+여기가 이 프로젝트를 이해하는 데 가장 중요한 지점이다.
+</p>
+
+<p>
+현장이 원하는 건 <em>"내일 두께가 18.2 일 것이다"</em>라는 예측이 아니다.
+<strong>"지금 이 상태에서 볼트를 어떻게 돌리면 목표에 가장 가까워지나"</strong>다.
+그건 예측이 아니라 <strong>개입(intervention)</strong>이고, 개입에 답하는 건 기울기다.
+</p>
+
+<pre><span class="c"># app/coating/model/inverse.py:16-57 — 역산의 심장부</span>
+<span class="k">def</span> recommend_gap(g, current_gap, current_profile, target_profile,
+                  bounds, max_step, lam_move, lam_smooth):
+    want = np.nan_to_num(target_profile - current_profile)   <span class="c"># 만들고 싶은 변화</span>
+
+    <span class="k">def</span> cost(delta):
+<span class="hi">        err = g @ delta - want                    <span class="c"># ← 야코비안 G 가 여기 쓰인다</span></span>
+        step = np.diff(delta)
+        <span class="k">return</span> (<span class="k">float</span>(err @ err)
+                + lam_move   * <span class="k">float</span>(delta @ delta)     <span class="c"># 적게 움직여라</span>
+                + lam_smooth * <span class="k">float</span>(step @ step))     <span class="c"># 인접 zone 단차를 줄여라</span>
+
+    <span class="k">def</span> grad(delta):
+        err = g @ delta - want
+        ...
+<span class="hi">        <span class="k">return</span> <span class="n">2</span> * (g.T @ err + lam_move * delta + lam_smooth * d2)   <span class="c"># ← 기울기를 직접 준다</span></span>
+
+    lo = np.maximum(bounds[<span class="n">0</span>] - current_gap, -max_step)    <span class="c"># 물리 한계 ∩ 1회 이동 한계</span>
+    hi = np.minimum(bounds[<span class="n">1</span>] - current_gap,  max_step)
+<span class="hi">    res = minimize(cost, np.zeros(n), jac=grad, method=<span class="s">"L-BFGS-B"</span>, bounds=<span class="k">list</span>(<span class="k">zip</span>(lo, hi)))</span>
+    <span class="k">return</span> current_gap + res.x</pre>
+
+<p>
+<code>lam_move</code> 항이 실무적으로 결정적이다. 수학적으로 똑같이 좋은 해가 여러 개일 때,
+<strong>작업자가 지금 값에서 가장 적게 움직여 도달할 수 있는 해</strong>를 고르게 한다.
+아무리 정확해도 볼트 25개를 전부 돌리라고 하면 아무도 안 쓴다.
+</p>
+
+<div class="callout warn">
+  <span class="lbl">가장 중요한 결과 — 이 문서 전체의 핵심</span>
+  <p>야코비안이 납품물이라는 사실에서 이런 게 따라 나온다:
+  <strong>Wet 을 아주 잘 맞히면서 기울기가 물리와 어긋난 모델은, 잘 맞히지 못하는 모델보다 더 위험하다.</strong></p>
+  <p>왜냐면 그 모델은 <em>확신을 가지고 틀린 방향으로 볼트를 돌리라고</em> 하기 때문이다.
+  예측 정확도(MAE)는 좋게 나오고, 현장에서는 불량이 는다. 그리고 아무도 원인을 모른다.</p>
+</div>
+
+<div class="qmemo" data-qid="jac-why" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">야코비안 개념이나 "예측 vs 개입" 구분에 대해.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<!-- ══════════════════ 5. Ridge ══════════════════ -->
+<h2 id="ridge"><span class="num">5</span>Ridge 란 무엇인가</h2>
+
+<h3>5.1 최소제곱에 벌점 하나를 더한 것</h3>
+
+<p>
+보통의 선형회귀(최소제곱, OLS)는 이걸 최소화한다:
+</p>
+
+<p style="text-align:center; font-size:1.05rem; margin:20px 0">
+<code>‖ y − Xβ ‖²</code> &nbsp;&nbsp;— "예측이 정답에서 얼마나 벗어났나"
+</p>
+
+<p>
+Ridge 는 여기에 <strong>한 항을 더한다</strong>:
+</p>
+
+<p style="text-align:center; font-size:1.05rem; margin:20px 0">
+<code>‖ y − Xβ ‖² <span style="color:#7c3aed; font-weight:700">+ α‖β‖²</span></code>
+&nbsp;&nbsp;— "그리고 계수가 크면 벌점"
+</p>
+
+<div class="callout def">
+  <span class="lbl">한 문장 정의</span>
+  <p>Ridge = <strong>"잘 맞히되, 확신이 없으면 작게 대답해라"</strong>.
+  <code>α</code>(코드에서 <code>coating_ridge_alpha</code>, 기본 1.0)가 그 압박의 세기다.
+  <code>α=0</code> 이면 보통 최소제곱, <code>α</code>가 크면 모든 계수가 0 쪽으로 눌린다.</p>
+</div>
+
+<h3>5.2 왜 필요한가 — 두 가지 상황</h3>
+
+<h4>① 공선성 — 변수들이 서로 닮았을 때</h4>
+
+<p>
+<code>os_gap</code> 과 <code>ds_gap</code>(다이 양 끝 간격)을 작업자가 <strong>거의 항상 같이</strong>
+움직인다고 하자. 그러면 OLS 는 답을 못 고른다:
+</p>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>후보</th><th class="num">os_gap 계수</th><th class="num">ds_gap 계수</th><th>예측 성능</th></tr></thead>
+<tbody>
+<tr><td>A</td><td class="num">+0.5</td><td class="num">+0.5</td><td>완전히 동일</td></tr>
+<tr><td>B</td><td class="num">+100.0</td><td class="num">−99.0</td><td>완전히 동일</td></tr>
+<tr><td>C</td><td class="num">−50.0</td><td class="num">+51.0</td><td>완전히 동일</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+셋 다 <strong>훈련 데이터에서는 오차가 똑같다.</strong> OLS 는 이 중 아무거나 고르고,
+데이터가 조금만 흔들려도 B ↔ C 처럼 미친 듯이 튄다. Ridge 는 <code>‖β‖²</code> 벌점 때문에
+<strong>A 를 고른다</strong>. 그리고 A 만이 야코비안으로 쓸 수 있는 답이다 —
+B 를 믿고 볼트를 돌리면 재앙이다.
+</p>
+
+<h4>② 소표본 — 방정식보다 미지수가 많을 때</h4>
+
+<p>
+커널 추정에서 <code>alpha * np.eye(width)</code> 를 더하는 이유가 이것이다.
+<code>XᵀX</code> 가 특이행렬(inverse 가 없음)이면 OLS 는 아예 못 푼다.
+<code>+ αI</code> 는 대각선을 조금 올려서 <strong>항상 풀리게</strong> 만든다.
+</p>
+
+<pre><span class="c"># app/coating/model/profile.py:59</span>
+<span class="k">return</span> np.linalg.solve(x.T @ x <span style="color:#c792ea">+ alpha * np.eye(width)</span>, x.T @ y)
+<span class="c">#                              ↑ 이 한 항이 Ridge 의 전부다</span></pre>
+
+<div class="callout">
+  <span class="lbl">이 저장소에서 Ridge 가 쓰이는 두 곳</span>
+  <ul class="tight" style="margin:6px 0">
+    <li><code>level.py</code> — sklearn 의 <code>Ridge(alpha=1.0)</code>, 파이프라인 마지막 단계</li>
+    <li><code>profile.py</code> — 정규방정식을 <strong>직접</strong> 푼다.
+    Toeplitz 구조를 sklearn 에 넣을 방법이 없어서 손으로 짰다.</li>
+  </ul>
+</div>
+
+<h3>5.3 Ridge 의 숨은 선물 — 계수를 사람이 볼 수 있다</h3>
+
+<pre><span class="c"># app/coating/model/level.py:41-53</span>
+<span class="k">def</span> coefficients(model, feats):
+    <span class="s">"""피처별 계수. 부호가 물리와 맞는지 사람이 볼 수 있어야 한다.
+
+    크기 비교가 아니라 **부호와 상대 크기**를 보는 용도다 - 토출량↑ ⇒ 로딩↑ 이
+    안 나오면 그 자체가 발견이다(데이터가 물리와 어긋났거나 교란변수가 있다)."""</span>
+    ridge = model.named_steps[<span class="s">"ridge"</span>]
+    <span class="k">return</span> {name: <span class="k">float</span>(c) <span class="k">for</span> name, c <span class="k">in</span> <span class="k">zip</span>(feats, ridge.coef_[: <span class="k">len</span>(feats)])}</pre>
+
+<p>
+그리고 리포트는 이 계수의 부호를 <strong>자동으로 검사</strong>한다:
+</p>
+
+<pre><span class="c"># app/coating/report.py:552-558</span>
+rpm = lv[<span class="s">"coefficients"</span>].get(<span class="s">"pump_rpm"</span>)
+<span class="k">if</span> rpm <span class="k">is</span> <span class="k">not</span> <span class="k">None</span> <span class="k">and</span> rpm &lt; <span class="n">0</span>:
+    lines.append(<span class="s">"  - ⚠ Pump RPM 계수가 음수다. 토출량↑ ⇒ 로딩↑ 이라는 물리와"</span>
+                 <span class="s">" 어긋난다. 교란변수(고형분·점도)가 빠졌을 가능성을 먼저 본다."</span>)</pre>
+
+<p>
+<strong>이게 다음 절로 가는 다리다.</strong> 트리 앙상블에는 이런 계수가 없다.
+따라서 이 검사를 할 <em>대상 자체가 없다</em>.
+</p>
+
+<div class="qmemo" data-qid="ridge-basics" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">Ridge·공선성·정규화에 대해 궁금한 점.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<!-- ══════════════════ 6. 트리 ══════════════════ -->
+<h2 id="trees"><span class="num">6</span>왜 GBoost · Random Forest 를 그냥 쓸 수 없나</h2>
+
+<p>
+먼저 분명히 하자. <strong>"트리 앙상블이 나쁘다"가 아니다.</strong> 표 형식 데이터에서
+트리 앙상블은 대체로 최강이다. 문제는 <em>이 문제가 예측 문제가 아니라는 것</em>이다.
+</p>
+
+<h3>6.1 거르개 네 개</h3>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th style="width:24%">거르개</th><th>왜 필요한가</th></tr></thead>
+<tbody>
+<tr><td><strong>① 기울기가 물리와 맞아야</strong></td>
+<td>납품물이 야코비안이다. Wet 을 잘 맞히면서 기울기가 뒤집힌 모델은 확신 있게 틀린 조정을 낸다.</td></tr>
+<tr><td><strong>② 기울기가 살아 있고 외삽이 돼야</strong></td>
+<td><code>L-BFGS-B</code> 가 <code>jac=grad</code> 를 먹는다. 그리고 추천이 필요한 지점은 관측 범위 <em>밖</em>인 경우가 많다.</td></tr>
+<tr><td><strong>③ 반증 가능해야</strong></td>
+<td>이 저장소엔 커널의 종 모양·랭크·SNR 을 각각 검사하는 관문이 이미 있다. 걸 자리가 없는 모델은 틀려도 틀린 줄 모른다.</td></tr>
+<tr><td><strong>④ 정보량 = 독립 임펄스 수</strong></td>
+<td>"수만 분이니 표본이 많다"는 착시다. 실질 정보는 조정 묶음 수와 공간 랭크(≈22)가 정한다.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>6.2 트리는 ②에 정면으로 걸린다</h3>
+
+<figure>
+<svg viewBox="0 0 700 230" role="img" aria-label="선형 모델과 트리 모델의 기울기 비교">
+  <!-- 왼쪽: Ridge -->
+  <text x="30" y="18" font-size="11.5" font-weight="700" fill="#15803d">Ridge — 매끄러운 면</text>
+  <line x1="40" y1="150" x2="290" y2="150" stroke="#8b95a3"/>
+  <line x1="40" y1="150" x2="40" y2="40" stroke="#8b95a3"/>
+  <line x1="45" y1="140" x2="285" y2="55" stroke="#15803d" stroke-width="2.5"/>
+  <g stroke="#15803d" stroke-width="1.2" stroke-dasharray="3,2">
+    <line x1="120" y1="113" x2="160" y2="99"/>
+  </g>
+  <circle cx="140" cy="106" r="4" fill="#15803d"/>
+  <text x="150" y="100" font-size="9.5" fill="#15803d">기울기 ≠ 0 ✓</text>
+  <text x="70" y="175" font-size="9.5" fill="#5b6470">어느 점에서든 "어느 쪽으로 얼마나"를</text>
+  <text x="70" y="189" font-size="9.5" fill="#5b6470">말할 수 있다 → 최적화가 굴러간다</text>
+  <text x="163" y="167" font-size="9" fill="#8b95a3" text-anchor="middle">gap</text>
+
+  <!-- 오른쪽: 트리 -->
+  <text x="400" y="18" font-size="11.5" font-weight="700" fill="#b91c1c">트리 — 구간별 계단</text>
+  <line x1="400" y1="150" x2="660" y2="150" stroke="#8b95a3"/>
+  <line x1="400" y1="150" x2="400" y2="40" stroke="#8b95a3"/>
+  <polyline points="405,132 455,132 455,110 520,110 520,84 585,84 585,58 655,58"
+            fill="none" stroke="#b91c1c" stroke-width="2.5"/>
+  <g stroke="#b91c1c" stroke-width="1.2" stroke-dasharray="3,2">
+    <line x1="470" y1="110" x2="512" y2="110"/>
+  </g>
+  <circle cx="490" cy="110" r="4" fill="#b91c1c"/>
+  <text x="498" y="104" font-size="9.5" fill="#b91c1c">기울기 = 0 ✗</text>
+  <text x="410" y="175" font-size="9.5" fill="#5b6470">평평한 구간에서 기울기가 정확히 0 →</text>
+  <text x="410" y="189" font-size="9.5" fill="#b91c1c">L-BFGS-B 가 첫 걸음에서 멈춘다</text>
+  <text x="410" y="207" font-size="9.5" fill="#b91c1c">관측 범위 밖은 상수로 클립 → 외삽 불가</text>
+  <text x="530" y="167" font-size="9" fill="#8b95a3" text-anchor="middle">gap</text>
+</svg>
+<figcaption>트리는 공간을 상자로 쪼개고 각 상자 안에서 <strong>상수</strong>를 낸다.
+"이 방향으로 조금 더 가면 좋아진다"는 정보가 구조적으로 존재하지 않는다.</figcaption>
+</figure>
+
+<p>
+<code>level.py</code> 의 docstring 이 이걸 정확히 예견해 놨다:
+</p>
+
+<pre><span class="c"># app/coating/model/level.py:1-7</span>
+<span class="s">"""레벨 모델 — zone 평균 Wet 을 예측한다.
+
+릿지를 베이스라인으로 둔다. 이 문제는 물리적으로 단조롭고(토출량↑ ⇒ 로딩↑)
+변수가 몇 개 안 된다. 트리 앙상블을 먼저 쓰면 구간별로 계단처럼 튀는 예측이
+나오고, 그게 역산 최적화에서 이상한 해를 만든다. HistGradientBoosting 이
+유의미하게 못 이기면 릿지를 채택한다(비교는 evaluate 모듈이 한다)."""</span></pre>
+
+<h3>6.3 커널 쪽은 더 근본적으로 불가능하다</h3>
+
+<p>
+프로파일 모델이 하는 일의 <em>전부</em>는 <strong>파라미터 공유</strong>다 —
+Toeplitz 가정으로 625개를 5개로 줄이는 것. 트리에는 그 구조를 넣을 자리가 없다.
+25개 zone 을 서로 독립적인 피처로 보고, 랭크 22짜리 데이터에서
+"각 zone 마다 다른 규칙"을 배우려 들다가 과적합한다.
+</p>
+
+<h3>6.4 그리고 폐루프에서는 더 위험하다</h3>
+
+<p>
+작업자는 Wet 을 보고 볼트를 돌린다. 즉 <strong>gap 이 Wet 의 원인이자 동시에 결과</strong>다.
+이걸 폐루프(closed loop)라고 한다.
+</p>
+
+<figure>
+<svg viewBox="0 0 640 150" role="img" aria-label="폐루프 구조 — 작업자가 Wet 을 보고 gap 을 조정한다">
+  <rect x="180" y="30" width="120" height="44" fill="#dbeafe" stroke="#2563eb" rx="5"/>
+  <text x="240" y="57" font-size="11" fill="#1e3a8a" text-anchor="middle" font-weight="600">설비 (진짜 G)</text>
+  <rect x="380" y="30" width="120" height="44" fill="#fff1e6" stroke="#ea580c" rx="5"/>
+  <text x="440" y="57" font-size="11" fill="#9a3412" text-anchor="middle" font-weight="600">Wet 측정</text>
+  <rect x="280" y="102" width="120" height="34" fill="#f0ebff" stroke="#7c3aed" rx="5"/>
+  <text x="340" y="124" font-size="11" fill="#5b21b6" text-anchor="middle" font-weight="600">작업자 규칙 C</text>
+
+  <path d="M300 52 L376 52" stroke="#5b6470" stroke-width="1.5" marker-end="url(#ar4)"/>
+  <path d="M440 78 L440 119 L404 119" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#ar5)"/>
+  <path d="M280 119 L240 119 L240 78" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#ar6)"/>
+  <defs>
+    <marker id="ar4" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#5b6470"/></marker>
+    <marker id="ar5" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#7c3aed"/></marker>
+    <marker id="ar6" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#7c3aed"/></marker>
+  </defs>
+  <text x="120" y="57" font-size="10" fill="#2563eb" text-anchor="middle">gap 조정</text>
+  <text x="18" y="140" font-size="9.5" fill="#5b6470">기록에 남은 gap↔Wet 상관에는 설비의 G 와 작업자의 C 가 섞여 있다</text>
+</svg>
+<figcaption>데이터에서 관측되는 상관관계는 <strong>설비의 물리 G</strong>와
+<strong>작업자의 습관 C</strong>가 뒤엉킨 것이다.</figcaption>
+</figure>
+
+<div class="callout warn">
+  <span class="lbl">신경망·트리가 특히 위험한 이유</span>
+  <p>표현력이 큰 모델일수록 <strong>작업자의 제어 법칙 C 를 더 잘 외운다.</strong>
+  그러면 Wet 예측 정확도(MAE)는 <em>올라가는데</em> 야코비안은 <em>더 틀려진다</em>.
+  예측 성능이 좋아지는 것이 오히려 나쁜 신호일 수 있다는 뜻이다.</p>
+  <p>그리고 이 실패는 <strong>조용하다</strong>. 지표는 전부 좋게 나온다.</p>
+</div>
+
+<h3>6.5 그렇다면 트리를 어디에 쓸 수 있나 — 정당한 용도 둘</h3>
+
+<p>
+공정하게 말하자. 트리 앙상블에는 이 프로젝트에서도 <strong>진짜 쓸모가 있다.</strong>
+다만 역산 모델이 아니라 <em>진단 도구</em>로서다.
+</p>
+
+<div class="callout key">
+  <span class="lbl">① standard_table 판정의 신뢰도를 올린다 — 이게 제일 크다</span>
+  <p>지금 Ridge 가 나이브 베이스라인을 못 이기면 리포트는
+  <code>standard_table</code>("ML 이 답이 아니다, 제품별 표준 조건표를 써라")을 낸다.
+  그런데 그 판정에는 두 가지가 섞여 있다:</p>
+  <ul class="tight">
+    <li>제어값에 <strong>신호가 없다</strong> → 표준 조건표가 진짜 정답</li>
+    <li>관계가 <strong>비선형이라 Ridge 로 못 잡았다</strong> → 모델을 바꿔야 함</li>
+  </ul>
+  <p><strong>GBM 도 같이 지면 앞쪽이 확정된다.</strong> 지금은 이 둘을 가를 수 없어서
+  <code>standard_table</code> 판정이 실제보다 약하다.</p>
+</div>
+
+<div class="callout">
+  <span class="lbl">② 비선형·상호작용 탐지기</span>
+  <p>GBM 이 Ridge 를 크게 이기면 그 자체가 발견이다 — "선형으로는 못 잡는 구조가 있다".
+  그럼 Ridge 에 교호항이나 구간을 추가하면 된다.
+  <strong>GBM 자체를 역산에 쓰는 게 아니라, GBM 이 알려준 것을 선형 모델에 반영한다.</strong></p>
+</div>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>결과</th><th>뜻</th><th>다음 행동</th></tr></thead>
+<tbody>
+<tr><td>Ridge·GBM 둘 다 나이브에 짐</td><td>제어값에 신호가 없다 <em>(확정)</em></td><td><code>standard_table</code> 이 정답. 표준 조건표로 간다</td></tr>
+<tr><td>Ridge ≈ GBM, 둘 다 나이브 이김</td><td>관계가 선형이다</td><td>Ridge 유지. <strong>역산에 그대로 쓸 수 있다</strong></td></tr>
+<tr><td>GBM ≫ Ridge (10%+)</td><td>비선형·상호작용 있음</td><td>Ridge 에 교호항 추가. GBM 은 역산에 안 쓴다</td></tr>
+<tr><td>GBM ≫ Ridge <em>인데</em> 계수 부호가 물리와 반대</td><td><strong>폐루프 신호</strong></td><td>되먹임 강도 측정이 먼저. 여기서 모델을 키우면 틀린 방향으로 간다</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="qmemo" data-qid="trees-usage" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">"트리를 왜 못 쓰나"에 반론이 있으면 여기 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<!-- ══════════════════ 7. 코드 리뷰 ══════════════════ -->
+<h2 id="review"><span class="num">7</span>코드 리뷰 — 지금 상태와 발견된 것</h2>
+
+<h3>7.1 잘 되어 있는 것</h3>
+
+<ul class="tight">
+<li><strong>순수 함수 분리가 철저하다.</strong> <code>parse.py</code> 만 파일을 만지고,
+나머지는 DataFrame 만 받는다. docstring 에 <code>★순수</code> 표식까지 붙여 규율을 유지한다.</li>
+<li><strong>주석이 "무엇" 이 아니라 "왜" 를 적는다.</strong> 특히 실패에서 배운 것을 남긴다 —
+<code>fit_kernel</code> 의 <em>"실측: 참값 대비 전 성분 약 −0.07"</em>,
+<code>parse.py</code> 의 인코딩 순서 이유.</li>
+<li><strong>판정을 먼저, 숫자는 그 다음.</strong> <code>_verdict</code>, <code>response.verdict</code>,
+<code>_level_verdict</code> 가 전부 "숫자를 낼 수 있는가"를 먼저 묻는다.</li>
+<li><strong>실패가 트레이스백이 아니라 문장으로 나온다.</strong> 사내 PC 에서 돌리는 사람이
+원인을 되돌려 줄 수 있게 하는 설계다.</li>
+</ul>
+
+<h3>7.2 발견 ① — 리포트가 거짓을 찍는다</h3>
+
+<p>
+격리가 0건일 때, <code>report.py</code> 가 zone 진단에 <strong>격리 이후의</strong>
+Δgap 을 그대로 먹인다:
+</p>
+
+<pre><span class="c"># app/coating/report.py:113 → 189</span>
+ds = features.delta_samples(<span style="color:#f78c6c">usable</span>, dl, wet, valid, ...)   <span class="c"># usable = 격리 통과분 (0행)</span>
+dg = ds[GAP_DELTA_COLS].to_numpy() <span class="k">if</span> <span class="k">len</span>(ds) <span class="k">else</span> np.zeros((<span class="n">0</span>, <span class="n">25</span>))
+...
+zones = profile.zone_adjustment_diagnostics(dg)              <span class="c"># ← 0행짜리를 먹는다</span></pre>
+
+<p>실제로 돌려 본 결과:</p>
+
+<pre>n_adjusted      : 0
+never_adjusted  : [1, 2, 3, 4, 5, 6] ... (총 25 개)
+effective_rank  : 0</pre>
+
+<p>
+리포트에 <strong>"작업자가 25개 zone 을 하나도 안 만졌다"</strong>가 찍힌다. 사실은 정반대다 —
+5분마다 만지고 있어서 격리가 0건이 된 것이다.
+</p>
+
+<div class="callout warn">
+  <span class="lbl">두 함수가 다른 질문을 한다</span>
+  <p><code>zone_adjustment_diagnostics</code> = <em>"작업자가 zone 을 골고루 만지고 있나"</em>
+  → 격리와 <strong>무관</strong>하다. 격리 <em>이전</em>의 전체 Δgap 을 먹여야 한다.</p>
+  <p><code>rank_diagnostics</code> = <em>"커널을 풀 자격이 있나"</em>
+  → 격리 통과분을 먹는 게 맞다.</p>
+  <p>지금은 앞쪽에 뒤쪽 데이터를 먹이고 있다. 한 줄 수정이다.</p>
+</div>
+
+<h3>7.3 발견 ② — 코드가 자기 약속을 안 지켰다</h3>
+
+<p>
+<a href="#trees">6.2절</a>에서 인용한 <code>level.py</code> docstring 이 이렇게 적어 놨다:
+</p>
+
+<blockquote style="border-left:3px solid var(--faint); margin:16px 0; padding:4px 16px; color:var(--muted)">
+"HistGradientBoosting 이 유의미하게 못 이기면 릿지를 채택한다<strong>(비교는 evaluate 모듈이 한다)</strong>."
+</blockquote>
+
+<p>
+그런데 코드베이스 전체를 검색하면 트리 계열 사용이 <strong>0건</strong>이다.
+이 docstring 한 줄이 유일한 언급이다. <code>compare_level_models</code> 는
+Ridge vs 나이브 2종만 비교하고 끝난다.
+</p>
+
+<p>
+즉 <strong>"릿지를 채택한다"는 결론이 비교 없이 내려져 있는 상태다.</strong>
+사용자가 "GBoost 쓰면 안 되나?" 라고 물은 것이 정확히 이 빈 자리를 짚은 것이다.
+</p>
+
+<h3>7.4 발견 ③ — 역산이 파이프라인에 연결돼 있지 않다</h3>
+
+<p>
+<code>inverse.recommend_gap</code> — <a href="#jac">4절</a>에서 본, 이 프로젝트의
+최종 산출물을 만드는 유일한 함수 — 의 호출처가 <strong>테스트 파일뿐</strong>이다.
+그리고 학습된 모델을 저장하는 코드가 없다(<code>joblib</code>/<code>pickle</code> 0건).
+</p>
+
+<p>
+이건 미완성이라기보다 <em>의도된 순서</em>다. <code>report.py</code> 첫 줄이 그렇게 적어 놨다 —
+<em>"모델이 얼마나 정확한가 보다 이 데이터로 학습이 가능한가 가 먼저다."</em>
+관문을 통과한 뒤에 붙일 마지막 조각으로 남겨 둔 것이다.
+</p>
+
+<div class="qmemo" data-qid="review-findings" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">리뷰 결과에 대해 궁금하거나 동의하지 않는 점.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<!-- ══════════════════ 8. 퀴즈 ══════════════════ -->
+<h2 id="quiz"><span class="num">8</span>퀴즈</h2>
+
+<p>다섯 문제. 답을 클릭하면 채점과 해설이 나온다.</p>
+
+<div class="quiz" data-answer="1">
+  <p class="q"><span class="qn">Q1.</span> <code>compress_runs</code> 의 출력에서 어떤 행의
+  <code>prev_value</code> 가 <code>NaN</code> 이었다. 이 행은 무엇을 뜻하나?</p>
+  <button class="opt">측정 센서가 고장나서 값을 못 읽은 시점이다</button>
+  <button class="opt">그 lot 에서 그 항목이 처음 관측된 시점 — 시작값이지 조정이 아니다</button>
+  <button class="opt">값이 이전과 똑같아서 변화량이 0인 시점이다</button>
+  <button class="opt">격리 관문을 통과하지 못한 이벤트다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q"><span class="qn">Q2.</span> 제어값 변경이 <code>08:03, 08:04, 08:06, 08:11</code> 에
+  있었고 <code>merge_minutes = 2</code> 다. <strong>앵커 규칙</strong>(<code>_anchor_groups</code>)은
+  이벤트를 몇 개로 묶나?</p>
+  <button class="opt">1개 — 2분 간격이 계속 이어지므로 전부 한 덩어리</button>
+  <button class="opt">2개 — 08:03~08:06 이 하나, 08:11 이 하나</button>
+  <button class="opt">3개 — {08:03, 08:04}, {08:06}, {08:11}</button>
+  <button class="opt">4개 — 앵커 규칙은 묶지 않고 전부 개별 이벤트로 둔다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q"><span class="qn">Q3.</span> <code>fit_kernel</code> 은 <code>delta_wet</code> 에서
+  이벤트별 평균을 뺀다. 그런데 <strong>설계행렬 <code>x</code> 에서도</strong> 같은 평균을 뺀다.
+  한쪽만 빼면 무슨 일이 생기나?</p>
+  <button class="opt">계산이 느려질 뿐 결과는 같다 — 수치 안정성을 위한 관례다</button>
+  <button class="opt">NaN 이 전파되어 <code>np.linalg.solve</code> 가 예외를 던진다</button>
+  <button class="opt">커널이 편향된다 — 뺀 평균이 Δgap 과 상관돼 있어 전 성분이 눌린다</button>
+  <button class="opt">커널의 부호가 통째로 뒤집힌다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="2">
+  <p class="q"><span class="qn">Q4.</span> 어떤 신경망이 Wet 예측 MAE 에서 Ridge 를 압도했다.
+  이 프로젝트에서 이것이 <strong>좋은 소식이 아닐 수도 있는</strong> 가장 중요한 이유는?</p>
+  <button class="opt">신경망은 학습에 GPU 가 필요해서 사내 폐쇄망에서 돌릴 수 없다</button>
+  <button class="opt">폐루프 데이터에서는 작업자의 제어 법칙까지 배워 예측은 좋아지고 야코비안은 틀려질 수 있다</button>
+  <button class="opt">신경망은 결측값을 처리하지 못해서 zone 이 빠진 데이터를 못 먹는다</button>
+  <button class="opt">MAE 는 원래 신뢰할 수 없는 지표라 RMSE 를 봐야 한다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q"><span class="qn">Q5.</span> <code>os_gap</code> 과 <code>ds_gap</code> 이 거의 항상
+  같이 움직여서, 최소제곱이 <code>(+100, −99)</code> 같은 계수를 낼 수 있다. Ridge 가
+  이 상황에서 하는 일은?</p>
+  <button class="opt">두 변수 중 하나를 자동으로 삭제한다</button>
+  <button class="opt">두 변수의 상관계수를 계산해서 경고를 띄운다</button>
+  <button class="opt"><code>‖β‖²</code> 벌점 때문에 <code>(+0.5, +0.5)</code> 처럼 작고 안정적인 해를 고른다</button>
+  <button class="opt">훈련 오차를 일부러 키워서 과적합을 막지만 계수 자체는 그대로 둔다</button>
+  <div class="fb"></div>
+</div>
+
+<div class="qmemo" data-qid="quiz-followup" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">틀린 문제나 헷갈린 선택지가 있으면 여기 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<hr class="sep">
+
+<!-- ══════════════════ 9. 요약 ══════════════════ -->
+<h2 id="summary"><span class="num">9</span>한 장 요약</h2>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th style="width:20%">질문</th><th>답</th></tr></thead>
+<tbody>
+<tr><td><strong>전처리가 하는 일</strong></td>
+<td>스냅샷 로그(수십만 행) → 변경점만 남기고(<code>compress_runs</code>) → 손질 단위로 묶고(<code>build_events</code>)
+→ 홀로 선 것만 고르고(<code>isolation</code>) → <strong>두 개의 샘플 표</strong>.
+통제된 실험이 없으니 작업자의 조정을 실험으로 <em>발굴</em>하는 과정이다.</td></tr>
+
+<tr><td><strong>레벨 모델</strong></td>
+<td>전역 손잡이 4개 + 제품 → <strong>평균 두께 한 숫자</strong>. Ridge 회귀.
+입력은 <code>absolute_samples</code>. <em>"얼마나 두껍게"</em>를 맡는다.</td></tr>
+
+<tr><td><strong>커널</strong></td>
+<td>볼트 하나가 만드는 <strong>퍼짐 모양</strong> — 길이 5짜리 벡터.
+Toeplitz 가정으로 파라미터 625 → 5. 입력은 <code>delta_samples</code>. <em>"얼마나 고르게"</em>를 맡는다.</td></tr>
+
+<tr><td><strong>왜 둘 다</strong></td>
+<td>물리적 원인이 다르고, 데이터 소스가 다르고, 안 나누면 커널이 레벨 변화를 흡수해서 뭉개진다.</td></tr>
+
+<tr><td><strong>야코비안</strong></td>
+<td>커널을 25×25 로 펼친 <strong>영향행렬 G</strong>. <code>∂Wet<sub>i</sub>/∂gap<sub>j</sub></code>.
+현장이 원하는 건 예측이 아니라 <strong>개입</strong>이고, 개입에 답하는 건 기울기다.
+<code>recommend_gap</code> 이 이걸 먹고 "볼트를 얼마나 돌려라"를 낸다.</td></tr>
+
+<tr><td><strong>Ridge</strong></td>
+<td>최소제곱 + <code>α‖β‖²</code>. <em>"잘 맞히되 확신이 없으면 작게 대답해라."</em>
+공선성 아래에서 안정적인 계수를 고르고, 소표본에서도 항상 풀리게 한다.
+덤으로 <strong>계수 부호를 사람이 검사할 수 있다.</strong></td></tr>
+
+<tr><td><strong>왜 GBoost/RF 를<br>그냥 못 쓰나</strong></td>
+<td>납품물이 예측값이 아니라 <strong>기울기</strong>인데, 트리는 구간별 상수라 기울기가 0이고 외삽이 안 된다.
+반증 관문에 걸 자리도 없다. 폐루프에서는 작업자 습관을 외워 <em>예측은 좋아지고 야코비안은 나빠진다</em>.
+<strong>단</strong>, 레벨 모델의 <em>진단 도구</em>로는 값어치가 크다 — <code>standard_table</code> 판정을 확정시킨다.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout key">
+  <span class="lbl">이 문서 전체를 한 문장으로</span>
+  <p>이 파이프라인은 <strong>예측기를 만들고 있지 않다.</strong>
+  <em>"이 손잡이를 이만큼 돌리면 결과가 이만큼 바뀐다"</em>는 물리적 관계를 재고 있고,
+  전처리부터 모델 선택까지 모든 결정이 그 한 가지 목표에서 따라 나온다.
+  모델을 고를 때 물어야 할 질문이 <strong>"얼마나 잘 맞히나"가 아니라
+  "그 기울기를 믿고 볼트를 돌릴 수 있나"</strong>인 이유다.</p>
+</div>
+
+<div class="qmemo" data-qid="summary-final" data-status="open">
+  <div class="qmemo-head"><span class="qmemo-label">질문 메모</span>
+  <span class="qmemo-hint">전체를 읽고 남은 질문을 여기 적어보세요.</span></div>
+  <div class="qmemo-question" contenteditable="true" data-placeholder="여기에 질문을 적어보세요..."></div>
+  <div class="qmemo-answer" hidden></div>
+</div>
+
+<p class="footnote">
+관련 문서 —
+<a href="2026-09-08-01-explanation-coating-control-event-extraction.html">제어 구간 추출 전처리</a> ·
+<a href="2026-09-08-02-explanation-coating-no-clean-anchor.html">깨끗한 앵커가 하나도 없다면</a> ·
+<a href="2026-09-09-01-explanation-coating-model-without-anchors.html">앵커 0건일 때 어떤 모델을 쓰나</a> ·
+<a href="2026-09-01-explanation-coating-dead-time.html">순수 지연과 응답</a>
+</p>
+
+</div><!-- /wrap -->
+
+<div id="qmemo-bar">
+  <button id="qmemo-save-btn">질문 저장 (파일로 다운로드)</button>
+  <span id="qmemo-saymsg"></span>
+</div>
+
+<script>
+/* ── 질문 메모 저장 ── */
+(function () {
+  var PATH_KEY = 'qmemo:' + location.pathname;
+  document.querySelectorAll('.qmemo-question').forEach(function (el) {
+    var box = el.closest('.qmemo');
+    var saved = localStorage.getItem(PATH_KEY + ':' + box.dataset.qid);
+    if (saved) el.textContent = saved;
+    el.addEventListener('input', function () {
+      localStorage.setItem(PATH_KEY + ':' + box.dataset.qid, el.textContent);
+    });
+  });
+  var btn = document.getElementById('qmemo-save-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var html = '<!doctype html>\n' + document.documentElement.outerHTML;
+    var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '2026-09-10-01-explanation-coating-models-and-preprocessing.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    document.getElementById('qmemo-saymsg').textContent =
+      '다운로드됨 → 파일탐색기에서 이 경로에 덮어쓰세요: C:\\Users\\sihoo\\PythonProject\\TestProject\\docs\\understanding\\2026-09-10-01-explanation-coating-models-and-preprocessing.html';
+  });
+})();
+
+/* ── 퀴즈 ── */
+(function () {
+  var FB = {
+    1: {
+      ok: '맞다. 두 번째가 정답이다.',
+      why: '<code>prev = groupby(lot, item).shift()</code> 이므로 NaN 은 "그 lot·항목의 첫 행" 을 뜻한다. ' +
+           '즉 원래 그랬던 값이지 사람이 바꾼 것이 아니다. 그래서 <code>build_events</code>, ' +
+           '<code>tuning_end_last_change</code>, <code>_control_change_times</code> 가 모두 ' +
+           '<code>prev_value.notna()</code> 로 시작값을 먼저 걸러낸다.'
+    },
+    2: {
+      ok: '맞다. 3개다.',
+      why: '앵커 규칙은 <strong>직전 값이 아니라 앵커</strong>와 비교한다. ' +
+           '08:03(앵커) → 08:04 는 1분 ≤ 2 라 같은 묶음. 08:06 은 앵커에서 <strong>3분 &gt; 2</strong> 라 ' +
+           '새 앵커가 된다. 08:11 은 08:06 에서 5분이라 또 새 묶음. ' +
+           '연쇄 규칙(옛 규칙)이었다면 08:06 이 직전 08:04 와 2분이라 이어붙어 2개가 됐을 것이다 — ' +
+           '그러면 묶음 span 이 무한정 자라 지연 측정이 오염된다.'
+    },
+    3: {
+      ok: '맞다. 편향이 생긴다.',
+      why: 'docstring 이 실측값까지 적어 놨다 — <em>참값 대비 전 성분 약 −0.07</em>. ' +
+           'y 에서 뺀 이벤트 평균 <code>m_e = Σ g_j·mean(Δgap)</code> 자체가 Δgap 과 상관돼 있어서, ' +
+           '설계행렬을 그대로 두면 그 상관만큼 커널이 통째로 눌린다. ' +
+           '양쪽에 같은 within 변환을 걸어야 <code>y = (X − rowmean X)·g</code> 가 정확히 성립한다.'
+    },
+    4: {
+      ok: '맞다. 이게 이 문서의 가장 중요한 논점이다.',
+      why: '작업자는 Wet 을 보고 gap 을 조정한다(폐루프). 표현력이 큰 모델일수록 설비의 물리 G 가 아니라 ' +
+           '<strong>작업자의 제어 법칙 C 를 더 잘 외운다.</strong> 그러면 MAE 는 좋아지는데 ' +
+           '∂Wet/∂gap 은 오히려 더 틀려진다. 우리가 납품하는 것이 후자이므로, ' +
+           '예측 성능 향상이 오히려 나쁜 신호일 수 있다. 게다가 이 실패는 지표에 안 나타난다 — 조용하다.'
+    },
+    5: {
+      ok: '맞다. 세 번째다.',
+      why: '(+100, −99) 와 (+0.5, +0.5) 는 훈련 오차가 <strong>똑같다</strong>. OLS 는 둘을 구별할 근거가 없어 ' +
+           '데이터가 조금만 흔들려도 계수가 미친 듯이 튄다. Ridge 의 <code>α‖β‖²</code> 벌점은 ' +
+           '크기가 작은 쪽을 고르게 만든다. 그리고 야코비안으로 쓸 수 있는 건 작은 쪽뿐이다 — ' +
+           '(+100, −99) 를 믿고 볼트를 돌리면 재앙이다.'
+    }
+  };
+  document.querySelectorAll('.quiz').forEach(function (quiz, qi) {
+    var answer = parseInt(quiz.dataset.answer, 10);
+    var opts = Array.prototype.slice.call(quiz.querySelectorAll('.opt'));
+    var fb = quiz.querySelector('.fb');
+    opts.forEach(function (opt, i) {
+      opt.addEventListener('click', function () {
+        var picked = i + 1;
+        var right = picked === answer;
+        opts.forEach(function (o, j) {
+          o.disabled = true;
+          if (j + 1 === answer) o.classList.add('correct');
+          else if (j === i) o.classList.add('wrong');
+        });
+        var info = FB[qi + 1];
+        fb.className = 'fb show ' + (right ? 'ok' : 'no');
+        fb.innerHTML = '<strong>' + (right ? '✓ 정답 — ' : '✗ 아쉽다. 정답은 ' + answer + '번. ') +
+                       '</strong>' + (right ? info.ok : '') + '<br>' + info.why;
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
